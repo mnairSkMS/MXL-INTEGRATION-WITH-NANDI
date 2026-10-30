@@ -1,0 +1,285 @@
+{
+  "version": "1.5.0",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "log",
+        "console": {
+          "enable": true,
+          "colors": true,
+          "stderr": true
+        }
+      },
+      "gstreamer": {
+        "level": "warning",
+        "console": {
+          "enable": true,
+          "colors": true,
+          "stderr": false
+        }
+      }
+    }
+  },
+  "transcoder": {
+    "inputs": [
+      {
+        "role": "primary",
+        "transport": {
+          "uri": "pls+file:///runtime/main.m3u8",
+          "playlist": {
+            "mode": "managed",
+            "id": "main"
+          }
+        }
+      },
+      {
+        "role": "secondary",
+        "offAir": "pause",
+        "transport": {
+          "uri": "pls+file:///runtime/ads.m3u8",
+          "playlist": {
+            "mode": "managed",
+            "id": "ads"
+          }
+        }
+      }
+    ],
+    "adInsertion": {
+      "enable": true,
+      "maxBreakDuration": 60000,
+      "outputScte": "passthrough",
+      "trigger": {
+        "restriction": {
+          "ignore": "NONE"
+        },
+        "conditions": {
+          "spliceInsert": {
+            "matchWhenNoSegmentationDescriptors": true,
+            "segments": []
+          },
+          "timeSignal": {
+            "matchWhenNoSegmentationDescriptors": false,
+            "segments": [
+              {
+                "name": "Provider placement opportunity",
+                "priority": 2,
+                "start": "0x34",
+                "stop": "0x35"
+              },
+              {
+                "name": "Distributor placement opportunity",
+                "priority": 3,
+                "start": "0x36",
+                "stop": "0x37"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "outputs": [
+      {
+        "name": "rung-1080",
+        "type": "single",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "aac",
+            "audio": {
+              "rate": 48000,
+              "channels": 2
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 1920,
+              "height": 1080,
+              "rate": 25,
+              "format": "I420"
+            },
+            "h264": {
+              "encoder": "x264enc",
+              "properties": {
+                "key-int-max": "50",
+                "tune": "zerolatency",
+                "speed-preset": "veryfast",
+                "bitrate": "6000"
+              },
+              "caps": {
+                "profile": "high"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "rung-720",
+        "type": "single",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "aac",
+            "audio": {
+              "rate": 48000,
+              "channels": 2
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 1280,
+              "height": 720,
+              "rate": 25,
+              "format": "I420"
+            },
+            "h264": {
+              "encoder": "x264enc",
+              "properties": {
+                "key-int-max": "50",
+                "tune": "zerolatency",
+                "speed-preset": "veryfast",
+                "bitrate": "3500"
+              },
+              "caps": {
+                "profile": "high"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "rung-540",
+        "type": "single",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "aac",
+            "audio": {
+              "rate": 48000,
+              "channels": 2
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 960,
+              "height": 540,
+              "rate": 25,
+              "format": "I420"
+            },
+            "h264": {
+              "encoder": "x264enc",
+              "properties": {
+                "key-int-max": "50",
+                "tune": "zerolatency",
+                "speed-preset": "veryfast",
+                "bitrate": "2000"
+              },
+              "caps": {
+                "profile": "high"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "rung-360",
+        "type": "single",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "aac",
+            "audio": {
+              "rate": 48000,
+              "channels": 2
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 640,
+              "height": 360,
+              "rate": 25,
+              "format": "I420"
+            },
+            "h264": {
+              "encoder": "x264enc",
+              "properties": {
+                "key-int-max": "50",
+                "tune": "zerolatency",
+                "speed-preset": "veryfast",
+                "bitrate": "800"
+              },
+              "caps": {
+                "profile": "high"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "ladder",
+        "type": "group",
+        "container": "mpegts",
+        "transports": [
+          {
+            "uri": "hls+file:///hls",
+            "hls": {
+              "numSegments": 6,
+              "segmentLength": 6,
+              "singleDirectory": true,
+              "vodMode": false
+            }
+          }
+        ],
+        "streams": [
+          {
+            "type": "link",
+            "link": {
+              "type": "output",
+              "output": {
+                "name": "rung-1080",
+                "modifier": "_1080"
+              }
+            }
+          },
+          {
+            "type": "link",
+            "link": {
+              "type": "output",
+              "output": {
+                "name": "rung-720",
+                "modifier": "_720"
+              }
+            }
+          },
+          {
+            "type": "link",
+            "link": {
+              "type": "output",
+              "output": {
+                "name": "rung-540",
+                "modifier": "_540"
+              }
+            }
+          },
+          {
+            "type": "link",
+            "link": {
+              "type": "output",
+              "output": {
+                "name": "rung-360",
+                "modifier": "_360"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

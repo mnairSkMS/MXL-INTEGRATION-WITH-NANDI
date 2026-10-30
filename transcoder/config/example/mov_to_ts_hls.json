@@ -1,0 +1,102 @@
+{
+    "version": "1.1.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": true
+                }
+            },
+            
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": false
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "file:///media/src/big_buck_bunny_480p_h264.mov"
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "http://127.0.0.1:9876",
+                        "hls": {
+                            "credentials": {
+                                "username": "user",
+                                "password": "password"
+                            },
+                            "numSegments": 5,
+                            "segmentLength": 5,
+                            "singleDirectory": true,
+                            "vodMode": false,
+                            "transferMode": "http_dav"
+                        }
+                    }
+                ],
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "mp3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "ac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "dialnorm": "-24",
+                                "drc-line": "auto",
+                                "drc-rf": "auto",
+                                "surround-trim": "auto",
+                                "height-trim": "auto"
+                            },
+                            "caps": {
+
+                            }
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 480
+                        },
+
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "15",
+                                "tune":         "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate":      "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

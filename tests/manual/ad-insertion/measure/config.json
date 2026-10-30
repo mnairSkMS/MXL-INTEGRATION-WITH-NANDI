@@ -1,0 +1,137 @@
+{
+    "version": "1.5.0",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "debug",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": false
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "role": "primary",
+                "transport": {
+                    "uri": "pls+file:///runtime/main.m3u8",
+                    "playlist": {
+                        "mode": "managed",
+                        "id": "main"
+                    }
+                }
+            },
+            {
+                "role": "secondary",
+                "offAir": "pause",
+                "transport": {
+                    "uri": "pls+file:///runtime/ads.m3u8",
+                    "playlist": {
+                        "mode": "managed",
+                        "id": "ads"
+                    }
+                }
+            }
+        ],
+        "adInsertion": {
+            "enable": true,
+            "maxBreakDuration": 60000,
+            "outputScte": "passthrough",
+            "trigger": {
+                "restriction": {
+                    "ignore": "NONE"
+                },
+                "conditions": {
+                    "spliceInsert": {
+                        "matchWhenNoSegmentationDescriptors": true,
+                        "segments": []
+                    },
+                    "timeSignal": {
+                        "matchWhenNoSegmentationDescriptors": false,
+                        "segments": [
+                            {
+                                "name": "Provider placement opportunity",
+                                "priority": 2,
+                                "start": "0x34",
+                                "stop": "0x35"
+                            },
+                            {
+                                "name": "Distributor placement opportunity",
+                                "priority": 3,
+                                "start": "0x36",
+                                "stop": "0x37"
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        "outputs": [
+            {
+                "name": "local-playlist-output",
+                "type": "single",
+                "transports": [
+                    {
+                        "uri": "udp://127.0.0.1:5555",
+                        "udp": {
+                            "unicast": {
+                                "ttl": 64
+                            }
+                        }
+                    },
+                    {
+                        "uri": "file:///runtime/probe.ts"
+                    }
+                ],
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate": "6000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ],
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 4269
+                }
+            }
+        ]
+    }
+}

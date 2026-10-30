@@ -1,0 +1,77 @@
+{
+    "version": "1.3.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warn",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "rtmps://live.example.com:443/app/CHANGE_ME"
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:9000?mode=listener"
+                    }
+                ],
+
+                "container": "mpegts",
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720,
+                            "rate": 25
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "50",
+                                "tune":         "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate":      "3000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

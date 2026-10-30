@@ -1,0 +1,90 @@
+{
+    "version": "1.4.2",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+            "gstreamer": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "srt://43.205.222.56:4321?mode=caller",
+                    "srt": {
+                        "mode": "caller",
+                        "latency": 120
+                    }
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:9001?mode=listener",
+                        "srt": {
+                            "mode": "listener",
+                            "latency": 120
+                        }
+                    },
+                    {
+                        "uri": "srt://43.205.222.56:5555?mode=caller",
+                        "srt": {
+                            "mode": "caller",
+                            "latency": 120
+                        }
+                    }
+                ],
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "eac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6,
+                            "bitrate": 640,
+                            "stereoSource": true
+                        },
+                        "eac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "bitrate": "640k",
+                                "dialnorm": "-27",
+                                "drc-line": "auto",
+                                "drc-rf": "auto",
+                                "surround-trim": "auto",
+                                "height-trim": "auto"
+                            },
+                            "caps": {}
+                        }
+                    }
+                ],
+                "name": "output-1",
+                "type": "single",
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 4269,
+                    "nullInterval": 0
+                }
+            }
+        ]
+    }
+}

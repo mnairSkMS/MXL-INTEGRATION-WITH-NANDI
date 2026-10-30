@@ -1,0 +1,77 @@
+{
+    "version": "1.5.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "https://livesim2.dashif.org/livesim2/scte35_2/testpic_2s/Manifest.mpd",
+                    "dash": {
+                        "bandwidth": 5000000,
+                        "presentationDelay": 6000,
+                        "scte": {
+                            "source": "segments"
+                        }
+                    }
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "udp://127.0.0.1:5000"
+                    }
+                ],
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "channels": 2,
+                            "rate": 48000
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate": "3000"
+                            }
+                        }
+                    }
+                ],
+
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 500
+                }
+            }
+        ]
+    }
+}

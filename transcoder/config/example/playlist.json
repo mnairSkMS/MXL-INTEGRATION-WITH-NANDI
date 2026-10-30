@@ -1,0 +1,85 @@
+{
+    "version": "1.1.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": true
+                }
+            },
+            
+            "gstreamer": {
+                "level": "error",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": false
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": [
+                        "pls+file:///src/transcoder/config/example/playlist.m3u8"
+                    ]
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "udp://127.0.0.1:5555"
+                    }
+                ],
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 480
+                        },
+
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "15",
+                                "tune":         "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate":      "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ],
+
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 4269
+                }
+            }
+        ]
+    }
+}

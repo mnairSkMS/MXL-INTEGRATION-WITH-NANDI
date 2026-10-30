@@ -1,0 +1,85 @@
+{
+    "version": "1.1.0",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": false
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "rtmp://127.0.0.1:1935/live/CHANGE_ME"
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "hls-output",
+                "type": "single",
+                "transports": [
+                    {
+                        "uri": "hls+file:/runtime/hls",
+                        "hls": {
+                            "numSegments": 6,
+                            "segmentLength": 4,
+                            "singleDirectory": true,
+                            "vodMode": false,
+                            "adMarkers": [
+                                "enhanced"
+                            ]
+                        }
+                    }
+                ],
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate": "6000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ],
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 543
+                }
+            }
+        ]
+    }
+}

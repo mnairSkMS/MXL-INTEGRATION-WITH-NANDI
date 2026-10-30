@@ -1,0 +1,83 @@
+{
+    "version": "1.3.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warn",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "rtmp://127.0.0.1:1935/live/CHANGE_ME"
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "hls+file:/tmp/hls",
+                        "hls": {
+                            "numSegments": 6,
+                            "segmentLength": 4,
+                            "singleDirectory": true,
+                            "vodMode": false
+                        }
+                    }
+                ],
+
+                "container": "mpegts",
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "50",
+                                "tune":         "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate":      "6000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

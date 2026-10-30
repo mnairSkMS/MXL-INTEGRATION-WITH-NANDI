@@ -1,0 +1,80 @@
+{
+    "version": "1.1.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": [
+                        "srt://127.0.0.1:2222/?mode=caller",
+                        "srt://127.0.0.1:3333/?mode=caller"
+                    ]
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "hls+file:///tmp/hls",
+                        "hls": {
+                            "numSegments": 5,
+                            "segmentLength": 2,
+                            "singleDirectory": true
+                        }
+                    }
+                ],
+                "container": "mpegts",
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 480
+                        },
+
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "15",
+                                "tune":         "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate":      "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

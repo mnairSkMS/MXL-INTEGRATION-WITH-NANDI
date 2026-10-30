@@ -1,0 +1,75 @@
+{
+  "version": "1.0.7",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "trace",
+        "console": {
+          "enable": true,
+          "colors": true
+        }
+      },
+      "gstreamer": {
+        "level": "warning",
+        "console": {
+          "enable": true,
+          "colors": true
+        }
+      }
+    }
+  },
+  "transcoder": {
+    "inputs": [
+      {
+        "uri": "udp://127.0.0.1:2222"
+      }
+    ],
+    "outputs": [
+      {
+        "uri": "file:///tmp/output.ts",
+        "container": "mpegts",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "passthrough"
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "h264": {
+              "encoder": "x264enc",
+              "properties": {
+                "key-int-max": "15",
+                "tune": "zerolatency",
+                "speed-preset": "fast",
+                "bitrate": "2400"
+              },
+              "caps": {
+                "profile": "high"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "squeeze": [
+      {
+        "name": "low_band",
+        "windows": {
+          "input": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": 0.75
+          },
+          "output": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": 0.75
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+    "version": "1.1.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "file:///tmp/input.ts"
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "hls+file:///tmp/hls",
+                        "hls": {
+                            "numSegments": 10,
+                            "segmentLength": 5,
+                            "singleDirectory": true
+                        }
+                    }
+                ],
+                "container": "mpegts",
+
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 765
+                },
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "mp3",
+                        "audio": {
+                            "rate": 44100,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 480
+                        },
+
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "15",
+                                "tune":         "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate":      "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

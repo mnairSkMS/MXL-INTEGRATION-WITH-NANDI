@@ -1,0 +1,83 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Channel monitor</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #111; color: #ddd;
+         font: 14px system-ui, -apple-system, sans-serif; }
+  header { display: flex; gap: 1rem; align-items: center;
+           padding: .6rem 1rem; background: #1b1b1b; border-bottom: 1px solid #333; }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  video { display: block; width: 100%; max-height: calc(100vh - 96px); background: #000; }
+  .stat { font-variant-numeric: tabular-nums; color: #9ad; }
+  .stat b { color: #ddd; font-weight: 600; }
+  button { background: #2a2a2a; color: #ddd; border: 1px solid #444;
+           border-radius: 4px; padding: .35rem .7rem; cursor: pointer; }
+  button:hover { background: #333; }
+  #err { padding: .6rem 1rem; color: #f88; background: #2a1616; display: none; }
+  code { color: #8c8; }
+</style>
+
+<header>
+  <h1>Channel monitor</h1>
+  <button id="live">Jump to live</button>
+  <span class="stat">behind live <b id="lat">—</b></span>
+  <span class="stat">dropped <b id="drop">0</b></span>
+  <span class="stat"><code id="src"></code></span>
+</header>
+<div id="err"></div>
+<video id="v" controls autoplay muted playsinline></video>
+
+<script src="/operator/static/vendor/hls.min.js"></script>
+<script>
+  // Same origin as this page, so the monitor follows whatever host it is opened on
+  // instead of hard-coding a LAN address that changes.
+  const src = new URL("/hls/master.m3u8", location.href).href;
+  const v = document.getElementById("v");
+  const err = document.getElementById("err");
+  document.getElementById("src").textContent = src;
+
+  const fail = (m) => { err.style.display = "block"; err.textContent = m; };
+
+  let hls = null;
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({
+      // Sit close to the live edge. The default start-back distance is what makes
+      // HLS feel far behind; 2 segments is about as tight as this segment length
+      // allows without stalling on a slow fetch.
+      liveSyncDurationCount: 2,
+      backBufferLength: 30,
+    });
+    hls.loadSource(src);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (!d.fatal) return;
+      // Fatal network/media errors are recoverable on a live stream: the window
+      // has usually just rolled past the position being requested.
+      if (d.type === Hls.ErrorTypes.NETWORK_ERROR) { fail("network error - retrying"); hls.startLoad(); }
+      else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) { fail("media error - recovering"); hls.recoverMediaError(); }
+      else { fail("fatal: " + d.details); hls.destroy(); }
+    });
+    hls.on(Hls.Events.FRAG_LOADED, () => { err.style.display = "none"; });
+  } else if (v.canPlayType("application/vnd.apple.mpegurl")) {
+    v.src = src;   // Safari plays HLS natively
+  } else {
+    fail("This browser cannot play HLS. Use Safari, or open the stream in VLC.");
+  }
+
+  const jumpLive = () => {
+    if (hls && hls.liveSyncPosition != null) v.currentTime = hls.liveSyncPosition;
+    else if (v.seekable.length) v.currentTime = v.seekable.end(v.seekable.length - 1);
+    v.play().catch(() => {});
+  };
+  document.getElementById("live").onclick = jumpLive;
+
+  setInterval(() => {
+    let behind = null;
+    if (v.seekable.length) behind = v.seekable.end(v.seekable.length - 1) - v.currentTime;
+    document.getElementById("lat").textContent =
+      behind == null || !isFinite(behind) ? "—" : behind.toFixed(1) + "s";
+    const q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+    if (q) document.getElementById("drop").textContent = q.droppedVideoFrames;
+  }, 500);
+</script>

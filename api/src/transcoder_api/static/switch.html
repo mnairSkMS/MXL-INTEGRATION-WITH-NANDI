@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Input Switch</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --text: #16181d; --muted: #646b78; --line: #dde1e7; --hover: #f0f2f5;
+    --live: #d4351c; --live-soft: #fbe9e6; --pls: #1d64d8; --pls-soft: #e6eefb;
+    --ok: #13804b; --warn: #b26a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --panel: #181b21; --text: #e9ecf1; --muted: #9aa2b1; --line: #2a2f38; --hover: #20242c;
+      --live: #ff5a3c; --live-soft: #3a1d18; --pls: #5b95ff; --pls-soft: #18243a;
+      --ok: #3ccf87; --warn: #f0a63a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 16px; align-items: start; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .onair { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 10px; margin-bottom: 14px; }
+  .onair.live { background: var(--live-soft); }
+  .onair.pls { background: var(--pls-soft); }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; background: var(--muted); }
+  .live .dot { background: var(--live); box-shadow: 0 0 0 4px color-mix(in srgb, var(--live) 25%, transparent); }
+  .pls .dot { background: var(--pls); }
+  .onair-title { font-weight: 700; font-size: 18px; }
+  .onair-detail { color: var(--muted); font-size: 13px; word-break: break-all; }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .big { font: inherit; font-weight: 700; font-size: 16px; padding: 18px 10px; border-radius: 10px;
+         border: 0; cursor: pointer; color: #fff; }
+  .big small { display: block; font-weight: 400; font-size: 12px; opacity: .9; margin-top: 2px; }
+  #btnLive { background: var(--live); }
+  #btnPls { background: var(--pls); }
+  .big.current { outline: 3px solid var(--text); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; }
+  .status { margin-top: 12px; min-height: 22px; font-size: 14px; }
+  .busy { color: var(--warn); }
+  .ok { color: var(--ok); }
+  .err { color: var(--live); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; }
+  .section { margin-top: 18px; }
+  .empty { color: var(--muted); font-size: 13px; }
+  ol.queue { list-style: none; margin: 0; padding: 0; }
+  ol.queue li { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  ol.queue li:hover { background: var(--hover); }
+  ol.queue li.onair-item { background: var(--pls-soft); }
+  .pos { width: 22px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; text-align: right; }
+  .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; flex: none; }
+  .badge.air { background: var(--pls); color: #fff; }
+  .badge.live { background: var(--live); color: #fff; }
+  .badge.pre { border: 1px solid var(--line); color: var(--muted); }
+  .badge.bad { background: var(--live-soft); color: var(--live); }
+  .icon { font: inherit; font-size: 13px; width: 30px; height: 28px; border-radius: 6px; flex: none;
+          border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  .icon:hover:not(:disabled) { background: var(--hover); }
+  .pinned { color: var(--muted); }
+  .add { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  select { flex: 1; min-width: 0; font: inherit; padding: 7px; border-radius: 6px;
+           border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  .btn { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line);
+         background: var(--panel); color: var(--text); cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--pls); border-color: var(--pls); color: #fff; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Primary / Backup Input Switch</h1>
+  <p class="sub">Live SRT is the primary source; the file playlist is the backup. Playlist always starts from its first file.</p>
+
+  <div class="grid">
+    <section class="card">
+      <div class="label">On air</div>
+      <div id="onair" class="onair">
+        <span class="dot"></span>
+        <div>
+          <div id="onairTitle" class="onair-title">Connecting…</div>
+          <div id="onairDetail" class="onair-detail"></div>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button id="btnLive" class="big" disabled>Live<small>SRT primary</small></button>
+        <button id="btnPls" class="big" disabled>Playlist<small>from the start</small></button>
+      </div>
+      <div id="status" class="status"></div>
+
+      <div class="section">
+        <div class="label">Switch log</div>
+        <div id="logEmpty" class="empty">No switches yet.</div>
+        <table id="logTable" hidden>
+          <thead><tr><th>Time</th><th>To</th><th>On air after</th></tr></thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <div class="label">Playlist</div>
+        <div id="applyState" class="label"></div>
+      </div>
+      <ol class="queue" id="queue"></ol>
+
+      <div class="add">
+        <select id="mediaSelect" aria-label="Media library"></select>
+        <button id="btnAdd" class="btn primary">Add to end</button>
+      </div>
+      <div class="add">
+        <input id="fileInput" type="file" accept="video/*,.mxf,.ts,.mov,.mp4" hidden>
+        <button id="btnUpload" class="btn">Upload new file…</button>
+        <span id="uploadState" class="note"></span>
+      </div>
+      <div id="editStatus" class="status"></div>
+      <div class="note">The live SRT entry is pinned and cannot be edited here. The item on air cannot be moved or removed.</div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const PLAYLIST = 'main';
+  const state = {
+    inputId: null, liveId: null, liveUri: null, plsIds: [], current: null, pending: null,
+    queue: null, media: [], busy: false,
+  };
+
+  const isLiveUri = (uri) => /^(srt|udp|rtmp|rtmps):/i.test(uri);
+  const fileName = (uri) => decodeURIComponent(uri.split('/').pop());
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { cache: 'no-store', ...opts });
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { const body = await res.json(); msg = body.detail || body.message || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    return res.status === 204 ? null : res.json();
+  }
+
+  function setText(id, text, cls) {
+    $(id).textContent = text;
+    $(id).className = 'status ' + (cls || '');
+  }
+
+  // ---------- switching ----------
+
+  async function refreshInput() {
+    let input;
+    try {
+      input = (await api('/inputs'))[0];
+    } catch (e) {
+      setText('status', 'Engine not reachable (' + e.message + ')', 'err');
+      return;
+    }
+    if (!input) return;
+
+    const streams = input.streams || [];
+    const live = streams.find((s) => isLiveUri(s.uri));
+    state.inputId = input.id;
+    state.liveId = live ? live.id : null;
+    state.liveUri = live ? live.uri : null;
+    state.plsIds = streams.filter((s) => !isLiveUri(s.uri)).map((s) => s.id);
+    state.current = input.currentStreamId;
+
+    const cur = streams.find((s) => s.id === state.current);
+    const onLive = !!cur && isLiveUri(cur.uri);
+    $('onair').className = 'onair ' + (cur ? (onLive ? 'live' : 'pls') : '');
+    $('onairTitle').textContent = cur ? (onLive ? 'LIVE — SRT primary' : 'PLAYLIST — backup') : 'Unknown';
+    $('onairDetail').textContent = !cur ? '' : onLive ? cur.uri
+      : 'File ' + (state.plsIds.indexOf(cur.id) + 1) + ' of ' + state.plsIds.length + ': ' + fileName(cur.uri);
+    $('btnLive').classList.toggle('current', onLive);
+    $('btnPls').classList.toggle('current', !!cur && !onLive);
+
+    if (state.pending) {
+      const p = state.pending;
+      const done = p.kind === 'live' ? onLive : (!!cur && cur.id === p.target);
+      if (done) {
+        const secs = ((performance.now() - p.started) / 1000).toFixed(1);
+        addLog(p.kind, secs);
+        setText('status', 'On air after ' + secs + ' s', 'ok');
+        state.pending = null;
+      } else if (performance.now() - p.started > 30000) {
+        setText('status', 'Switch not confirmed after 30 s — check the engine log', 'err');
+        state.pending = null;
+      }
+    }
+    $('btnLive').disabled = !state.liveId || !!state.pending;
+    $('btnPls').disabled = !state.plsIds.length || !!state.pending;
+  }
+
+  async function switchTo(kind) {
+    const target = kind === 'live' ? state.liveId : state.plsIds[0];
+    if (!target || !state.inputId) return;
+    state.pending = { kind, target, started: performance.now() };
+    $('btnLive').disabled = $('btnPls').disabled = true;
+    setText('status', 'Switching to ' + (kind === 'live' ? 'live' : 'playlist') + '…', 'busy');
+    try {
+      await api('/inputs/' + state.inputId, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ currentStreamId: target }),
+      });
+    } catch (e) {
+      state.pending = null;
+      setText('status', 'Switch rejected: ' + e.message, 'err');
+    }
+    refreshInput();
+  }
+
+  function addLog(kind, secs) {
+    $('logEmpty').hidden = true;
+    $('logTable').hidden = false;
+    const tr = document.createElement('tr');
+    for (const text of [new Date().toLocaleTimeString(), kind === 'live' ? 'Live' : 'Playlist', secs + ' s']) {
+      const td = document.createElement('td');
+      td.className = 'num';
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+    $('logBody').prepend(tr);
+  }
+
+  // ---------- playlist editing ----------
+
+  async function refreshQueue() {
+    try {
+      state.queue = await api('/playlists/' + PLAYLIST);
+    } catch (e) {
+      setText('editStatus', 'Playlist unavailable: ' + e.message, 'err');
+      return;
+    }
+    renderQueue();
+  }
+
+  async function refreshMedia() {
+    try {
+      state.media = await api('/media');
+    } catch (_) {
+      return;
+    }
+    const select = $('mediaSelect');
+    const keep = select.value;
+    select.replaceChildren();
+    for (const m of state.media) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.name;
+      select.appendChild(opt);
+    }
+    if (keep) select.value = keep;
+    $('btnAdd').disabled = !state.media.length || state.busy;
+  }
+
+  function renderQueue() {
+    const q = state.queue;
+    if (!q) return;
+    const applying = q.desiredRevision !== q.appliedRevision;
+    $('applyState').textContent = q.applyError ? 'apply error' : applying ? 'applying…' : 'applied';
+    $('applyState').className = 'label ' + (q.applyError ? 'err' : applying ? 'busy' : 'ok');
+    if (q.applyError) setText('editStatus', q.applyError, 'err');
+
+    const list = $('queue');
+    list.replaceChildren();
+
+    if (state.liveUri) {
+      const li = document.createElement('li');
+      li.className = 'pinned' + (state.current === state.liveId ? ' onair-item' : '');
+      li.append(cell('pos', '★'), cell('name', state.liveUri), badge('live', 'LIVE · pinned'));
+      if (state.current === state.liveId) li.append(badge('air', 'ON AIR'));
+      list.appendChild(li);
+    }
+
+    const locked = state.busy || applying;
+    q.items.forEach((item, i) => {
+      const onAir = item.id === state.current;
+      const li = document.createElement('li');
+      if (onAir) li.className = 'onair-item';
+      li.append(cell('pos', String(i + 1)), cell('name', item.media.name));
+      if (onAir) li.append(badge('air', 'ON AIR'));
+      else if (item.state === 'preloading') li.append(badge('pre', 'next'));
+      else if (item.error) li.append(badge('bad', 'error'));
+      li.append(
+        iconBtn('▲', 'Move up', locked || onAir || i === 0, () => move(item.id, i - 1)),
+        iconBtn('▼', 'Move down', locked || onAir || i === q.items.length - 1, () => move(item.id, i + 1)),
+        iconBtn('✕', 'Remove', locked || onAir || q.items.length < 2, () => removeItem(item)),
+      );
+      list.appendChild(li);
+    });
+    if (!q.items.length) {
+      const li = document.createElement('li');
+      li.append(cell('name empty', 'No files queued.'));
+      list.appendChild(li);
+    }
+    $('btnAdd').disabled = !state.media.length || locked;
+    $('btnUpload').disabled = state.busy;
+  }
+
+  function cell(cls, text) {
+    const span = document.createElement('span');
+    span.className = cls;
+    span.textContent = text;
+    span.title = text;
+    return span;
+  }
+
+  function badge(cls, text) {
+    return cell('badge ' + cls, text);
+  }
+
+  function iconBtn(text, title, disabled, onClick) {
+    const b = document.createElement('button');
+    b.className = 'icon';
+    b.textContent = text;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.disabled = disabled;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  async function edit(label, fn) {
+    if (state.busy) return;
+    state.busy = true;
+    renderQueue();
+    setText('editStatus', label + '…', 'busy');
+    try {
+      state.queue = await fn(state.queue.desiredRevision);
+      setText('editStatus', label + ' — done', 'ok');
+    } catch (e) {
+      setText('editStatus', label + ' failed: ' + e.message, 'err');
+      await refreshQueue();
+    } finally {
+      state.busy = false;
+      renderQueue();
+    }
+  }
+
+  const json = (body) => ({ headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  function move(itemId, position) {
+    edit('Reorder', (rev) => api('/playlists/' + PLAYLIST + '/items/' + itemId,
+      { method: 'PATCH', ...json({ position, expectedRevision: rev }) }));
+  }
+
+  function removeItem(item) {
+    if (!confirm('Remove "' + item.media.name + '" from the playlist?')) return;
+    edit('Remove', (rev) => api('/playlists/' + PLAYLIST + '/items/' + item.id + '?expectedRevision=' + rev,
+      { method: 'DELETE' }));
+  }
+
+  function addSelected() {
+    const mediaId = $('mediaSelect').value;
+    if (!mediaId) return;
+    edit('Add', (rev) => api('/playlists/' + PLAYLIST + '/items',
+      { method: 'POST', ...json({ mediaId, expectedRevision: rev }) }));
+  }
+
+  async function upload(file) {
+    if (!file) return;
+    state.busy = true;
+    renderQueue();
+    $('uploadState').textContent = 'Uploading ' + file.name + '…';
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const asset = await api('/media', { method: 'POST', body: form });
+      $('uploadState').textContent = 'Uploaded ' + asset.name + ' — pick it above and press Add.';
+      await refreshMedia();
+      $('mediaSelect').value = asset.id;
+    } catch (e) {
+      $('uploadState').textContent = 'Upload failed: ' + e.message;
+    } finally {
+      state.busy = false;
+      $('fileInput').value = '';
+      renderQueue();
+    }
+  }
+
+  $('btnLive').addEventListener('click', () => switchTo('live'));
+  $('btnPls').addEventListener('click', () => switchTo('playlist'));
+  $('btnAdd').addEventListener('click', addSelected);
+  $('btnUpload').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => upload(e.target.files[0]));
+
+  async function tick() {
+    await refreshInput();
+    if (!state.busy) await refreshQueue();
+  }
+  tick();
+  refreshMedia();
+  setInterval(tick, 1000);
+  setInterval(refreshMedia, 15000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,202 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "scte": {
+            "prerollTime": 4000,
+            "pois": {
+                "enable": true,
+
+                "server": {
+                    "uri": "http://localhost:8001/esam",
+                    "acquisitionPointId": "esam-client"
+                }
+            },
+        }
+
+        "blanking": {
+            "enable": true,
+
+            "restriction": {
+                "ignore": "NONE"
+            },
+
+            "conditions": {
+                "spliceInsert": {
+                    "blankWhenNoSegmentationDescriptors": false,
+
+                    "segments": [
+                        {
+                            "name": "Break",
+                            "priority": 1,
+                            "start": "0x22",
+                            "stop": "0x23"
+                        },
+                        {
+                            "name": "Provider placement opportunity",
+                            "priority": 2,
+                            "start": "0x34",
+                            "stop": "0x35"
+                        },
+                        {
+                            "name": "Distributor placement opportunity",
+                            "priority": 3,
+                            "start": "0x36",
+                            "stop": "0x37"
+                        },
+                        {
+                            "name": "Provider advertisement",
+                            "priority": 4,
+                            "start": "0x30",
+                            "stop": "0x31"
+                        },
+                        {
+                            "name": "Distributor advertisement",
+                            "priority": 4,
+                            "start": "0x32",
+                            "stop": "0x33"
+                        }
+                    ]
+                },
+
+                "timeSignal": {
+                    "blankWhenNoSegmentationDescriptors": false,
+
+                    "segments": [
+                        {
+                            "name": "Break",
+                            "priority": 1,
+                            "start": "0x22",
+                            "stop": "0x23"
+                        },
+                        {
+                            "name": "Provider placement opportunity",
+                            "priority": 2,
+                            "start": "0x34",
+                            "stop": "0x35"
+                        },
+                        {
+                            "name": "Distributor placement opportunity",
+                            "priority": 3,
+                            "start": "0x36",
+                            "stop": "0x37"
+                        },
+                        {
+                            "name": "Provider advertisement",
+                            "priority": 4,
+                            "start": "0x30",
+                            "stop": "0x31"
+                        },
+                        {
+                            "name": "Distributor advertisement",
+                            "priority": 4,
+                            "start": "0x32",
+                            "stop": "0x33"
+                        }
+                    ]
+                }
+            }
+        },
+
+        "blackout": {
+            "enable": true,
+
+            "restriction": {
+                "ignore": "NONE"
+            },
+
+            "conditions": {
+                "spliceInsert": {
+                    "blankWhenNoSegmentationDescriptors": false,
+                    "segments": []
+                },
+
+                "timeSignal": {
+                    "blankWhenNoSegmentationDescriptors": false,
+                    "segments": [
+                        {
+                            "name": "Network",
+                            "priority": 1,
+                            "start": "0x51",
+                            "stop": "0x50"
+                        },
+                        {
+                            "name": "Unscheduled Event",
+                            "priority": 2,
+                            "start": "0x40",
+                            "stop": "0x41"
+                        },
+                        {
+                            "name": "Program",
+                            "priority": 3,
+                            "start": "0x10",
+                            "stop": "0x11"
+                        },
+                        {
+                            "name": "Chapter",
+                            "priority": 4,
+                            "start": "0x20",
+                            "stop": "0x21"
+                        }
+                    ]
+                }
+            }
+        },
+
+        "inputs": [
+            {
+                "uri": "udp://127.0.0.1:2222"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "udp://127.0.0.1:4444",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "rate": 48000
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 480
+                        }
+                    }
+                ],
+
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 4269
+                }
+            }
+        ]
+    }
+}

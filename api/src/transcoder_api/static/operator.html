@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nandi Transcoder — Operator</title>
+  <link rel="stylesheet" href="/operator/static/operator.css">
+</head>
+<body>
+<header>
+  <div class="logo-box"><span>Logo</span></div>
+  <div class="user"><span class="dot" id="api-dot"></span><span id="api-status">checking API…</span></div>
+</header>
+
+<main class="frame">
+  <div class="top-row">
+    <section class="panel timer">
+      <h2>Timer</h2><hr>
+      <div class="timer-inner"><div>
+        <div class="clock" id="clock">--:--:--</div>
+        <div class="date" id="date">—</div>
+        <div class="utc" id="utc">—</div>
+      </div></div>
+    </section>
+
+    <section class="panel">
+      <h2>SSAI</h2><hr>
+      <div class="ssai-body">
+        <div class="ssai-left">
+          <label for="ssai-type">SSAI Type</label>
+          <select id="ssai-type">
+            <option value="splice">Splice Signaling</option>
+            <option value="timesignal">Time Signal</option>
+          </select>
+          <label for="ssai-duration">Duration sec.</label>
+          <input id="ssai-duration" type="number" min="1" value="30">
+          <label class="check" id="ssai-auto-return-row">
+            <input type="checkbox" id="ssai-auto-return" checked> Auto return
+          </label>
+          <label for="ssai-upid" id="ssai-upid-label">UPID</label>
+          <input id="ssai-upid" type="text" placeholder="e.g. PROMO-1234" maxlength="255">
+          <!-- The two controls below are the same field seen twice: the Table 23 message
+               name and its segmentation_type_id. operator.js keeps the pair in sync in both
+               directions. The message control is a filtering combobox rather than a plain
+               select because Table 23 has 47 named messages, most of which differ from each
+               other by a single word - a list that long is faster to type at than to scroll. -->
+          <div class="label-row">
+            <label for="ssai-seg-message" id="ssai-seg-message-label">Segmentation Message</label>
+            <button type="button" class="info-dot" id="ssai-seg-info" aria-haspopup="dialog"
+                    aria-label="Show the SCTE 35 Table 23 reference">i</button>
+          </div>
+          <div class="combo">
+            <input id="ssai-seg-message" type="text" role="combobox" autocomplete="off"
+                   aria-autocomplete="list" aria-expanded="false" aria-controls="ssai-seg-options"
+                   placeholder="type to search Table 23">
+            <ul id="ssai-seg-options" role="listbox" aria-labelledby="ssai-seg-message-label" hidden></ul>
+          </div>
+          <label for="ssai-seg-type-id" id="ssai-seg-type-id-label">Segmentation type</label>
+          <input id="ssai-seg-type-id" type="number" min="0" max="255" value="52">
+          <div class="ssai-note" id="ssai-seg-note" hidden></div>
+
+          <!-- A slate replaces the programme rather than overlaying it, so it gets its own
+               row here rather than joining the graphics tiles. Fire posts a slate event and
+               remembers its id; Stop deletes that id, which the engine notices within one
+               scheduler tick (500 ms) and treats as a cancellation. -->
+          <hr class="ssai-rule">
+          <label for="ssai-slate">Slate</label>
+          <select id="ssai-slate"></select>
+          <label for="ssai-slate-duration">Slate duration sec.</label>
+          <input id="ssai-slate-duration" type="number" min="1" value="15">
+          <div class="ssai-note" id="ssai-slate-note" hidden></div>
+          <div class="cues ssai-slate-cues">
+            <button class="blue" id="slate-fire">Fire Slate</button>
+            <button id="slate-stop" disabled>Stop Slate</button>
+          </div>
+        </div>
+        <div class="ssai-right">
+          <div class="live" id="ssai-live"><b>Live sec.</b><div class="n" id="ssai-live-n">0</div></div>
+          <div class="cues"><button class="blue" id="cue-out">Cue Out</button><button id="cue-in" disabled hidden>Cue In</button></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" id="playlist" aria-labelledby="playlist-heading">
+    <div class="section-head">
+      <h2 id="playlist-heading">Playlist</h2>
+      <span id="rundown-status" class="rundown-status">Checking scheduling service…</span>
+      <!-- Authoring is staged and Apply lives in the inspector, beside the graphic
+           being edited; this reports how much is waiting and what the publish did. -->
+      <div class="rundown-actions" id="rundown-actions" hidden>
+        <span id="rundown-draft-state" aria-live="polite">Editing the live schedule</span>
+      </div>
+    </div><hr>
+    <div id="rundown-disabled" class="rundown-disabled" hidden></div>
+    <div id="rundown-bootstrap" class="rundown-disabled" hidden></div>
+    <div class="grid-head"><span class="qhint" id="queue-hint">loading…</span><span class="clock-badge" id="rundown-clock" hidden></span></div>
+    <div class="playlist-body">
+      <div class="grid-wrap">
+        <table class="rundown-grid" id="rundown-grid">
+          <thead><tr>
+            <th class="col-num">#</th>
+            <th class="col-exp"><span class="visually-hidden">Expand</span></th>
+            <th class="col-start" title="Time since this schedule went on air">Start (elapsed)</th>
+            <th class="col-loop">Loop at</th>
+            <th>Name</th>
+            <th class="col-type">Type</th>
+            <th class="col-dur">Duration</th>
+            <th class="col-gfx">Gfx</th>
+            <th class="col-state">State</th>
+            <th class="col-act">Actions</th>
+          </tr></thead>
+          <tbody id="queue-body"><tr><td colspan="10" class="empty">loading…</td></tr></tbody>
+        </table>
+      </div>
+      <aside class="event-inspector" id="rundown-inspector" hidden>
+        <h3 id="inspector-heading">Properties</h3>
+        <div id="inspector-empty">Select a program or a graphics event.</div>
+        <form id="event-inspector-form" hidden></form>
+      </aside>
+    </div>
+    <details class="insert-strip" id="insert-strip">
+      <summary>Files to insert &amp; import</summary>
+      <div class="insert-strip-body">
+        <div class="insert-col">
+          <h3>Files to insert</h3>
+          <div id="media-files" class="files"><div class="empty">loading…</div></div>
+          <div class="upload">
+            <label class="upload-label" for="upload-file">Upload a clip</label>
+            <input id="upload-file" type="file" accept=".mp4,.ts,.mkv,.mov,.m4v">
+            <div id="upload-status" class="upload-status">Checked with ffprobe — unsupported files are rejected, not stored.</div>
+          </div>
+          <p class="note">Pick a file, then use <b>here</b> on the target row. Inserting after the on-air row safely rebuilds the preloaded next branch.</p>
+        </div>
+        <div class="insert-col" id="import-col" hidden>
+          <h3>Import a program list</h3>
+          <label class="upload-label" for="import-file">Channel YAML</label>
+          <input id="import-file" type="file" accept=".yml,.yaml">
+          <label class="import-position-field">Insert at position
+            <input id="import-position" type="number" min="0" step="1" placeholder="append">
+          </label>
+          <div id="import-status" class="upload-status">Adds programs, not media. Upload the clips first.</div>
+          <div id="import-preview" class="import-preview" hidden></div>
+          <div id="import-actions" class="import-actions" hidden>
+            <button id="import-commit" class="blue" type="button">Import</button>
+            <button id="import-cancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Graphics</h2>
+      <div class="canvas"><b>Canvas</b><span>follows the channel output raster</span></div>
+    </div><hr>
+    <div class="tiles" id="graphics-tiles"></div>
+    <p class="note">Time is a delay in seconds; blank or zero starts immediately. Duration blank holds Logo/Bug until Stop. L-band and Aston share the program squeeze and cannot run together.</p>
+  </section>
+
+  <section class="panel activity"><h2>Activity</h2><hr><div id="activity-log" role="log" aria-live="polite"></div></section>
+</main>
+<script src="/operator/static/operator.js" defer></script>
+<script src="/operator/static/rundown.js" defer></script>
+<div class="modal" id="scte-table-modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="scte-table-title">
+    <div class="modal-head">
+      <h3 id="scte-table-title">ANSI/SCTE 35 Table 23 — segmentation_type_id</h3>
+      <button type="button" id="scte-table-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <table class="scte-table" id="scte-table"></table>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

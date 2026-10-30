@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package app.grpc;
+
+import "google/protobuf/empty.proto";
+
+service TranscoderApi {
+    rpc getInputs(google.protobuf.Empty) returns (InputList);
+
+    rpc getInput(GetInputParameters) returns (Input) {}
+
+    rpc setInputStream(SetInputStreamParameters) returns (Input);
+
+    // Private control-plane operation used by the managed playlist reconciler.
+    rpc applyPlaylistSnapshot(ApplyPlaylistSnapshotRequest) returns (ApplyPlaylistSnapshotResponse);
+
+    // Whether a locally inserted ad break is on air right now. A break ends on a cue-in or on the
+    // configured maxBreakDuration, and the second of those is invisible to whoever sent the cue,
+    // so a client cannot derive this from its own actions.
+    rpc getAdBreakState(google.protobuf.Empty) returns (AdBreakState);
+
+    // Renews preview demand for one input. The engine writes JPEG frames of the input's video
+    // to framePath while demand lasts and stops by itself ttlMs after the last renewal.
+    rpc setInputPreview(SetInputPreviewRequest) returns (InputPreviewState);
+}
+
+enum PreviewMode {
+    PREVIEW_OFF   = 0;
+    PREVIEW_STILL = 1; // keyframes only, about one frame per GOP
+    PREVIEW_LIVE  = 2; // up to 10 frames a second
+}
+
+message SetInputPreviewRequest {
+    string      inputId = 1;
+    PreviewMode mode    = 2;
+    uint32      ttlMs   = 3;
+}
+
+message InputPreviewState {
+    string framePath = 1; // absolute path of the JPEG, in the engine's filesystem
+    int32  taps      = 2; // video streams of the input that carry a preview tap; 0 means none yet
+}
+
+message AdBreakState {
+    bool onAir = 1;
+}
+
+enum StreamState {
+    UNKNOWN   = 0;
+    CREATED   = 1;
+    BUFFERING = 2;
+    BUFFERED  = 3;
+}
+
+message GetInputParameters {
+    string id = 1;
+}
+
+message SetInputStreamParameters {
+    string inputId  = 1;
+    string streamId = 2;
+}
+
+message PlaylistSnapshotItem {
+    string id = 1;
+    string uri = 2;
+    string attributes = 3;
+}
+
+message ApplyPlaylistSnapshotRequest {
+    string inputId = 1;
+    string playlistId = 2;
+    uint64 revision = 3;
+    repeated PlaylistSnapshotItem items = 4;
+}
+
+message ApplyPlaylistSnapshotResponse {
+    uint64 revision = 1;
+    Input input = 2;
+}
+
+message InputStream {
+    string      id    = 1;
+    string      uri   = 2;
+    StreamState state = 3;
+}
+
+message Input {
+    string               id              = 1;
+    repeated InputStream streams         = 2;
+    string               currentStreamId = 3;
+}
+
+message InputList {
+    repeated Input inputs = 1;
+}

@@ -1,0 +1,27 @@
+# Measurement overlay for docker-compose.playlist.yml.
+#
+#   docker compose -f docker-compose.playlist.yml \
+#                  -f tests/manual/ad-insertion/measure/compose.measure.yml up -d --force-recreate
+#
+# Swaps in a channel configuration that additionally writes the encoded output to
+# /runtime/probe.ts. That file is what measurements read: the container's UDP output already has
+# the preview relay as its only reader, and the preview is re-encoded, so timings taken from it
+# carry an unmeasured latency. The file carries the engine's own output, written by the same
+# muxer, on the same clock as the transcoder log.
+#
+# Nothing else changes, so a measurement run is the shipped runtime plus one extra transport.
+services:
+  transcoder:
+    environment:
+      # Targeted, not global: concat is where an item transition either advances to the next sink
+      # pad or stalls, and that is the question a measurement run asks. A global debug level would
+      # bury it and slow the pipeline enough to change the timings being measured.
+      GST_DEBUG: "${GST_DEBUG:-concat:5}"
+    volumes:
+      - ./tests/manual/ad-insertion/measure/config.json:/opt/utpl/etc/config.json:ro
+      # Iterate on the engine without rebuilding the image. Requires a RelWithDebInfo build - a
+      # Debug build links AddressSanitizer and embeds development licence keys the runtime image
+      # does not carry, so it cannot start here. Set BUILD_DIR to the CMake build directory.
+      - ${BUILD_DIR:-/var/tmp/utpl-build/rwdi}/app/transcoder:/opt/utpl/bin/transcoder:ro
+      - ${BUILD_DIR:-/var/tmp/utpl-build/rwdi}/lib/utpl/libutpl.so:/opt/utpl/lib/libutpl.so:ro
+      - ${BUILD_DIR:-/var/tmp/utpl-build/rwdi}/lib/common/libcommon.so:/opt/utpl/lib/libcommon.so:ro

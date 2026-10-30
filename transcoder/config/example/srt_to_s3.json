@@ -1,0 +1,77 @@
+{
+  "version": "1.4.2",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "trace",
+        "console": {
+          "enable": true,
+          "colors": false,
+          "stderr": true
+        }
+      }
+    }
+  },
+  "transcoder": {
+    
+    "inputs": [
+      {
+        "transport": {
+          "uri": [
+            "srt://103.248.72.28:10008?mode=caller"
+          ]
+        }
+      }
+    ],
+    "outputs": [
+      
+      {
+        "transports": [
+          {
+            "uri": "s3://",
+            "s3": {
+              "bucket": "BUCKET_NAME",
+              "accessKey": "ACCESS_KEY",
+              "secretAccessKey": "SECRET_ACCESS_KEY",
+              "region": "REGION_NAME",
+              "keyPrefix": "KEY_PREFIX_NAME"
+            }
+          }
+        ],
+        "container": "mpegts",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "aac",
+            "audio": {
+              "channels": 2,
+              "rate": 48000
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 1920,
+              "height": 1080,
+              "rate": 25
+            },
+            "h264": {
+              "encoder": "x264enc",
+              "properties": {
+                "key-int-max": "15",
+                "tune": "zerolatency",
+                "speed-preset": "ultrafast",
+                "bitrate": "2000",
+                "pass": "cbr"
+              },
+              "caps": {
+                "profile": "high-10"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

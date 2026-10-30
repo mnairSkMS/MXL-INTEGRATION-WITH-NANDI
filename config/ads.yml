@@ -1,0 +1,26 @@
+# Managed by the transcoder rundown service.
+# Rewritten in full on every publish: comments and terse shorthand are not
+# preserved, and every field is emitted explicitly so that the meaning of
+# this file cannot drift when the graphics catalog changes.
+# Hand edits are honoured on the next container start.
+#
+# The break reel. Authored exactly like the programme rundown in channel.yml -
+# same schema, same validation, same publish path - and bound to the channel's
+# secondary input by being declared second in PLAYLIST_BOOTSTRAP_FILES.
+#
+# Five solid-colour spots of 10 s, each captioned with its own colour and
+# carrying its own audio tone, so the spot on air can be identified from a
+# single frame or by ear. That matters for ad insertion: which spot a break
+# opens on, and whether it changes between breaks, is the behaviour under test.
+#
+# The transcoder plays this only between a cue-out and a cue-in. It loops, so a
+# break longer than the reel repeats it rather than running dry.
+channel: ads
+name: Ad break reel
+timezone: UTC
+playlist:
+- media: red.mp4
+- media: green.mp4
+- media: blue.mp4
+- media: yellow.mp4
+- media: magenta.mp4

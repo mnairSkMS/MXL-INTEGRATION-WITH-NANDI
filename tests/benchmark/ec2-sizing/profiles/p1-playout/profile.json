@@ -1,0 +1,53 @@
+{
+  "name": "p1-playout",
+  "description": "Compose playout channel: managed playlist + SCTE ad insertion + rundown L-band -> 1080p25 x264 veryfast/zerolatency 6 Mbps + AAC stereo, MPEG-TS/UDP. Preview relay removed.",
+  "output": {
+    "kind": "udp",
+    "fps": 25,
+    "width": 1920,
+    "height": 1080,
+    "video_kbps": 6128
+  },
+  "content": {
+    "real": {
+      "program": [
+        {
+          "media": "xiph-1080p25.mp4",
+          "lband": true
+        }
+      ]
+    },
+    "synthetic": {
+      "program": [
+        {
+          "media": "stress-1080p25.mp4",
+          "lband": true
+        }
+      ]
+    },
+    "repo": {
+      "program": [
+        {
+          "media": "one-cent-call-1080p.mp4",
+          "lband": true
+        },
+        {
+          "media": "toyota-etios.mp4",
+          "lband": false
+        },
+        {
+          "media": "coke-commercial-1080p-h264.mp4",
+          "lband": false
+        }
+      ]
+    }
+  },
+  "default_content": "real",
+  "ads": [
+    "red.mp4",
+    "green.mp4",
+    "blue.mp4",
+    "yellow.mp4",
+    "magenta.mp4"
+  ]
+}

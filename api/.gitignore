@@ -1,0 +1,8 @@
+src/transcoder_api/model/rest_api.py
+src/transcoder_api/transcoder_pb2_grpc.py
+src/transcoder_api/transcoder_pb2.py
+src/transcoder_api/transcoder_pb2.pyi
+dist
+/src/transcoder_api.egg-info
+/events.sqlite
+__pycache__

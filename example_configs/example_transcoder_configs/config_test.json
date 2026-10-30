@@ -1,0 +1,40 @@
+{
+    "version": "1.0.4",
+
+    "application": {
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///tests/test_ac3/tmp_input.ts"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///tests/test_ac3/tmp_output.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

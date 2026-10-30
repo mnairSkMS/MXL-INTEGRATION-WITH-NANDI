@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nandi Transcoder — Playout</title>
+<style>
+  :root{
+    --bg:#ffffff; --panel:#ececec; --line:#111; --soft:#cfcfcf; --fg:#111;
+    --muted:#555; --blue:#5b9bf5; --blue-d:#3f83e8; --gray-btn:#d9d9d9;
+    --ok:#28a745; --white:#fff;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 22px;}
+  .logo{width:150px;height:60px;background:#d3d3d3;position:relative;display:flex;
+        align-items:center;justify-content:center;font-weight:700;font-size:20px;cursor:pointer;}
+  .logo::before,.logo::after{content:"";position:absolute;inset:0;}
+  .logo::before{background:linear-gradient(to top right,transparent 49.3%,#111 49.6%,#111 50.4%,transparent 50.7%);}
+  .logo::after{background:linear-gradient(to bottom right,transparent 49.3%,#111 49.6%,#111 50.4%,transparent 50.7%);}
+  .logo span{position:relative;z-index:1;background:#d3d3d3;padding:0 6px;}
+  .card{border:1px solid var(--line);margin:0 22px 22px;padding:18px;}
+  .panel{background:var(--panel);padding:16px 18px;margin-bottom:18px;}
+  .panel h2{margin:0 0 12px;font-size:22px;font-weight:700;border-bottom:2px solid var(--line);padding-bottom:10px;}
+  h3{font-size:17px;margin:0 0 10px;}
+  input[type=text],select{width:100%;background:var(--white);border:1px solid #333;border-radius:5px;
+    padding:9px 10px;font-size:15px;color:#111;}
+  button{border:0;border-radius:8px;padding:10px 16px;font-size:15px;font-weight:700;cursor:pointer;}
+  .btn-blue{background:var(--blue);color:#fff;} .btn-blue:hover{background:var(--blue-d);}
+  .btn-gray{background:var(--gray-btn);color:#111;} .btn-gray:hover{filter:brightness(.97);}
+  button:disabled{opacity:.5;cursor:not-allowed;} button:active{transform:translateY(1px);}
+  .now{display:flex;align-items:center;gap:18px;background:#111;color:#fff;padding:16px 20px;border-radius:8px;}
+  .now .big{font-size:22px;font-weight:700;}
+  .now .sub{font-size:13px;color:#bbb;}
+  .bar{flex:1;} .bar .track{height:8px;background:#333;border-radius:6px;overflow:hidden;}
+  .bar .fill{height:100%;width:0;background:var(--blue);transition:width .4s linear;}
+  .nextchip{background:#222;color:#fff;padding:6px 12px;border-radius:20px;font-size:13px;white-space:nowrap;}
+  .add-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin-bottom:12px;}
+  .files{display:flex;flex-wrap:wrap;gap:8px;}
+  .files .f{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #bbb;border-radius:6px;padding:6px 10px;font-size:13px;}
+  ul.q{list-style:none;margin:0;padding:0;}
+  ul.q li{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #ccc;border-radius:6px;
+          padding:10px 12px;margin-bottom:8px;}
+  ul.q li .idx{font-weight:700;color:var(--muted);min-width:22px;}
+  ul.q li .nm{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  ul.q li .mini{padding:5px 9px;font-size:13px;}
+  .empty{color:var(--muted);font-style:italic;padding:8px 0;}
+  .apibar{margin:0 22px 14px;font-size:13px;color:var(--muted);}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#d29922;margin-right:6px;vertical-align:middle;}
+  .dot.ok{background:var(--ok);} .dot.bad{background:#e5534b;}
+  .drop{border:2px dashed #999;border-radius:8px;padding:18px;text-align:center;color:var(--muted);margin-bottom:12px;background:#fafafa;}
+  .drop.hot{border-color:var(--blue);color:var(--blue-d);background:#eef4ff;}
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;
+         padding:11px 18px;border-radius:8px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:9;}
+  #toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" id="logo" title="Back to operator"><span>Logo</span></div>
+  <div style="font-weight:700;font-size:20px;">Playout</div>
+</header>
+
+<div class="apibar"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
+
+<div class="card">
+  <div class="panel">
+    <h2>Now playing</h2>
+    <div class="now">
+      <div><div class="big" id="np-name">—</div><div class="sub" id="np-sub">idle</div></div>
+      <div class="bar"><div class="track"><div class="fill" id="np-fill"></div></div></div>
+      <div class="nextchip" id="np-next">next: —</div>
+      <button class="btn-gray" id="skip">Skip ▸</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Add to queue</h2>
+    <div class="drop" id="drop">Drop a video file here to upload &amp; enqueue, or use the picker.</div>
+    <div class="add-row"><input type="file" id="file" accept="video/*"><button class="btn-blue" id="upload">Upload &amp; enqueue</button></div>
+    <h3>Files already on server</h3>
+    <div class="files" id="files"><span class="empty">none</span></div>
+  </div>
+
+  <div class="panel">
+    <h2>Queue</h2>
+    <ul class="q" id="queue"></ul>
+    <div class="empty" id="q-empty">Managed queue empty — use the live playlist above for on-air switching.</div>
+  </div>
+
+  <div class="panel">
+    <h2>Output</h2>
+    <div>Pull the program stream from: <code id="pull">udp://@5555</code></div>
+    <div class="sub" style="color:var(--muted);margin-top:6px;" id="tgt">1920 × 1080 · 25 fps · H.264</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);let snapshot=null,inputs=[];const playlistId="main";
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),1800);}
+async function api(path,options={}){const r=await fetch(path,options);if(!r.ok){let e={};try{e=await r.json();}catch{}throw new Error(e.message||e.detail||String(r.status));}return r.status===204?null:r.json();}
+function json(method,body){return{method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)};}
+$("#logo").onclick=()=>location.href="/operator";$("#pull").textContent=`udp://${location.hostname}:5555`;
+function currentContext(){const input=inputs[0],streams=input?.streams||[],index=streams.findIndex(s=>s.id===input.currentStreamId);return{input,streams,index,current:streams[index],next:streams.length?streams[(index+1+streams.length)%streams.length]:null};}
+async function skipLive(){const c=currentContext();if(!c.input||c.streams.length<2)return toast("no next live stream");try{await api(`/inputs/${encodeURIComponent(c.input.id)}`,json("POST",{currentStreamId:c.next.id}));toast("skipped to "+nameOf(c.next.uri));await refresh();}catch(e){toast("error: "+e.message);}}
+$("#skip").onclick=skipLive;$("#upload").onclick=()=>{const f=$("#file").files[0];if(!f)return toast("pick a file first");uploadFile(f);};
+async function uploadFile(file){const fd=new FormData();fd.append("file",file);toast("uploading "+file.name+" …");try{const asset=await api("/media",{method:"POST",body:fd});await api(`/playlists/${playlistId}/items`,json("POST",{mediaId:asset.id}));toast("added "+asset.name);await refresh();}catch(e){toast("error: "+e.message);}}
+const drop=$("#drop");["dragenter","dragover"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("hot");}));["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("hot");}));drop.addEventListener("drop",ev=>{const f=ev.dataTransfer.files[0];if(f)uploadFile(f);});
+function nameOf(uri=""){try{return decodeURIComponent(uri.split("/").pop())||uri;}catch{return uri;}}
+function renderNow(){const c=currentContext();$("#np-name").textContent=c.current?nameOf(c.current.uri):"Black filler";$("#np-sub").textContent=c.current?"on air":"idle";$("#np-next").textContent="next: "+(c.next?nameOf(c.next.uri):"—");$("#np-fill").style.width="0";$("#skip").disabled=c.streams.length<2;}
+function button(text,handler){const b=document.createElement("button");b.className="btn-gray mini";b.textContent=text;b.onclick=handler;return b;}
+function renderQueue(){const ul=$("#queue");ul.textContent="";$("#q-empty").style.display=snapshot.items.length?"none":"block";snapshot.items.forEach((item,index)=>{const li=document.createElement("li"),idx=document.createElement("span"),nm=document.createElement("span");idx.className="idx";idx.textContent=String(index+1);nm.className="nm";nm.textContent=item.media.name;const up=button("▲",()=>move(item.id,Math.max(0,index-1))),down=button("▼",()=>move(item.id,index+1)),del=button("✕",()=>removeItem(item.id));up.disabled=index===0||item.state==="playing";down.disabled=index===snapshot.items.length-1||item.state==="playing";del.disabled=item.state==="playing";li.append(idx,nm,up,down,del);ul.append(li);});}
+async function move(id,to){try{snapshot=await api(`/playlists/${playlistId}/items/${id}`,json("PATCH",{position:to,expectedRevision:snapshot.desiredRevision}));renderQueue();}catch(e){toast(e.message);refresh();}}
+async function removeItem(id){try{snapshot=await api(`/playlists/${playlistId}/items/${id}`,{method:"DELETE"});renderQueue();}catch(e){toast(e.message);}}
+function renderFiles(media){const box=$("#files");box.textContent="";if(!media.length){const empty=document.createElement("span");empty.className="empty";empty.textContent="none";box.append(empty);}media.forEach(asset=>{const row=document.createElement("div"),label=document.createElement("span"),add=document.createElement("button");row.className="f";label.textContent=asset.name;add.className="btn-blue mini";add.textContent="Add";add.onclick=async()=>{try{await api(`/playlists/${playlistId}/items`,json("POST",{mediaId:asset.id}));toast("queued "+asset.name);refresh();}catch(e){toast(e.message);}};row.append(label,add);box.append(row);});}
+async function refresh(){try{[inputs,snapshot]=await Promise.all([api("/inputs"),api(`/playlists/${playlistId}`)]);const media=await api("/media");renderNow();renderQueue();renderFiles(media);$("#dot").className="dot ok";$("#status").textContent=snapshot.desiredRevision===snapshot.appliedRevision?"connected":"connected · managed queue pending engine integration";}catch(e){$("#dot").className="dot bad";$("#status").textContent="unreachable";}}
+refresh();setInterval(refresh,2500);
+</script>
+</body>
+</html>

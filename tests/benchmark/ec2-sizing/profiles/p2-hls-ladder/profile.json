@@ -1,0 +1,53 @@
+{
+  "name": "p2-hls-ladder",
+  "description": "P1 inputs -> four-rung x264 ladder 1080p/720p/540p/360p (6000/3500/2000/800 kbps) + AAC per rung, multivariant HLS (MPEG-TS, 6 s segments) written to local disk.",
+  "output": {
+    "kind": "hls",
+    "fps": 25,
+    "segment_seconds": 6,
+    "variants": 4,
+    "video_kbps": 12812
+  },
+  "content": {
+    "real": {
+      "program": [
+        {
+          "media": "xiph-1080p25.mp4",
+          "lband": true
+        }
+      ]
+    },
+    "synthetic": {
+      "program": [
+        {
+          "media": "stress-1080p25.mp4",
+          "lband": true
+        }
+      ]
+    },
+    "repo": {
+      "program": [
+        {
+          "media": "one-cent-call-1080p.mp4",
+          "lband": true
+        },
+        {
+          "media": "toyota-etios.mp4",
+          "lband": false
+        },
+        {
+          "media": "coke-commercial-1080p-h264.mp4",
+          "lband": false
+        }
+      ]
+    }
+  },
+  "default_content": "real",
+  "ads": [
+    "red.mp4",
+    "green.mp4",
+    "blue.mp4",
+    "yellow.mp4",
+    "magenta.mp4"
+  ]
+}

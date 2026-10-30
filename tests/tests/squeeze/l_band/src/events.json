@@ -1,0 +1,11 @@
+[
+    {
+        "timeOffsetMs": 10000,
+        "details": {
+            "squeeze": {
+                "squeeze_name": "l_band",
+                "duration": 5000
+            }
+        }
+    }
+]

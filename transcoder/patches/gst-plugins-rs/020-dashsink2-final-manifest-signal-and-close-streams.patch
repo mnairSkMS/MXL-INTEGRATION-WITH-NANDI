@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: antony-rajj <araj@skandhams.com>
+Date: Tue, 27 Oct 2026 13:03:04 +0530
+Subject: [PATCH 2/3] dashsink2: route the final manifest through the signal
+ and close streams
+
+The manifest written when the element goes from PAUSED to READY bypassed
+get-manifest-stream and went straight to mpd-root-path (or the working
+directory). Emit the signal for it too.
+
+Close every init, fragment and manifest stream once it is written, before the
+manifest that references a new fragment is emitted, so a consumer such as an
+uploader knows when an object is complete.
+---
+ net/dashsink2/src/dashsink2/imp.rs | 47 +++++++++++++++++++++++++-----
+ 1 file changed, 39 insertions(+), 8 deletions(-)
+
+diff --git a/net/dashsink2/src/dashsink2/imp.rs b/net/dashsink2/src/dashsink2/imp.rs
+index 2b5e0777..20bf623e 100644
+--- a/net/dashsink2/src/dashsink2/imp.rs
++++ b/net/dashsink2/src/dashsink2/imp.rs
+@@ -421,14 +421,29 @@ impl ElementImpl for DashSink2 {
+                 // Turn VOD when the manifest is finalized
+                 m.set_mpd_type(ManifestType::Static);
+                 if let Ok(xml) = m.to_string() {
+-                    let settings = self.settings.lock().unwrap();
+-                    let path = settings
+-                        .mpd_root_path
+-                        .as_ref()
+-                        .map(|r| format!("{}/{}", r, settings.mpd_filename))
+-                        .unwrap_or_else(|| settings.mpd_filename.clone());
+-                    if let Err(e) = std::fs::write(&path, xml) {
+-                        gst::error!(CAT, imp = self, "Failed to write manifest: {e}");
++                    let path = {
++                        let settings = self.settings.lock().unwrap();
++                        settings
++                            .mpd_root_path
++                            .as_ref()
++                            .map(|r| format!("{}/{}", r, settings.mpd_filename))
++                            .unwrap_or_else(|| settings.mpd_filename.clone())
++                    };
++                    let stream: Option<gio::OutputStream> = self
++                        .obj()
++                        .emit_by_name(SIGNAL_GET_MANIFEST_STREAM, &[&path]);
++                    match stream {
++                        Some(stream) => {
++                            if let Err(e) = stream
++                                .write_all(xml.as_bytes(), None::<&gio::Cancellable>)
++                                .and_then(|_| stream.close(None::<&gio::Cancellable>))
++                            {
++                                gst::error!(CAT, imp = self, "Failed to write manifest: {e}");
++                            }
++                        }
++                        None => {
++                            gst::error!(CAT, imp = self, "No OutputStream for manifest {path}");
++                        }
+                     }
+                 }
+             }
+@@ -863,6 +878,10 @@ impl DashSink2 {
+             gst::error!(CAT, imp = self, "Failed to flush manifest stream");
+             gst::FlowError::Error
+         })?;
++        stream.close(None::<&gio::Cancellable>).map_err(|_| {
++            gst::error!(CAT, imp = self, "Failed to close manifest stream");
++            gst::FlowError::Error
++        })?;
+ 
+         Ok(gst::FlowSuccess::Ok)
+     }
+@@ -910,6 +929,13 @@ impl DashSink2 {
+                 gst::FlowError::Error
+             })?;
+ 
++            // Close before the manifest that references it is written, so a consumer of the
++            // stream knows the init segment is complete.
++            stream.close(None::<&gio::Cancellable>).map_err(|_| {
++                gst::error!(CAT, imp = self, "Couldn't close init segment stream");
++                gst::FlowError::Error
++            })?;
++
+             drop(map);
+ 
+             // Remove init segment from buffer list
+@@ -951,6 +977,11 @@ impl DashSink2 {
+             gst::error!(CAT, imp = self, "Couldn't flush fragment stream");
+             gst::FlowError::Error
+         })?;
++        stream.close(None::<&gio::Cancellable>).map_err(|_| {
++            gst::error!(CAT, imp = self, "Couldn't close fragment stream");
++            gst::FlowError::Error
++        })?;
++        drop(stream);
+         let (index, bandwidth) = {
+             let target_duration = {
+                 let settings = self.settings.lock().unwrap();

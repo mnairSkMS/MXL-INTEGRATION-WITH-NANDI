@@ -1,0 +1,11 @@
+[
+    {
+        "timeOffsetMs": 5000,
+        "details": {
+            "squeeze": {
+                "squeeze_name": "low_band",
+                "duration": 5000
+            }
+        }
+    }
+]

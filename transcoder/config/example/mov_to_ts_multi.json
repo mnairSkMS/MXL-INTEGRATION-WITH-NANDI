@@ -1,0 +1,141 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///src/media/big_buck_bunny_480p_h264.mov"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///tmp/out-sd.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6
+                        },
+                        "ac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "dialnorm":      "-24",
+                                "drc-line":      "auto",
+                                "drc-rf":        "auto",
+                                "surround-trim": "auto",
+                                "height-trim":   "auto"
+                            },
+                            "caps": {
+
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "mp2",
+                        "audio": {
+                            "rate": 44100,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "15",
+                                "tune":         "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate":      "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            },
+
+            {
+                "uri": "file:///tmp/out-pt.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    }
+                ]
+            },
+
+            {
+                "uri": "file:///tmp/out-pt-2.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "mp2",
+                        "audio": {
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    }
+                ]
+            },
+
+            {
+                "uri": "file:///tmp/out-pt-3.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "video",
+                        "codec": "mp2"
+                    }
+                ]
+            }
+        ]
+    }
+}

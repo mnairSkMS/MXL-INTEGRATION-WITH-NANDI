@@ -1,0 +1,87 @@
+{
+    "version": "1.4.2",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "srt://59.152.57.110:10012?mode=caller",
+                    "srt": {
+                        "mode": "caller",
+                        "latency": 120
+                    }
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:9000?mode=listener",
+                        "srt": {
+                            "mode": "listener",
+                            "latency": 120
+                        }
+                    },
+                    {
+                        "uri": "srt://43.205.222.56:5555?mode=caller",
+                        "srt": {
+                            "mode": "caller",
+                            "latency": 120
+                        }
+                    }
+                ],
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "eac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6,
+                            "bitrate": 640
+                        },
+                        "eac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "bitrate":       "640k",
+                                "dialnorm":      "-27",
+                                "drc-line":      "auto",
+                                "drc-rf":        "auto",
+                                "surround-trim": "auto",
+                                "height-trim":   "auto"
+                            },
+                            "caps": {}
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

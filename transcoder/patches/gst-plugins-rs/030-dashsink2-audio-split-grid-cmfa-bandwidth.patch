@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: antony-rajj <araj@skandhams.com>
+Date: Tue, 27 Oct 2026 13:03:35 +0530
+Subject: [PATCH 3/3] dashsink2: split audio on the video grid, name audio
+ .cmfa, fix bandwidth
+
+Audio fragments were left to cmafmux's fragment-duration. The first audio
+fragment came out as a short stub and the rest were a whole number of AAC
+frames (1.984 s instead of 2 s), so audio segment N drifted away from the time
+the SegmentTemplate assigns to it. Install the running-time split probe on
+audio pads as well, so every stream is cut on the same grid. Only video pads
+send the upstream force-key-unit request: from an audio pad it travels into a
+shared upstream (demuxer, decodebin), where a video parser turns it into an
+extra downstream key unit request and the encoder emits a second keyframe.
+
+Audio segments used the .cmfv (CMAF video) extension; use .cmfa.
+
+The per-segment bandwidth divided by the target duration in whole seconds,
+which truncated 3.2 s to 3 and divided by zero below one second.
+---
+ net/dashsink2/src/dashsink2/imp.rs | 60 ++++++++++++++++++++----------
+ 1 file changed, 40 insertions(+), 20 deletions(-)
+
+diff --git a/net/dashsink2/src/dashsink2/imp.rs b/net/dashsink2/src/dashsink2/imp.rs
+index 20bf623e..c4689cc4 100644
+--- a/net/dashsink2/src/dashsink2/imp.rs
++++ b/net/dashsink2/src/dashsink2/imp.rs
+@@ -26,6 +26,15 @@ const DEFAULT_SYNC: bool = true;
+ const DEFAULT_FILENAME: &str = "manifest.mpd";
+ const TEMPLATE_INIT_FILENAME: &str = "init.cmfi";
+ const TEMPLATE_SEGMENT_FILENAME: &str = "segment_%d.cmfv";
++const TEMPLATE_AUDIO_SEGMENT_FILENAME: &str = "segment_%d.cmfa";
++
++fn segment_template_for(pad_name: &str) -> &'static str {
++    if pad_name.starts_with("audio_") {
++        TEMPLATE_AUDIO_SEGMENT_FILENAME
++    } else {
++        TEMPLATE_SEGMENT_FILENAME
++    }
++}
+ const DEFAULT_MIN_BUFFER_TIME: u32 = 10000;
+ 
+ const SIGNAL_GET_MANIFEST_STREAM: &str = "get-manifest-stream";
+@@ -494,7 +503,7 @@ impl ElementImpl for DashSink2 {
+ 
+         let (init_loc, seg_template) = (
+             self.build_segment_path(None, &pad_name, TEMPLATE_INIT_FILENAME, None),
+-            self.build_segment_path(None, &pad_name, TEMPLATE_SEGMENT_FILENAME, None),
++            self.build_segment_path(None, &pad_name, segment_template_for(&pad_name), None),
+         );
+ 
+         let pad_name_clone = pad_name.clone();
+@@ -569,6 +578,7 @@ impl DashSink2 {
+             }
+         };
+         let cmafmux = s.cmafmux.clone();
++        let is_video = s.is_video;
+ 
+         if let Some(gst::PadProbeData::Buffer(ref buffer)) = info.data {
+             let mut counter = s.counter.load(Ordering::Relaxed);
+@@ -608,21 +618,26 @@ impl DashSink2 {
+                     s.counter.store(counter, Ordering::Relaxed);
+                     drop(streams);
+ 
+-                    let next_running_time_ns =
+-                        gst::ClockTime::from_nseconds(counter * target_dur_ns);
+-                    let keyunit_event = gst_video::UpstreamForceKeyUnitEvent::builder()
+-                        .running_time(Some(next_running_time_ns))
+-                        .build();
+-
+-                    let ok = pad.push_event(keyunit_event);
+-                    if !ok {
+-                        gst::error!(
+-                            CAT,
+-                            imp = self,
+-                            "Failed to send force-key-unit event upstream"
+-                        );
+-                    } else {
+-                        gst::debug!(CAT, imp = self, "Sent force-key-unit event upstream");
++                    // Only video needs a key unit. Sent from an audio pad the request travels
++                    // up the audio branch into a shared upstream (a demuxer or decodebin), where
++                    // a video parser turns it into an extra downstream key unit request.
++                    if is_video {
++                        let next_running_time_ns =
++                            gst::ClockTime::from_nseconds(counter * target_dur_ns);
++                        let keyunit_event = gst_video::UpstreamForceKeyUnitEvent::builder()
++                            .running_time(Some(next_running_time_ns))
++                            .build();
++
++                        let ok = pad.push_event(keyunit_event);
++                        if !ok {
++                            gst::error!(
++                                CAT,
++                                imp = self,
++                                "Failed to send force-key-unit event upstream"
++                            );
++                        } else {
++                            gst::debug!(CAT, imp = self, "Sent force-key-unit event upstream");
++                        }
+                     }
+ 
+                     let split_event =
+@@ -704,7 +719,11 @@ impl DashSink2 {
+                 let mut streams = self.streams.lock().unwrap();
+                 if let Some(s) = streams.get_mut(pad_name) {
+                     s.is_video = is_video;
+-                    if is_video {
++                    // Audio is split on the same running-time grid as video. Left to cmafmux's
++                    // own fragment-duration it started with a short stub fragment and then cut
++                    // every whole number of audio frames (1.984 s for 2 s of 48 kHz AAC), so
++                    // audio segment N no longer covered the time SegmentTemplate gives it.
++                    {
+                         s.cmafmux.set_property("manual-split", true);
+                         if !s.probe_installed {
+                             s.probe_installed = true;
+@@ -724,7 +743,7 @@ impl DashSink2 {
+                             gst::info!(
+                                 CAT,
+                                 imp = self,
+-                                "Installed video probe on pad {}",
++                                "Installed split probe on pad {}",
+                                 pad_name
+                             );
+                         }
+@@ -806,7 +825,7 @@ impl DashSink2 {
+         let filename = self.build_segment_path(
+             mpd_root_path.as_ref(),
+             pad_name,
+-            TEMPLATE_SEGMENT_FILENAME,
++            segment_template_for(pad_name),
+             Some(stream.segment_idx),
+         );
+ 
+@@ -994,7 +1013,8 @@ impl DashSink2 {
+                 .expect("pad name not found in streams");
+ 
+             // Calculate bandwidth of the current segment: total_size (bytes) * 8 (bits) / segment duration (secs)
+-            let current_bandwidth = total_size as u64 * 8 / (target_duration / 1000);
++            // In milliseconds: whole seconds truncated 3.2 s to 3 and divided by zero below 1 s.
++            let current_bandwidth = total_size as u64 * 8 * 1000 / target_duration.max(1);
+             // Update the bandwidth of the overall stream
+             let previous_bandwidth = dash_stream.bandwidth.unwrap_or(0);
+             let previous_segments = dash_stream.segment_idx.saturating_sub(1) as u64;

@@ -1,0 +1,116 @@
+# Default deployment: one transcoder container running whichever channel file you pick.
+#
+#   docker compose up -d                                  # runs config/rtmp_to_hls.json
+#   CHANNEL=srt_to_hls_srt.json docker compose up -d      # any file in config/
+#   docker compose --profile hls-lan up -d                # also serve /runtime/hls to the LAN
+#
+# Every knob below is an environment variable with a default, so the usual way to use this is a
+# .env file next to this one (copy .env.example). Nothing here needs editing for a normal run.
+#
+# Supervisor inside the container starts the database preload, then the REST API, then the
+# engine; the built-in RTMP relay (mediamtx) starts with it. Nothing else has to run beside it.
+# The specialised stacks (ad insertion, managed playlist, DASH, MXF/SRT) are the other
+# docker-compose.*.yml files; see README.md.
+#
+#   Management API and operator UI   http://<UI_BIND>:8080/operator
+#   Channel configuration UI         http://<UI_BIND>:8080/channel
+#   RTMP ingest relay                rtmp://<this-host>:1935/live/<stream-key>
+#   SRT listener (if the channel has one)  srt://<this-host>:9092?mode=caller
+#   HLS, via the API                 http://<UI_BIND>:8080/hls/master.m3u8   (HLS channels)
+#   HLS, LAN (profile hls-lan)       http://<this-host>:8081/master.m3u8
+name: skandha-transcoder
+
+services:
+  transcoder:
+    # Build from this checkout:  docker compose build
+    # Or point TRANSCODER_IMAGE at an image you already have and add --no-build.
+    build:
+      context: .
+      dockerfile: docker/utpl-transcoder/Dockerfile
+    image: ${TRANSCODER_IMAGE:-skandha-transcoder:local}
+    container_name: ${CONTAINER_NAME:-skandha-transcoder}
+    restart: unless-stopped
+    ports:
+      # The management API is unauthenticated and PUT /config genuinely writes. It stays on
+      # loopback unless UI_BIND is set, e.g. UI_BIND=192.168.1.10 in .env to reach the
+      # operator and channel UIs from the LAN. Only do that on a trusted network.
+      - "${UI_BIND:-127.0.0.1}:${API_HOST_PORT:-8080}:8080"
+      # SRT listener outputs (a channel with `mode=listener` on :9092). The /udp suffix is
+      # required. SRT has no passphrase in this config schema, so restrict 9092/udp at the
+      # firewall to the receivers' subnet. Harmless when the channel has no listener.
+      - "${SRT_HOST_PORT:-9092}:9092/udp"
+      # RTMP ingest relay. The stream key in the URL is the only credential: restrict 1935/tcp
+      # at the firewall if the encoders live on a known network.
+      - "${RTMP_HOST_PORT:-1935}:1935"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      API_PORT: "8080"
+      # The engine config, parsed once at start. It is picked by file name from config/ and read
+      # through the directory mount below. PUT /config replaces it with an atomic rename, which
+      # is why the directory is mounted rather than the file.
+      TRANSCODER_CONFIG_PATH: /opt/utpl/channel/${CHANNEL:-rtmp_to_hls.json}
+      # Engine licence, read once at start. PUT /license replaces it and DELETE /license removes
+      # it, so it lives in the writable /runtime directory. Seeded from LICENSE_FILE (mounted
+      # below) only when /runtime/license does not exist, so a deleted licence stays deleted.
+      TRANSCODER_LICENSE_PATH: /runtime/license/transcoder.lic
+      DB_PATH: ${DB_PATH:-/runtime/transcoder.sqlite}
+      # Served by the API at /hls. Must match the HLS output URI in the channel file.
+      HLS_DIR: /runtime/hls
+      # Playlist channels only. A declarative playlist file (channel.yml) is applied on every
+      # start and rewritten by every Publish. Leave empty for a live-input channel: without it
+      # the bootstrap would apply channel.yml and, on Publish, rewrite it in the shared config/
+      # directory. Never point this at a transcoder JSON.
+      PLAYLIST_BOOTSTRAP_FILE: ${PLAYLIST_BOOTSTRAP_FILE:-}
+      PLAYLIST_BOOTSTRAP_WRITEBACK: ${PLAYLIST_BOOTSTRAP_WRITEBACK:-false}
+      PLAYLIST_BOOTSTRAP_STRICT: "false"
+      # Managed-playlist plumbing. Inert for a live-input channel; used when CHANNEL reads a
+      # pls+file:// playlist. MANAGED_PLAYLIST_FILE must match that input's URI.
+      MEDIA_DIR: /media/queue
+      MANAGED_PLAYLIST_ID: main
+      PLAYLIST_SEED_FILE: ${PLAYLIST_SEED_FILE:-/media/queue/playlist.m3u8}
+      MANAGED_PLAYLIST_FILE: ${MANAGED_PLAYLIST_FILE:-/runtime/main.m3u8}
+      ENABLE_RUNDOWN_SERVICE: ${ENABLE_RUNDOWN_SERVICE:-true}
+      ENABLE_VIDEO_GRAPHICS: ${ENABLE_VIDEO_GRAPHICS:-false}
+    volumes:
+      # The one place channel files live. Writable: Publish and PUT /config write back into it.
+      - ./config:/opt/utpl/channel
+      # Live state: database, HLS segments, licence, generated playlists.
+      - ./runtime:/runtime
+      # Playlist media. Writable so the operator UI can accept uploads; uploads are not added
+      # to the static M3U8 automatically.
+      - ./media/queue:/media/queue
+      - ./media/graphics:/media/graphics:ro
+      - ./media/slates:/media/slates:ro
+      # First-run seed for TRANSCODER_LICENSE_PATH only; the engine never reads this path.
+      - ${LICENSE_FILE:-./transcoder/license/prod/licenses/offline.lic}:/opt/utpl/etc/transcoder.lic.seed:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        # The HLS writer does not create its target directory; without this a fresh checkout
+        # logs "Could not upload ..., target URI does not exist" and serves nothing.
+        mkdir -p /runtime/hls
+        if [ ! -d /runtime/license ]; then
+          mkdir -p /runtime/license
+          cp /opt/utpl/etc/transcoder.lic.seed "$$TRANSCODER_LICENSE_PATH"
+        fi
+        /usr/bin/supervisord &
+        trap 'supervisorctl stop transcoder transcoder_api || true; exit 0' INT TERM
+        # The dependentstartup listener starts preload_db, then the API and the engine.
+        wait
+
+  # LAN delivery of the HLS output: http://<this-host>:8081/master.m3u8
+  # Serves /runtime/hls only, read-only, GET/HEAD, with no authentication. Restrict 8081/tcp at
+  # the firewall if the LAN is not trusted. Off by default; enable with --profile hls-lan.
+  hls-lan:
+    profiles: ["hls-lan"]
+    image: ${TRANSCODER_IMAGE:-skandha-transcoder:local}
+    container_name: ${CONTAINER_NAME:-skandha-transcoder}-hls-lan
+    restart: unless-stopped
+    ports:
+      - "${HLS_LAN_HOST_PORT:-8081}:8081"
+    volumes:
+      - ./runtime:/runtime:ro
+      - ./docker/utpl-transcoder/hls_lan_server.py:/opt/hls_lan_server.py:ro
+    command: ["/opt/venv/bin/python", "/opt/hls_lan_server.py", "/runtime/hls", "8081"]

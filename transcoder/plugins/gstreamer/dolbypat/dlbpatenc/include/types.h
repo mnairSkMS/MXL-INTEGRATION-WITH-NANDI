@@ -1,0 +1,59 @@
+#ifndef __DLBPATENC_TYPES_H__
+#define __DLBPATENC_TYPES_H__
+
+#include <gst/gst.h>
+
+G_BEGIN_DECLS
+
+typedef enum _GstDlbPatEncProperties {
+    PROPERTY_0,
+
+    PROPERTY_DATARATE,
+    PROPERTY_DIALNORM,
+    PROPERTY_DRCLINE,
+    PROPERTY_DRCRF,
+    PROPERTY_SURROUND_TRIM,
+    PROPERTY_HEIGHT_TRIM,
+    PROPERTY_DMIXMOD,
+    PROPERTY_LTRTCMIXLEV,
+    PROPERTY_LTRTSURMIXLEV,
+    PROPERTY_LOROCMIXLEV,
+    PROPERTY_LOROSURMIXLEV,
+
+    PROPERTY_LAST
+} GstDlbPatEncProperties;
+
+
+typedef enum _GstDlbPatEncDataRate {
+    GST_DLBPAT_ENC_DATARATE_32K,   // DDP
+    GST_DLBPAT_ENC_DATARATE_48K,   // AC4
+    GST_DLBPAT_ENC_DATARATE_56K,   // DDP
+    GST_DLBPAT_ENC_DATARATE_64K,   // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_96K,   // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_128K,  // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_144K,  // AC4
+    GST_DLBPAT_ENC_DATARATE_192K,  // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_256K,  // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_288K,  // AC4
+    GST_DLBPAT_ENC_DATARATE_320K,  // AC4
+    GST_DLBPAT_ENC_DATARATE_384K,  // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_448K,  // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_512K,  // AC4
+    GST_DLBPAT_ENC_DATARATE_640K,  // DDP
+    GST_DLBPAT_ENC_DATARATE_768K,  // DDP, AC4
+    GST_DLBPAT_ENC_DATARATE_1024K, // AC4
+
+    GST_DLBPAT_ENC_DATARATE_AUTO
+} GstDlbPatEncDataRate;
+
+GType dlbpatenc_datarate_getType();
+GType dlbpatenc_drcline_getType();
+GType dlbpatenc_drcrf_getType();
+GType dlbpatenc_surround_trim_getType();
+GType dlbpatenc_height_trim_getType();
+GType dlbpatenc_dmixmod_getType();
+GType dlbpatenc_downmix_level_getType();
+
+G_END_DECLS
+
+#endif /* __DLBPATENC_TYPES_H__ */

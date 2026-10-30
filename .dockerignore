@@ -1,0 +1,38 @@
+# The compose build context is the repository root, so everything here is sent to the Docker daemon
+# on every build unless excluded. Keep this list aligned with .gitignore.
+
+# Version control and editors
+.git/
+.idea/
+.vscode/
+.zed/
+
+# Build output
+build/
+CMakePresets.json
+/api/dist/
+/doc/dist/
+
+# Python caches and tooling state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Live runtime state: databases, generated manifests, their backups
+/runtime/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.before-*
+
+# Experimental material and R&D - not part of any production image
+/sandbox/
+
+# Manual verification harnesses. The scripts are small, but they are never needed inside an image
+# and their generated media must never be.
+/tests/manual/
+
+# Development fixture media
+/media/
+/doc/

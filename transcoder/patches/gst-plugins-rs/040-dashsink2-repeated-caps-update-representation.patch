@@ -1,0 +1,118 @@
+From eb5658d6dfa892141316df4ea71d424f0bd2a612 Mon Sep 17 00:00:00 2001
+From: utpl <utpl@localhost>
+Date: Tue, 27 Oct 2026 15:59:50 +0530
+Subject: [PATCH] dashsink2: update a Representation on repeated caps instead
+ of listing it again
+
+---
+ net/dashsink2/src/dashsink2/manifest.rs | 76 ++++++++++++++++++++++++-
+ 1 file changed, 74 insertions(+), 2 deletions(-)
+
+diff --git a/net/dashsink2/src/dashsink2/manifest.rs b/net/dashsink2/src/dashsink2/manifest.rs
+index e31060df..36af068f 100644
+--- a/net/dashsink2/src/dashsink2/manifest.rs
++++ b/net/dashsink2/src/dashsink2/manifest.rs
+@@ -40,6 +40,23 @@ pub struct Manifest {
+     utc_timing: Option<UTCTiming>,
+ }
+ 
++// A caps event can be sent again mid-stream (an upstream renegotiation); it must update the
++// Representation it describes instead of listing it a second time.
++fn upsert_representation(representations: &mut Vec<Representation>, representation: Representation) {
++    if let Some(existing) = representations
++        .iter_mut()
++        .find(|r| r.id == representation.id)
++    {
++        let bandwidth = existing.bandwidth;
++        *existing = representation;
++        if existing.bandwidth.is_none() {
++            existing.bandwidth = bandwidth;
++        }
++    } else {
++        representations.push(representation);
++    }
++}
++
+ impl Manifest {
+     pub fn new() -> Self {
+         let period = Period {
+@@ -166,7 +183,7 @@ impl Manifest {
+                 .iter_mut()
+                 .find(|adapt| adapt.id.as_deref() == Some("video"))
+             {
+-                adapt.representations.push(representation);
++                upsert_representation(&mut adapt.representations, representation);
+             }
+         } else {
+             if !adaptations
+@@ -186,7 +203,7 @@ impl Manifest {
+                 .iter_mut()
+                 .find(|adapt| adapt.id.as_deref() == Some("audio"))
+             {
+-                adapt.representations.push(representation);
++                upsert_representation(&mut adapt.representations, representation);
+             }
+         }
+     }
+@@ -252,3 +269,58 @@ impl Manifest {
+         ))
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn video(id: &str, height: u64) -> MediaRepresentation {
++        MediaRepresentation {
++            id: id.into(),
++            is_video: true,
++            codec: "avc1.4D401F".into(),
++            width: Some(height * 16 / 9),
++            height: Some(height),
++            framerate: Some("25/1".into()),
++            bandwidth: None,
++            init_location: format!("{id}_init.cmfi"),
++            segment_template: format!("{id}_segment_$Number$.cmfv"),
++            segment_duration: 2000,
++        }
++    }
++
++    fn video_reps(manifest: &Manifest) -> Vec<&Representation> {
++        manifest.inner.periods[0]
++            .adaptations
++            .iter()
++            .filter(|a| a.id.as_deref() == Some("video"))
++            .flat_map(|a| a.representations.iter())
++            .collect()
++    }
++
++    #[test]
++    fn repeated_caps_update_the_representation() {
++        let mut manifest = Manifest::new();
++        manifest.add_representation(video("video_0", 720));
++        manifest.add_segment("video_0".into(), 0, 3_000_000);
++
++        // The same pad sends caps again, e.g. after an upstream renegotiation.
++        manifest.add_representation(video("video_0", 720));
++
++        let reps = video_reps(&manifest);
++        assert_eq!(reps.len(), 1);
++        assert_eq!(reps[0].bandwidth, Some(3_000_000));
++    }
++
++    #[test]
++    fn new_caps_replace_the_description() {
++        let mut manifest = Manifest::new();
++        manifest.add_representation(video("video_0", 720));
++        manifest.add_representation(video("video_0", 1080));
++        manifest.add_representation(video("video_2", 360));
++
++        let reps = video_reps(&manifest);
++        assert_eq!(reps.len(), 2);
++        assert_eq!(reps[0].height, Some(1080));
++    }
++}
+-- 
+2.55.0
+

@@ -1,0 +1,49 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///media/src/559850_12295155-hq.mp3"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///media/dst/559850_12295155-hq.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "eac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

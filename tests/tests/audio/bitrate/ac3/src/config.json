@@ -1,0 +1,59 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///tmp/input.ts"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///tmp/output.ts",
+                "container": "mpegts",
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "channels": 2,
+                            "rate": 48000
+                        },
+                        "ac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "bitrate": "448k"
+                            }
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    }
+                ]
+            }
+        ]
+    }
+}

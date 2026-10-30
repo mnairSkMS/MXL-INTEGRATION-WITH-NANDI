@@ -1,0 +1,47 @@
+/* Design tokens for the Skandha Transcoder channel UI */
+:root {
+  /* Brand / Accents from Figma */
+  --color-primary: #4e94fd;
+  --color-primary-hover: #3b82f6;
+  --color-primary-light: #eff6ff;
+  --color-primary-dark: #1d4ed8;
+
+  /* Neutrals & Surfaces */
+  --color-bg-app: #f4f6f9;
+  --color-bg-surface: #ffffff;
+  --color-bg-subtle: #f8fafc;
+  --color-bg-muted: #e2e8f0;
+  --color-border: #d1d5db;
+  --color-border-subtle: #e5e7eb;
+
+  /* Typography */
+  --color-text-main: #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #6b7280;
+  --color-text-white: #ffffff;
+
+  /* Status Indicators */
+  --color-success: #10b981;
+  --color-success-bg: #ecfdf5;
+  --color-warning: #f59e0b;
+  --color-warning-bg: #fffbeb;
+  --color-danger: #ef4444;
+  --color-danger-bg: #fef2f2;
+  --color-info: #0284c7;
+  --color-info-bg: #f0f9ff;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}

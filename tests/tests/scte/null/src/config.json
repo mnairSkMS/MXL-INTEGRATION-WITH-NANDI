@@ -1,0 +1,55 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///tmp/input.ts"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///tmp/output.ts",
+                "container": "mpegts",
+                
+                "scte": {
+                    "mode": "removal",
+                    "pid": 765,
+                    "nullInterval": 1000
+                },
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    }
+                ]
+            }
+        ]
+    }
+}

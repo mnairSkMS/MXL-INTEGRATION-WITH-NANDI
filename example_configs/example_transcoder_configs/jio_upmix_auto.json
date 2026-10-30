@@ -1,0 +1,89 @@
+{
+  "version": "1.4.2",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "log",
+        "console": {
+          "enable": true,
+          "colors": false
+        }
+      },
+      "gstreamer": {
+        "level": "warning",
+        "console": {
+          "enable": true,
+          "colors": false
+        }
+      }
+    }
+  },
+  "transcoder": {
+    "inputs": [
+      {
+        "transport": {
+          "uri": "srt://59.152.57.110:10012?mode=caller",
+          "srt": {
+            "mode": "caller",
+            "latency": 120
+          }
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "transports": [
+          {
+            "uri": "srt://127.0.0.1:9010?mode=listener",
+            "srt": {
+              "mode": "listener",
+              "latency": 120
+            }
+          },
+          {
+            "uri": "srt://43.205.222.56:5555?mode=caller",
+            "srt": {
+              "mode": "caller",
+              "latency": 120
+            }
+          }
+        ],
+        "container": "mpegts",
+        "streams": [
+          {
+            "type": "video",
+            "codec": "passthrough"
+          },
+          {
+            "type": "audio",
+            "codec": "eac3",
+            "audio": {
+              "rate": 48000,
+              "channels": 6,
+              "inputLayout": "auto"
+            },
+            "eac3": {
+              "encoder": "dlbpatenc",
+              "properties": {
+                "dialnorm": "-27",
+                "drc-line": "auto",
+                "drc-rf": "auto",
+                "surround-trim": "auto",
+                "height-trim": "auto",
+                "bitrate": "384k"
+              },
+              "caps": {}
+            }
+          }
+        ],
+        "name": "output-1",
+        "type": "single",
+        "scte": {
+          "mode": "passthrough",
+          "pid": 543,
+          "nullInterval": 0
+        }
+      }
+    ]
+  }
+}

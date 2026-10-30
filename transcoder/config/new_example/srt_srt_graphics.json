@@ -1,0 +1,87 @@
+{
+    "version": "1.4.2",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "debug",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": false,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": [
+                        "srt://103.248.72.28:10007?mode=caller"
+                    ]
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:7000?mode=listener"
+ }
+                ],
+
+                "container": "mpegts",
+
+                "scte": {
+                    "pid": 600,
+                    "mode": "passthrough"
+                },
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "mp3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25
+                        },
+                        "h264": {
+                            "encoder": "wz264",
+                            "properties": {
+                                "threads": "4",
+                                "bitrate": "10000",
+                                "preset": "medium",
+                                "vbv-maxrate": "10000",
+                                "vbv-bufsize": "10000",
+                                "bframes": "3",
+                                "wz264-params": "roi-deltaqp=2.0:psy-rd-roi=0.6:aq-strength=1.0:aq-smooth=1.0:rc-lookahead=20:subme=5:keyint=50"
+
+},
+                            "caps": {
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

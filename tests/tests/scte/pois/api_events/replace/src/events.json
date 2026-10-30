@@ -1,0 +1,49 @@
+[
+    {
+        "timeOffsetMs": 5000,
+        "details": {
+            "scte35_spliceinsert": {
+                "splice_event_id": 100
+            }
+        }
+    },
+    {
+        "timeOffsetMs": 10000,
+        "details": {
+            "scte35_returntonetwork": {
+                "splice_event_id": 100
+            }
+        }
+    },
+    {
+        "timeOffsetMs": 15000,
+
+        "details": {
+            "scte35_timesignal": {
+                "scte35_descriptors": [
+                    {
+                        "delivery_restrictions": {
+                            "archive_allowed_flag": "ARCHIVE_NOT_ALLOWED",
+                            "device_restrictions": "NONE",
+                            "no_regional_blackout_flag": "NO_REGIONAL_BLACKOUT",
+                            "web_delivery_allowed_flag": "WEB_DELIVERY_ALLOWED"
+                        },
+                        "segment_num": 1,
+                        "segmentation_cancel_indicator": "SEGMENTATION_EVENT_NOT_CANCELED",
+                        "segmentation_duration": 900000,
+                        "segmentation_event_id": 2000,
+                        "segmentation_type_id": 14,
+                        "segmentation_upid_type": 0,
+                        "segments_expected": 0,
+                        "sub_segment_num": 0,
+                        "sub_segments_expected": 0
+                    },
+                    {
+                        "segmentation_cancel_indicator": "SEGMENTATION_EVENT_CANCELED",
+                        "segmentation_event_id": 2001
+                    }
+                ]
+            }
+        }
+    }
+]

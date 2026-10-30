@@ -1,0 +1,27 @@
+# Channel-UI test overlay. Use with docker-compose.playlist.yml:
+#   docker compose -f docker-compose.playlist.yml -f docker-compose.ui.yml up -d
+# The engine stays STOPPED until started from the channel UI at /channel/. Ports are published
+# on all interfaces and the API is unauthenticated: restrict at the firewall on an untrusted LAN.
+services:
+  transcoder:
+    image: skandha-transcoder:mbb
+    pull_policy: never
+    ports: !override
+      - "8080:8080"
+      - "9092:9092/udp"
+      - "9001:9001/udp"
+      - "9002:9002/udp"
+      - "1935:1935"
+    environment:
+      TRANSCODER_CONFIG_PATH: /opt/utpl/channel/ui_channel.json
+      # The queue is seeded from the m3u8 entered in the channel UI instead of being rebuilt
+      # from channel.yml. Fresh database; the original is left untouched.
+      PLAYLIST_BOOTSTRAP_FILE: ""
+      DB_PATH: /runtime/ui-test.sqlite
+      PLAYLIST_SEED_FILE: /media/queue/promos.m3u8
+      MANAGED_PLAYLIST_FILE: /media/queue/promos.m3u8
+    volumes:
+      - ./docker/utpl-transcoder/supervisord.ui.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+  hls-lan:
+    image: skandha-transcoder:mbb
+    pull_policy: never

@@ -1,0 +1,29 @@
+# Editors
+/.idea/
+.vscode
+.zed
+
+# Build
+build/
+CMakePresets.json
+/api/dist/
+/doc/dist/
+
+# Frontend. node_modules only - the built SPA under
+# api/src/transcoder_api/static/channel is committed on purpose, so the tree serves /channel
+# without Node installed and the compose dev bind mount picks it up.
+/frontend/node_modules/
+/frontend/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Runtime state (live databases, generated manifests)
+/runtime/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.before-*

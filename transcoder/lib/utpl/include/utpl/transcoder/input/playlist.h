@@ -1,0 +1,170 @@
+#ifndef __UTPL_TRANSCODER_INPUT_PLAYLIST_H__
+#define __UTPL_TRANSCODER_INPUT_PLAYLIST_H__
+
+#include <memory>
+#include <vector>
+#include <mutex>
+#include <atomic>
+#include <unordered_map>
+
+#include "utpl/pipeline/bin.h"
+#include "utpl/pipeline/pad.h"
+
+#include "utpl/transcoder/input.h"
+
+namespace utpl {
+    namespace transcoder {
+        class PlaylistInput : public Input {
+            private:
+                class PlaylistStream;
+
+                // State of a make-before-break switch: the pending item decodes while the
+                // current one stays on air, and is cut over once its first frame is held.
+                struct Arm;
+
+                struct PlaylistItem {
+                    bool         eos;
+                    bool         error;
+                    bool         paused;
+                    bool         forced;
+                    std::atomic_bool ready;
+                    guint        positionWatchId;
+                    size_t       playlistItemIndex;
+                    GstClockTime duration;
+
+                    PlaylistInput         *parent;
+                    std::shared_ptr<Input> input;
+
+                    std::function<void()> aboutToFinishCallback;
+
+                    PlaylistItem(PlaylistInput *parent, std::shared_ptr<Input> input, size_t playlistItemIndex, std::function<void()> aboutToFinishCallback) {
+                        this->parent                = parent;
+                        this->aboutToFinishCallback = aboutToFinishCallback;
+                        this->input                 = input;
+
+                        this->eos               = false;
+                        this->error             = false;
+                        this->paused            = false;
+                        this->forced            = false;
+                        this->ready             = false;
+                        this->positionWatchId   = 0;
+                        this->playlistItemIndex = playlistItemIndex;
+                        this->duration          = GST_CLOCK_TIME_NONE;
+                    }
+
+                    ~PlaylistItem();
+
+                    void probe(Input::ProbeCallback probeCallback);
+                    void cleanup();
+
+                    static bool onPositionUpdate(PlaylistItem *self);
+                };
+
+            public:
+                PlaylistInput();
+                ~PlaylistInput();
+
+            public:
+                void prepare(const InputParameters &parameters) override;
+                void probe(ProbeCallback callback) override;
+                void cleanup() override;
+
+                const std::vector<std::shared_ptr<InputStream>> &getStreams() const override;
+                const InputParameters &getInputParameters() const override;
+
+                void onScteData(ScteDataCallback callback) override;
+                void onStateChanged(StateChangedCallback callback) override;
+                void onStreamsChanged(StreamsChangedCallback callback) override;
+                void onError(ErrorCallback callback) override;
+
+                pipeline::ElementPtr getNode() override;
+                bool isLive() const override;
+                const std::string &getId() const override;
+                InputStatus getStatus() override;
+                Protocol getProtocol() const override;
+                std::string getName() const override;
+                GstClockTime getDuration() const override;
+
+                Error setCurrentStream(const std::string &streamId) override;
+                Error applyPlaylistSnapshot(
+                    const std::vector<PlaylistSnapshotItem> &items,
+                    uint64_t revision
+                ) override;
+                Error setPlaybackActive(bool active) override;
+
+            private:
+                void _switchToNextItemAsync(bool force = false);
+                void _switchToNextItem(bool force = false);
+                void _switchToItem(size_t itemNo, bool force = false);
+                void _commitPending(bool force = false);
+                void _onEos();
+
+                void _suspendPositionWatch();
+                void _resumePositionWatch();
+                bool _canArmPending(
+                    const std::shared_ptr<InputStream> &newAudioStream,
+                    const std::shared_ptr<InputStream> &newVideoStream
+                ) const;
+                void _armPending(
+                    const std::shared_ptr<InputStream> &newAudioStream,
+                    const std::shared_ptr<InputStream> &newVideoStream
+                );
+                void _cutOver(const std::shared_ptr<Arm> &arm);
+                void _abortArm(const std::string &reason);
+
+                static void _scheduleCut(const std::weak_ptr<Arm> &arm, guint delayMs);
+
+                static void _asyncCleanup(PlaylistInput *self);
+                static void _asyncSwitchNext(PlaylistInput *self);
+
+            private:
+                utils::AutoGeneratedId _id;
+                std::recursive_mutex   _mutex;
+                pipeline::BinPtr       _bin;
+
+                std::unique_ptr<PlaylistItem> _currentItem;
+                std::unique_ptr<PlaylistItem> _pendingItem;
+                std::shared_ptr<Arm>          _arm;
+
+                StreamsChangedCallback _streamsChangedCallback;
+                ProbeCallback          _probeCallback;
+                ScteDataCallback       _scteCallback;
+                StateChangedCallback   _stateChangeCallback;
+                ErrorCallback          _errorCallback;
+
+                std::vector<std::shared_ptr<InputStream>> _streams;
+
+                std::shared_ptr<PlaylistStream> _audioStream;
+                std::shared_ptr<PlaylistStream> _videoStream;
+
+                InputParameters              _inputParameters;
+                std::vector<InputParameters> _playlistItemsInputParameters;
+                size_t                       _playlistItemIndex;
+
+                // IDs are generated for static M3U8 inputs and supplied by the managed
+                // queue. They must survive a reorder, unlike an array index.
+                std::vector<std::string> _playlistItemIds;
+                uint64_t _playlistRevision = 0;
+
+                std::vector<std::shared_ptr<Input>> _toCleanup;
+
+                bool _asyncSwitchToNextIsForced;
+
+                // False while the input is frozen off air. The bin keeps its decoder position so
+                // the next time it goes on air it resumes from where it stopped.
+                bool _playbackActive = true;
+
+                // Channel running time at the moment this input was frozen. A frozen branch stops
+                // advancing while the channel does not, so the difference on resume is exactly how
+                // far its timeline has fallen behind, and exactly what its output pads have to be
+                // shifted by to rejoin. Measured rather than inferred from buffer timestamps,
+                // which stop being a reliable measure of "behind" once an offset has been applied.
+                GstClockTime _frozenAtRunningTime = GST_CLOCK_TIME_NONE;
+
+                // Running time of the channel, or GST_CLOCK_TIME_NONE before it has a clock.
+                GstClockTime _runningTime() const;
+        };
+    }
+}
+
+#endif /* __UTPL_TRANSCODER_INPUT_PLAYLIST_H__ */

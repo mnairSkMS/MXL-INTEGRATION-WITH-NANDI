@@ -1,0 +1,79 @@
+name: skandha-transcoder
+
+# Managed MXF playlist (config/channel.yml, media in ./media/queue) encoded to one
+# H.264 High 1080p25 / AAC stereo MPEG-TS programme, served as an SRT listener on :9092.
+# No HLS or Akamai output.
+#
+# Replaces docker-compose.playlist.yml on the same host: same project, container name,
+# ./runtime state and ./config directory, so switch with
+#   docker compose -f docker-compose.playlist.yml down
+#   docker compose -f docker-compose.mxf-srt.yml up -d
+#
+# LAN receivers pull:  srt://<this-host>:9092?mode=caller
+# Operator UI:         http://<UI_BIND>:8080/operator
+# Channel config UI:   http://<UI_BIND>:8080/channel
+
+services:
+  transcoder:
+    build:
+      context: .
+      dockerfile: docker/utpl-transcoder/Dockerfile
+    image: skandha-transcoder:queuefix
+    container_name: skandha-transcoder
+    restart: unless-stopped
+    ports:
+      # The management API is unauthenticated and PUT /config genuinely writes. It stays on
+      # loopback unless UI_BIND is set, e.g. UI_BIND=192.168.1.10 in .env to reach the
+      # operator and channel UIs from the LAN. Only do that on a trusted network.
+      - "${UI_BIND:-127.0.0.1}:8080:8080"
+      # SRT output on every interface. The /udp suffix is required. SRT has no passphrase in
+      # this config schema, so restrict 9092/udp at the firewall to the receivers' subnet.
+      - "9092:9092/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      API_PORT: "8080"
+      MEDIA_DIR: /media/queue
+      GRAPHICS_CATALOG_PATH: /runtime/graphics_catalog.json
+      DB_PATH: /runtime/managed-playlist.sqlite
+      MANAGED_PLAYLIST_ID: main
+      PLAYLIST_SEED_FILE: /media/queue/playlist.m3u8
+      # Must match the input URI in playlist_mxf_srt.json (pls+file:///runtime/main.m3u8).
+      MANAGED_PLAYLIST_FILE: /runtime/main.m3u8
+      # No HLS output in this channel; the API still needs a directory to serve /hls from.
+      HLS_DIR: /runtime/hls
+      # Declarative source of truth for the playlist and its graphics. Applied on every
+      # start and rewritten by every Publish.
+      PLAYLIST_BOOTSTRAP_FILE: /opt/utpl/channel/channel.yml
+      PLAYLIST_BOOTSTRAP_WRITEBACK: "true"
+      PLAYLIST_BOOTSTRAP_STRICT: "false"
+      # Animated MOV graphics are evaluation only - see doc/codebase/27.
+      ENABLE_VIDEO_GRAPHICS: "true"
+      # Required by the declarative bootstrap: it writes rundown versions.
+      ENABLE_RUNDOWN_SERVICE: "true"
+      # Engine config. Lives in the bind-mounted ./config directory (not a single-file mount)
+      # because PUT /config from the channel UI replaces it with an atomic rename.
+      TRANSCODER_CONFIG_PATH: /opt/utpl/channel/playlist_mxf_srt.json
+      TRANSCODER_LICENSE_PATH: /runtime/license/transcoder.lic
+    volumes:
+      - ./media/queue:/media/queue
+      - ./media/graphics:/media/graphics
+      - ./media/slates:/media/slates
+      - ./runtime:/runtime
+      # Current FastAPI/operator source and the committed /channel UI build, served over the
+      # image's copy.
+      - ./api/src/transcoder_api:/opt/venv/lib/python3.12/site-packages/transcoder_api:ro
+      - ./config:/opt/utpl/channel
+      # First-run seed for TRANSCODER_LICENSE_PATH only.
+      - ./transcoder/license/prod/licenses/offline.lic:/opt/utpl/etc/transcoder.lic.seed:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ ! -d /runtime/license ]; then
+          mkdir -p /runtime/license
+          cp /opt/utpl/etc/transcoder.lic.seed "$$TRANSCODER_LICENSE_PATH"
+        fi
+        /usr/bin/supervisord &
+        trap 'supervisorctl stop transcoder transcoder_api || true; exit 0' INT TERM
+        wait

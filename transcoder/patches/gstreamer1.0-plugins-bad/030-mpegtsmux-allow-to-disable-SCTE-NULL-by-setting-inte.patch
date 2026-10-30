@@ -1,0 +1,65 @@
+From 6a9bf8592ab8f2c82af344fee11622dcc6ca7cb5 Mon Sep 17 00:00:00 2001
+From: Jurijs Satcs <jurijs.satcs@veset.tv>
+Date: Thu, 7 Mar 2024 12:28:58 +0100
+Subject: [PATCH 1/1] mpegtsmux: allow to disable SCTE NULL by setting interval
+ to 0
+
+Part-of: <https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/6284>
+---
+ .../gst-plugins-bad/docs/plugins/gst_plugins_cache.json       | 4 ++--
+ subprojects/gst-plugins-bad/gst/mpegtsmux/gstbasetsmux.c      | 4 ++--
+ subprojects/gst-plugins-bad/gst/mpegtsmux/tsmux/tsmux.c       | 2 +-
+ 3 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/subprojects/gst-plugins-bad/docs/plugins/gst_plugins_cache.json b/subprojects/gst-plugins-bad/docs/plugins/gst_plugins_cache.json
+index b01dbf0ab6..9cd30955cf 100644
+--- a/docs/plugins/gst_plugins_cache.json
++++ b/docs/plugins/gst_plugins_cache.json
+@@ -220960,14 +220960,14 @@
+                         "writable": true
+                     },
+                     "scte-35-null-interval": {
+-                        "blurb": "Set the interval (in ticks of the 90kHz clock) for writing SCTE-35 NULL (heartbeat) packets. (only valid if scte-35-pid is different from 0)",
++                        "blurb": "Set the interval (in ticks of the 90kHz clock) for writing SCTE-35 NULL (heartbeat) packets. 0=disable (only valid if scte-35-pid is different from 0)",
+                         "conditionally-available": false,
+                         "construct": false,
+                         "construct-only": false,
+                         "controllable": false,
+                         "default": "27000000",
+                         "max": "-1",
+-                        "min": "1",
++                        "min": "0",
+                         "mutable": "null",
+                         "readable": true,
+                         "type": "guint",
+diff --git a/subprojects/gst-plugins-bad/gst/mpegtsmux/gstbasetsmux.c b/subprojects/gst-plugins-bad/gst/mpegtsmux/gstbasetsmux.c
+index ec4379d4b2..7ae1c8c512 100644
+--- a/gst/mpegtsmux/gstbasetsmux.c
++++ b/gst/mpegtsmux/gstbasetsmux.c
+@@ -2860,8 +2860,8 @@ gst_base_ts_mux_class_init (GstBaseTsMuxClass * klass)
+   g_object_class_install_property (G_OBJECT_CLASS (klass),
+       PROP_SCTE_35_NULL_INTERVAL, g_param_spec_uint ("scte-35-null-interval",
+           "SCTE-35 NULL packet interval",
+-          "Set the interval (in ticks of the 90kHz clock) for writing SCTE-35 NULL (heartbeat) packets."
+-          " (only valid if scte-35-pid is different from 0)", 1, G_MAXUINT,
++          "Set the interval (in ticks of the 90kHz clock) for writing SCTE-35 NULL (heartbeat) packets. 0=disable"
++          " (only valid if scte-35-pid is different from 0)", 0, G_MAXUINT,
+           TSMUX_DEFAULT_SCTE_35_NULL_INTERVAL,
+           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+ 
+diff --git a/subprojects/gst-plugins-bad/gst/mpegtsmux/tsmux/tsmux.c b/subprojects/gst-plugins-bad/gst/mpegtsmux/tsmux/tsmux.c
+index 1df961adc5..36bde52d53 100644
+--- a/gst/mpegtsmux/tsmux/tsmux.c
++++ b/gst/mpegtsmux/tsmux/tsmux.c
+@@ -1460,7 +1460,7 @@ rewrite_si (TsMux * mux, gint64 cur_ts)
+       next_pcr = get_current_pcr (mux, cur_ts);
+     }
+ 
+-    if (program->scte35_pid != 0) {
++    if (program->scte35_pid != 0 && program->scte35_null_interval != 0) {
+       gboolean write_scte_null = FALSE;
+       if (program->next_scte35_pcr == -1)
+         write_scte_null = TRUE;
+-- 
+2.25.1
+

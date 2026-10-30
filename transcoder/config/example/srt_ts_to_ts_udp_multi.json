@@ -1,0 +1,263 @@
+{
+  "version": "1.0.7",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "trace",
+        "console": {
+          "enable": true,
+          "colors": true
+        }
+      },
+      "gstreamer": {
+        "level": "log",
+        "console": {
+          "enable": true,
+          "colors": true
+        }
+      }
+    }
+  },
+  "transcoder": {
+    "blanking": {
+      "enable": true,
+      "restriction": {
+        "ignore": "NONE"
+      },
+      "conditions": {
+        "spliceInsert": {
+          "blankWhenNoSegmentationDescriptors": false,
+          "segments": [
+            {
+              "name": "Break",
+              "priority": 1,
+              "start": "0x22",
+              "stop": "0x23"
+            },
+            {
+              "name": "Provider placement opportunity",
+              "priority": 2,
+              "start": "0x34",
+              "stop": "0x35"
+            },
+            {
+              "name": "Distributor placement opportunity",
+              "priority": 3,
+              "start": "0x36",
+              "stop": "0x37"
+            },
+            {
+              "name": "Provider advertisement",
+              "priority": 4,
+              "start": "0x30",
+              "stop": "0x31"
+            },
+            {
+              "name": "Distributor advertisement",
+              "priority": 4,
+              "start": "0x32",
+              "stop": "0x33"
+            }
+          ]
+        },
+        "timeSignal": {
+          "blankWhenNoSegmentationDescriptors": false,
+          "segments": [
+            {
+              "name": "Break",
+              "priority": 1,
+              "start": "0x22",
+              "stop": "0x23"
+            },
+            {
+              "name": "Provider placement opportunity",
+              "priority": 2,
+              "start": "0x34",
+              "stop": "0x35"
+            },
+            {
+              "name": "Distributor placement opportunity",
+              "priority": 3,
+              "start": "0x36",
+              "stop": "0x37"
+            },
+            {
+              "name": "Provider advertisement",
+              "priority": 4,
+              "start": "0x30",
+              "stop": "0x31"
+            },
+            {
+              "name": "Distributor advertisement",
+              "priority": 4,
+              "start": "0x32",
+              "stop": "0x33"
+            }
+          ]
+        }
+      }
+    },
+    "blackout": {
+      "enable": true,
+      "restriction": {
+        "ignore": "NONE"
+      },
+      "conditions": {
+        "spliceInsert": {
+          "blankWhenNoSegmentationDescriptors": false,
+          "segments": []
+        },
+        "timeSignal": {
+          "blankWhenNoSegmentationDescriptors": false,
+          "segments": [
+            {
+              "name": "Network",
+              "priority": 1,
+              "start": "0x51",
+              "stop": "0x50"
+            },
+            {
+              "name": "Unscheduled Event",
+              "priority": 2,
+              "start": "0x40",
+              "stop": "0x41"
+            },
+            {
+              "name": "Program",
+              "priority": 3,
+              "start": "0x10",
+              "stop": "0x11"
+            },
+            {
+              "name": "Chapter",
+              "priority": 4,
+              "start": "0x20",
+              "stop": "0x21"
+            }
+          ]
+        }
+      }
+    },
+    "inputs": [
+      {
+        "uri": "srt://127.0.0.1:7777?mode=caller"
+      }
+    ],
+    "outputs": [
+      {
+        "uri": "udp://127.0.0.1:6210",
+        "container": "mpegts",
+        "scte": {
+          "pid": 600,
+          "mode": "passthrough"
+        },
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "ac3",
+            "audio": {
+              "rate": 48000,
+              "channels": 10
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 1920,
+              "height": 1080
+            }
+          }
+        ]
+      },
+      {
+        "uri": "udp://127.0.0.1:6211",
+        "container": "mpegts",
+        "scte": {
+          "pid": 600,
+          "mode": "passthrough"
+        },
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "ac3",
+            "audio": {
+              "rate": 48000,
+              "channels": 6
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 1280,
+              "height": 720
+            }
+          }
+        ]
+      },
+      {
+        "uri": "udp://127.0.0.1:6212",
+        "container": "mpegts",
+        "scte": {
+          "pid": 600,
+          "mode": "passthrough"
+        },
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "mp2",
+            "audio": {
+              "rate": 44100,
+              "channels": 2
+            }
+          },
+          {
+            "type": "video",
+            "codec": "mp2",
+            "video": {
+              "width": 720,
+              "height": 576
+            }
+          }
+        ]
+      }
+    ],
+    "squeeze": [
+      {
+        "name": "l_shape",
+        "windows": {
+          "input": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": -1
+          },
+          "output": {
+            "x": 0.052083,
+            "y": 0.0,
+            "width": -1,
+            "height": 0.392593
+          }
+        }
+      },
+      {
+        "name": "low_band",
+        "windows": {
+          "input": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": 0.351852
+          },
+          "output": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": 0.351852
+          }
+        }
+      }
+    ]
+  }
+}

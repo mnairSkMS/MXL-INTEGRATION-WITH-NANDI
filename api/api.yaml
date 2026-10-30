@@ -1,0 +1,1027 @@
+openapi: 3.0.0
+info:
+  title: Transcoding Appliance API
+  version: 1.1.0
+  description: API for managing scheduled events for transcoding appliance functionalities including image overlays, video resizing, and SCTE-35 message insertions.
+
+  contact:
+    name: Support
+    url: ""
+    email: "jaroslaw.bielski@7bulls.com"
+
+tags:
+  - name: schedule
+  - name: input
+
+paths:
+  /scheduled_events:
+    get:
+      tags:
+        - schedule
+      operationId: list_events
+      summary: List all scheduled events
+      parameters:
+        - name: start_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: event_type
+          in: query
+          required: false
+          schema:
+            $ref:  '#/components/schemas/EventType'
+        - name: is_read
+          in: query
+          required: false
+          schema:
+            type: boolean
+
+      responses:
+        '200':
+          description: A list of scheduled events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventList'
+    post:
+      tags:
+        - schedule
+      operationId: create_or_update_events
+      summary: Create or update scheduled events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventList'
+      responses:
+        '201':
+          description: Scheduled events created or updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventList'
+        '400':
+          description: bad request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+                
+  /scheduled_events/{id}:
+    delete:
+      tags:
+        - schedule
+      operationId: delete_events
+      summary: Deletes scheduled event
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            $ref: '#/components/schemas/EventId'
+
+      responses:
+        '200':
+          description: Successfully deleted scheduled event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        
+        '400':
+          description: bad request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+  /slates/catalog:
+    get:
+      tags:
+        - slates
+      operationId: list_slates
+      summary: Slate media an operator may fire
+      description: |
+        The curated list behind the operator page's slate picker. Each entry carries the
+        absolute mediaUri to put in a slate event's `url`; the engine downloads that over HTTP
+        when the slate fires. Entries whose file is missing are omitted rather than listed.
+      responses:
+        '200':
+          description: The available slates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SlateAsset'
+
+  /slates/media/{asset_id}:
+    get:
+      tags:
+        - slates
+      operationId: get_slate_media
+      summary: The bytes for one slate
+      description: |
+        What the engine fetches when a slate event fires. The id is resolved through the
+        catalog, so no path from the request reaches the filesystem.
+      parameters:
+        - in: path
+          name: asset_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The slate media
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: No such slate, or its file is missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+  /inputs:
+    get:
+      tags:
+        - input
+      operationId: list_inputs
+      summary: Retrieves a list of all inputs
+
+      responses:
+        '200':
+          description: A list of configured inputs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InputList'
+
+        '400':
+          description: bad request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+  # Declared before /inputs/{id} on purpose. That path uses the default string convertor,
+  # so it matches /inputs/probe outright and the request dies on UUID validation instead of
+  # reaching this operation. Keep this block first, here and in routers/input.py.
+  /inputs/probe:
+    get:
+      tags:
+        - input
+      operationId: probe_input
+      summary: Probes a prospective input URI and reports its stream parameters
+      description: |
+        Setup-time discovery for the channel creation screen. The API runs `ffprobe` against the
+        supplied URI and reports codec, resolution, frame rate, scan type, bitrate, the audio
+        tracks, and - for MPEG-TS - the per-program packet identifiers.
+
+        This route opens the source itself, so it is meant for a channel that is not yet running.
+        Probing a single-subscriber source - an SRT caller target, or a UDP port the engine
+        already holds - while that channel is on air can steal or duplicate the subscription.
+        Probe before you start the channel, not during.
+
+        `transport` pins the URI scheme that will be accepted; a mismatch is rejected rather than
+        reinterpreted. For `srt`, the `latency`, `rcvlatency` and `peerlatency` query parameters
+        are read as MILLISECONDS to match `transport.srt.latency` in the engine configuration,
+        and converted to the microseconds libsrt expects. The URI that was actually probed is
+        echoed back as `probedUri`.
+      parameters:
+        - in: query
+          name: uri
+          required: true
+          schema:
+            type: string
+          description: |
+            The prospective input URI. `file:///path`, an absolute path, or a path relative to
+            MEDIA_DIR for `file`; `pls+file:///runtime/main.m3u8` for `playlist`;
+            `udp://host:port`, `srt://host:port?mode=caller|listener`, `http(s)://.../x.m3u8` for
+            `hls`, or `http(s)://.../x.mpd` for `dash`.
+
+        - in: query
+          name: transport
+          required: true
+          schema:
+            $ref: '#/components/schemas/InputTransportType'
+
+        - in: query
+          name: timeoutSeconds
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 30
+          description: |
+            Wall clock bound on the probe. Defaults to 10, or to 20 for `srt` in `mode=listener`,
+            where the probe binds the port and waits for an encoder to call in.
+
+        - in: query
+          name: interfaceAddress
+          required: false
+          schema:
+            type: string
+          description: |
+            Local interface address to join a UDP multicast group on, for a multi-homed
+            appliance. Mirrors `transport.udp.multicast.interfaces`. Ignored for other transports.
+
+      responses:
+        '200':
+          description: The stream parameters ffprobe reported for the URI
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InputProbe'
+
+        '400':
+          description: bad request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+        '404':
+          description: The referenced file or playlist does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+        '409':
+          description: Another probe is in progress, or the listener port is already bound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+        '422':
+          description: The source could not be probed - unreachable, timed out, or not media
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+  /inputs/{id}:
+    get:
+      tags:
+        - input
+      operationId: get_input
+      summary: Retrieves information about a specific input
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            $ref: '#/components/schemas/ID'
+      
+      responses:
+        '200':
+          description: Information about a specific input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Input'
+
+        '404':
+          description: Requested not existing input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+        '400':
+          description: bad request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+      
+            
+    post:
+      tags:
+        - input
+      operationId: update_input
+      summary: Updates the state of a specific input
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            $ref: '#/components/schemas/ID'
+            
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InputUpdateParameters'
+                  
+      responses:
+        '200':
+          description: Information about the specific modified input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Input'
+
+        '404':
+          description: Requested not existing input or stream
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+
+        '400':
+          description: bad request or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequest'
+          
+
+components:
+  schemas:
+    ID:
+      type: string
+      format: uuid
+      
+    EventType:
+      type: string
+      enum: [ image_overlay, slate, squeeze, scte35_timesignal, scte35_spliceinsert, scte35_returntonetwork ]
+      description: Type of the event
+    
+    EventId:
+      type: integer
+      description: Unique ID of a single event
+    
+    Event:
+      type: object
+      required:
+        - type
+        - details
+      properties:
+        id:
+          $ref: '#/components/schemas/EventId'
+        type:
+          $ref: '#/components/schemas/EventType'
+        time:
+          type: string
+          format: date-time
+          description: |
+            Time for the event to occur.
+            The start time may be now or in the future, but no more than 14 days ahead.
+            This is an optional parameter. If it is not provided, or if it is null or an empty string, the event is considered immediate.
+        details:
+          type: object
+          properties:
+            image_overlay:
+              $ref: '#/components/schemas/ImageOverlay'
+            slate:
+              $ref: '#/components/schemas/Slate'
+            squeeze:
+              $ref: '#/components/schemas/Squeeze'
+            scte35_timesignal:
+              $ref: '#/components/schemas/SCTE35TimeSignal'
+            scte35_spliceinsert:
+              $ref: '#/components/schemas/SCTE35SpliceInsert'
+            scte35_returntonetwork:
+              $ref: '#/components/schemas/Scte35ReturnToNetwork'
+
+    EventList:
+      type: array
+      items:
+        $ref: '#/components/schemas/Event'
+
+    EventIdList:
+      type: array
+      items:
+        $ref: '#/components/schemas/EventId'
+
+    InputStreamState:
+      type: string
+      enum:
+        - UNKNOWN
+        - CREATED
+        - BUFFERING
+        - BUFFERED
+
+    InputStream:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        uri:
+          type: string
+          format: uri
+        state:
+          $ref: '#/components/schemas/InputStreamState'
+
+    InputStreamList:
+      type: array
+      items:
+        $ref: '#/components/schemas/InputStream'
+
+    Input:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/ID'
+        streams:
+          $ref: '#/components/schemas/InputStreamList'
+        currentStreamId:
+          $ref: '#/components/schemas/ID'
+
+    InputList:
+      type: array
+      items:
+        $ref: '#/components/schemas/Input'
+
+    InputUpdateParameters:
+      type: object
+      properties:
+        currentStreamId:
+          $ref: '#/components/schemas/ID'
+
+    InputTransportType:
+      type: string
+      enum: [ srt, udp, hls, dash, file, playlist, ndi, rtmp ]
+      description: |
+        The transport the input will be configured with. Matches the values the engine's JSON
+        configuration parser accepts. `ndi` is listed so the API can reject it with a clear
+        message: ffmpeg has no NDI input protocol, so an NDI source cannot be probed.
+        `rtmp` covers both `rtmp://` and `rtmps://` URIs; the stream key is the last path segment.
+        `dash` is an MPEG-DASH manifest (`http(s)://.../x.mpd`). A live MPD whose server refuses
+        not-yet-available segments (HTTP 404/425) can time out: ffmpeg's DASH demuxer requests the
+        live-edge segment without a presentation delay.
+
+    InputScanType:
+      type: string
+      enum: [ progressive, interlaced, unknown ]
+      description: |
+        Derived from ffprobe's `field_order`. `progressive` maps directly; `tt`, `bb`, `tb` and
+        `bt` all map to `interlaced`, with the exact value carried in `fieldOrder`. A missing or
+        `unknown` field order maps to `unknown` and never to `progressive` - an operator shown
+        "Progressive" for an unanalyzed source will configure the wrong deinterlacer.
+
+    InputProbeProgram:
+      type: object
+      required:
+        - programNumber
+        - streamIndexes
+      properties:
+        programNumber:
+          type: integer
+          description: MPEG-TS program number, from the PAT.
+        programId:
+          type: integer
+        serviceName:
+          type: string
+        serviceProvider:
+          type: string
+        pmtPid:
+          type: integer
+        pcrPid:
+          type: integer
+        streamIndexes:
+          type: array
+          items:
+            type: integer
+          description: The `index` values of the streams this program carries.
+
+    InputProbeVideo:
+      type: object
+      required:
+        - index
+        - codec
+        - width
+        - height
+        - scanType
+      properties:
+        index:
+          type: integer
+        codec:
+          type: string
+          description: ffprobe `codec_name`, for example `h264` or `hevc`.
+        codecLongName:
+          type: string
+        profile:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        displayAspectRatio:
+          type: string
+        pixelFormat:
+          type: string
+        frameRate:
+          type: number
+          format: double
+          description: |
+            Decoded from `avg_frame_rate`, falling back to `r_frame_rate` when that is `0/0` or
+            implausible. Null when neither is usable.
+        frameRateExact:
+          type: string
+          description: |
+            The unrounded ffprobe fraction, for example `30000/1001`. Reported alongside the
+            float because 29.97 and 30000/1001 are not the same thing to a broadcast engineer.
+        scanType:
+          $ref: '#/components/schemas/InputScanType'
+        fieldOrder:
+          type: string
+          description: Raw ffprobe `field_order` - `progressive`, `tt`, `bb`, `tb` or `bt`.
+        bitrateBps:
+          type: integer
+          description: |
+            Per-stream `bit_rate`. Usually absent on a live MPEG-TS, where the only bitrate
+            available is the multiplex rate on the envelope.
+        pid:
+          type: integer
+          description: MPEG-TS packet identifier. Present only when the container is MPEG-TS.
+
+    InputProbeAudio:
+      type: object
+      required:
+        - index
+        - codec
+        - channels
+      properties:
+        index:
+          type: integer
+        codec:
+          type: string
+        codecLongName:
+          type: string
+        profile:
+          type: string
+        channels:
+          type: integer
+        channelLayout:
+          type: string
+        sampleRateHz:
+          type: integer
+        bitrateBps:
+          type: integer
+        language:
+          type: string
+          description: ISO 639 code from `tags.language`. Omitted when absent or `und`.
+        isDefault:
+          type: boolean
+        pid:
+          type: integer
+          description: MPEG-TS packet identifier. Present only when the container is MPEG-TS.
+
+    InputProbeData:
+      type: object
+      required:
+        - index
+        - codec
+      properties:
+        index:
+          type: integer
+        codec:
+          type: string
+          description: For example `scte_35` for a splice information PID, or `bin_data`.
+        pid:
+          type: integer
+          description: MPEG-TS packet identifier. Present only when the container is MPEG-TS.
+
+    InputProbe:
+      type: object
+      required:
+        - uri
+        - transport
+        - probedUri
+        - container
+        - audio
+        - data
+        - programs
+        - warnings
+      properties:
+        uri:
+          type: string
+          description: Exactly what the client sent.
+        transport:
+          $ref: '#/components/schemas/InputTransportType'
+        probedUri:
+          type: string
+          description: |
+            What ffprobe was actually given after normalization. For `playlist` this is the first
+            media entry of the M3U8 rather than the M3U8 itself, because the playlist format the
+            engine uses is not an ffmpeg-readable container.
+        container:
+          type: string
+          description: ffprobe `format.format_name`, for example `mpegts`.
+        isLive:
+          type: boolean
+          description: True for `srt`, `udp` and `hls`; false for `file` and `playlist`.
+        durationSeconds:
+          type: number
+          format: double
+          description: Null for live transports.
+        bitrateBps:
+          type: integer
+          description: |
+            Container bitrate from `format.bit_rate`. On a live MPEG-TS this is the multiplex
+            rate, and is the only bitrate available, because per-stream `bit_rate` is absent.
+        waitedForCaller:
+          type: boolean
+          description: True when the probe bound an SRT listener socket and waited for a caller.
+        video:
+          $ref: '#/components/schemas/InputProbeVideo'
+        audio:
+          type: array
+          items:
+            $ref: '#/components/schemas/InputProbeAudio'
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/InputProbeData'
+        programs:
+          type: array
+          items:
+            $ref: '#/components/schemas/InputProbeProgram'
+          description: Empty for any container that is not MPEG-TS.
+        warnings:
+          type: array
+          items:
+            type: string
+          description: |
+            Non-fatal observations - a second video stream that was ignored, a frame rate that
+            had to fall back to `r_frame_rate`, a per-stream bitrate that was unavailable.
+
+    ImageOverlay:
+      type: object
+      required:
+        - image_urls
+      properties:
+        geometry_norm:
+          $ref: '#/components/schemas/Rect'
+        duration:
+          nullable: true
+          type: integer
+          minimum: 1
+          description: Duration in milliseconds, if not set, the overlay will be displayed until not removed
+        image_urls:
+          nullable: false
+          type: array
+          items:
+            type: string
+            format: uri
+          description: List of image URLs for the overlay
+        opacity:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Opacity of the overlay
+        fade_in:
+          type: integer
+          minimum: 0
+          description: Fade-in duration in milliseconds
+        fade_out:
+          type: integer
+          minimum: 0
+          description: Fade-out duration in milliseconds
+        delay_between_images:
+          type: integer
+          minimum: 0
+          description: Delay between images in milliseconds, (for 0 framerate of output stream)
+        z_order:
+          nullable: true
+          type: integer
+          minimum: 0
+          description: Optional compositor stacking order; values below the programme layer render behind it.
+
+    SlateAsset:
+      type: object
+      required:
+        - id
+        - label
+        - mediaType
+        - hasAudio
+        - mediaUri
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        mediaType:
+          type: string
+          enum: [video, image]
+        hasAudio:
+          type: boolean
+          description: |
+            Whether the media carries an audio track. When false, firing this slate mutes the
+            programme audio for its duration - the engine has nothing to play in its place -
+            and the operator page says so before the operator commits.
+        mediaUri:
+          type: string
+          format: uri
+          description: Absolute URL to put in a slate event's `url`.
+
+    Slate:
+      type: object
+      required:
+        - url
+        - duration
+      properties:
+        url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          minimum: 1
+          description: Duration in milliseconds
+
+    Squeeze:
+      type: object
+      description: |
+        if squeeze_name is empty
+        both input_window_norm and output_window_norm must be set
+      required:
+        - duration
+      properties:
+        squeeze_name:
+          type: string
+          description: squeeze type described in config.json
+        input_window_norm:
+          $ref: '#/components/schemas/Rect'
+        output_window_norm:
+          $ref: '#/components/schemas/Rect'
+        duration:
+          type: integer
+          minimum: 1
+          description: Duration of the splice insert in milliseconds
+        fade_in:
+          type: integer
+          minimum: 0
+          description: Squeeze-in transition duration in milliseconds; omitted means instant.
+        fade_out:
+          type: integer
+          minimum: 0
+          description: Squeeze-out transition duration in milliseconds; omitted means instant.
+
+    SCTE35TimeSignal:
+      type: object
+      properties:
+        scte35_descriptors:
+          type: array
+          description: |
+            Required unless scte35_base64 is supplied, in which case the descriptors
+            are taken from the encoded section instead.
+          items:
+            $ref: '#/components/schemas/SCTE35SegmentationDescriptor'
+        scte35_base64:
+          type: string
+          maxLength: 5464
+          description: |
+            Complete base64-encoded SCTE-35 splice_info_section.
+            When present, this section supplies the signalling payload instead of the
+            field-by-field builder: segmentation descriptors, UPIDs, break durations,
+            event IDs and delivery restriction flags are all taken from it verbatim.
+            Only the splice time is rewritten, so the message lands at the scheduled
+            event time in this output's timeline.
+            Must decode to a time_signal command.
+
+    SCTE35SpliceInsert:
+      type: object
+      required:
+        - duration
+      properties:
+        duration:
+          type: integer
+          minimum: 1
+          description: |
+            Duration of the splice insert in milliseconds.
+            Always required: it is what schedules the event's end time.
+            When scte35_base64 is supplied, the break duration actually signalled
+            downstream is the one carried inside that section.
+        auto_return:
+          type: boolean
+          default: true
+          description: |
+            Sets break_duration_auto_return on the splice_insert.
+              * true  - the break closes itself when the duration elapses. A manual
+                        scte35_returntonetwork for this splice_event_id is rejected.
+              * false - the break stays open until the operator sends a matching
+                        scte35_returntonetwork.
+            Ignored when scte35_base64 is supplied: the flag is then whatever the
+            supplied section carries.
+        segmentation_upid:
+          type: string
+          description: |
+            Optional UPID, as literal ASCII text; its characters are the UPID bytes.
+            SCTE-35 carries descriptors on the splice_info_section rather than on the
+            command, so supplying this attaches a segmentation_descriptor to the
+            splice_insert exactly as one rides on a time_signal. Omit it and the section
+            keeps its previous shape, with no descriptor at all.
+            The descriptor mirrors the break: its segmentation_event_id is splice_event_id
+            and its segmentation_duration is duration.
+        segmentation_upid_type:
+          type: integer
+          minimum: 0
+          maximum: 255
+          default: 15
+          description: |
+            How a decoder should read segmentation_upid. Only meaningful alongside it.
+            15 (URI) and 9 (ADI) are plain character strings; 12 (MPU) is defined as a
+            4-byte format identifier plus private data, so decoders split the value.
+        segmentation_type_id:
+          type: integer
+          minimum: 0
+          maximum: 255
+          default: 52
+          description: |
+            segmentation_type_id for the attached descriptor. Only meaningful alongside
+            segmentation_upid. Defaults to 52 (0x34, Provider Placement Opportunity Start),
+            which is what a cue-out signals.
+            The permitted values are ANSI/SCTE 35 Table 23, transcribed at
+            doc/codebase/31-scte35-segmentation-type-id-table.md; ids absent from that table
+            are reserved or private and are passed through as given.
+            A break-END id (0x23, 0x31, 0x33, 0x35, 0x37, 0x39, 0x3B) is rejected with 400:
+            a splice_insert opens an avail, and scte35_returntonetwork is what closes it.
+        splice_event_id:
+          type: integer
+          minimum: 0
+          description: |
+            Splice event ID.
+            Required unless scte35_base64 is supplied, in which case the event ID is
+            taken from the encoded section instead.
+        scte35_base64:
+          type: string
+          maxLength: 5464
+          description: |
+            Complete base64-encoded SCTE-35 splice_info_section.
+            When present, this section supplies the signalling payload instead of the
+            field-by-field builder: segmentation descriptors, UPIDs, break durations,
+            event IDs and delivery restriction flags are all taken from it verbatim.
+            Only the splice time is rewritten, so the message lands at the scheduled
+            event time in this output's timeline.
+            Must decode to a splice_insert command.
+
+    Scte35ReturnToNetwork:
+      type: object
+      properties:
+        splice_event_id:
+          type: integer
+          minimum: 0
+          description: |
+            Splice event ID.
+            Required unless scte35_base64 is supplied, in which case the event ID is
+            taken from the encoded section instead.
+        scte35_base64:
+          type: string
+          maxLength: 5464
+          description: |
+            Complete base64-encoded SCTE-35 splice_info_section.
+            When present, this section supplies the signalling payload instead of the
+            field-by-field builder: segmentation descriptors, UPIDs, break durations,
+            event IDs and delivery restriction flags are all taken from it verbatim.
+            Only the splice time is rewritten, so the message lands at the scheduled
+            event time in this output's timeline.
+            Must decode to a splice_insert command whose out_of_network_indicator
+            is clear.
+
+    SCTE35SegmentationDescriptor:
+      type: object
+      required:
+        - segmentation_cancel_indicator
+        - segmentation_event_id
+      properties:
+        delivery_restrictions:
+          $ref: '#/components/schemas/DeliveryRestrictions'
+        segment_num:
+          type: integer
+          description: Segment number
+        segmentation_cancel_indicator:
+          type: string
+          enum: [SEGMENTATION_EVENT_NOT_CANCELED, SEGMENTATION_EVENT_CANCELED]
+          description: Segmentation cancel indicator
+        segmentation_duration:
+          type: integer
+          description: Segmentation duration (in 90 KHz ticks)
+        segmentation_event_id:
+          type: integer
+          description: Segmentation event ID
+        segmentation_type_id:
+          type: integer
+          description: |
+            Segmentation type ID, from ANSI/SCTE 35 Table 23 - transcribed at
+            doc/codebase/31-scte35-segmentation-type-id-table.md. Ids absent from that table
+            are reserved or private and are passed through as given.
+            A break-END id (0x23, 0x31, 0x33, 0x35, 0x37, 0x39, 0x3B) is rejected with 400 on
+            a time_signal: that break closes on its segmentation_duration, not on a cue-in.
+            A break-START id requires segmentation_duration for the same reason.
+        segmentation_upid:
+          type: string
+          description: |
+            Segmentation UPID as literal ASCII text; it is encoded to its ASCII bytes.
+            Non-ASCII codepoints are rejected with 400, as is any value that cannot be
+            encoded. Hex input is no longer accepted - a hex string is now taken literally,
+            so "4578616D" puts those eight characters on the wire, not the four bytes they
+            used to mean.
+            How a decoder renders the resulting bytes is governed by segmentation_upid_type:
+            type 12 (MPU) is defined as a 4-byte format identifier plus private data so
+            decoders split the value, while 15 (URI) and 9 (ADI) render it as plain text.
+        segmentation_upid_type:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Segmentation UPID type
+        segments_expected:
+          type: integer
+          description: Segments expected
+        sub_segment_num:
+          type: integer
+          description: Sub-segment number
+        sub_segments_expected:
+          type: integer
+          description: Sub-segments expected
+
+    DeliveryRestrictions:
+      type: object
+      required:
+        - archive_allowed_flag
+        - device_restrictions
+        - no_regional_blackout_flag
+        - web_delivery_allowed_flag
+      properties:
+        archive_allowed_flag:
+          type: string
+          enum: [ARCHIVE_NOT_ALLOWED, ARCHIVE_ALLOWED]
+          description: Archive allowed flag
+        device_restrictions:
+          type: string
+          enum: [NONE, RESTRICT_GROUP0, RESTRICT_GROUP1, RESTRICT_GROUP2]
+          description: Device restrictions
+        no_regional_blackout_flag:
+          type: string
+          enum: [REGIONAL_BLACKOUT, NO_REGIONAL_BLACKOUT]
+          description: No regional blackout flag
+        web_delivery_allowed_flag:
+          type: string
+          enum: [WEB_DELIVERY_NOT_ALLOWED, WEB_DELIVERY_ALLOWED]
+          description: Web delivery allowed flag
+
+    Rect:
+      type: object
+      description: |
+        A rectangle expressed as fractions of the output frame, so one value is
+        correct at every raster. Omitted members keep the engine's auto sentinel.
+      properties:
+        x:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: X position as a fraction of the output frame width
+          default: 0
+        y:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Y position as a fraction of the output frame height
+          default: 0
+        width:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1
+          description: Width as a fraction of the output frame width (default original image)
+        height:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 1
+          description: Height as a fraction of the output frame height (default original image)
+
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_REQUEST
+        - INVALID_TIME_RANGE
+        - DETAILS_TYPE_MISMATCH
+        - MISSING_FIELDS
+        - UNAVAILABLE
+
+    InvalidRequest:
+      type: object
+      required:
+        - message
+        - code
+      properties:
+        message:
+          type: string
+        code:
+          $ref: '#/components/schemas/ErrorCode'

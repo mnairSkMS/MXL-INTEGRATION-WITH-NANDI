@@ -1,0 +1,101 @@
+--- a/gst/mpegtsmux/gstbasetsmux.c
++++ b/gst/mpegtsmux/gstbasetsmux.c
+@@ -480,6 +480,8 @@ gst_base_ts_mux_create_or_update_stream (GstBaseTsMux * mux,
+     st = TSMUX_ST_VIDEO_DIRAC;
+   } else if (strcmp (mt, "audio/x-ac3") == 0) {
+     st = TSMUX_ST_PS_AUDIO_AC3;
++  } else if (strcmp (mt, "audio/x-eac3") == 0) {
++    st = TSMUX_ST_PS_AUDIO_EAC3;
+   } else if (strcmp (mt, "audio/x-dts") == 0) {
+     st = TSMUX_ST_PS_AUDIO_DTS;
+   } else if (strcmp (mt, "audio/x-lpcm") == 0) {
+@@ -784,11 +786,13 @@ gst_base_ts_mux_create_or_update_stream (GstBaseTsMux * mux,
+     goto error;
+   }
+ 
+-  if (ts_pad->stream && st != ts_pad->stream->stream_type) {
+-    GST_ELEMENT_ERROR (mux, STREAM, MUX,
+-        ("Stream type change from %02x to %02x not supported",
+-            ts_pad->stream->stream_type, st), NULL);
+-    goto error;
++  if (st != TSMUX_ST_PS_AUDIO_AC3 && st != TSMUX_ST_PS_AUDIO_EAC3) {
++    if (ts_pad->stream && st != ts_pad->stream->stream_type) {
++      GST_ELEMENT_ERROR (mux, STREAM, MUX,
++          ("Stream type change from %02x to %02x not supported",
++              ts_pad->stream->stream_type, st), NULL);
++      goto error;
++    }
+   }
+ 
+   if (ts_pad->stream == NULL) {
+--- a/gst/mpegtsmux/gstmpegtsmux.c
++++ b/gst/mpegtsmux/gstmpegtsmux.c
+@@ -121,6 +121,7 @@ static GstStaticPadTemplate gst_mpeg_ts_mux_sink_factory =
+         "emphasis = (boolean) { FALSE, TRUE }, "
+         "mute = (boolean) { FALSE, TRUE }; "
+         "audio/x-ac3, framed = (boolean) TRUE;"
++        "audio/x-eac3, framed = (boolean) TRUE;"
+         "audio/x-dts, framed = (boolean) TRUE;"
+         "audio/x-opus, "
+         "channels = (int) [1, 255];"
+--- a/gst/mpegtsmux/tsmux/tsmuxstream.c
++++ b/gst/mpegtsmux/tsmux/tsmuxstream.c
+@@ -169,6 +169,7 @@ tsmux_stream_new (guint16 pid, guint stream_type, guint stream_number)
+     case TSMUX_ST_VIDEO_DIRAC:
+     case TSMUX_ST_PS_AUDIO_LPCM:
+     case TSMUX_ST_PS_AUDIO_AC3:
++    case TSMUX_ST_PS_AUDIO_EAC3:
+     case TSMUX_ST_PS_AUDIO_DTS:
+       stream->id = 0xFD;
+       /* FIXME: assign sequential extended IDs? */
+@@ -185,6 +186,10 @@ tsmux_stream_new (guint16 pid, guint stream_type, guint stream_number)
+           stream->is_audio = TRUE;
+           stream->id_extended = 0x71;
+           break;
++        case TSMUX_ST_PS_AUDIO_EAC3:
++          stream->is_audio = TRUE;
++          stream->id_extended = 0x72;
++          break;
+         case TSMUX_ST_PS_AUDIO_DTS:
+           stream->is_audio = TRUE;
+           stream->id_extended = 0x82;
+@@ -909,6 +914,29 @@ tsmux_stream_default_get_es_descrs (TsMuxStream * stream,
+       descriptor =
+           gst_mpegts_descriptor_from_custom (GST_MTS_DESC_DVB_AC3, add_info, 1);
+       g_ptr_array_add (pmt_stream->descriptors, descriptor);
++
++      stream->stream_type = pmt_stream->stream_type = 0x06;
++      stream->id          = 0xBD;
++      stream->pi.flags   &= ~TSMUX_PACKET_FLAG_PES_EXT_STREAMID;
++      break;
++    }
++    case TSMUX_ST_PS_AUDIO_EAC3:
++    {
++      /* This is only called for DVB, ATSC ignores this case in favour of its
++       * special handling for the 0xCC descriptor */
++      /* We choose to provide no optional information */
++      guint8 add_info[1] = { 0x00 };
++
++      descriptor = gst_mpegts_descriptor_from_registration ("EAC3", NULL, 0);
++      g_ptr_array_add (pmt_stream->descriptors, descriptor);
++
++      descriptor =
++          gst_mpegts_descriptor_from_custom (GST_MTS_DESC_DVB_ENHANCED_AC3, add_info, 1);
++      g_ptr_array_add (pmt_stream->descriptors, descriptor);
++
++      stream->stream_type = pmt_stream->stream_type = 0x06;
++      stream->id          = 0xBD;
++      stream->pi.flags   &= ~TSMUX_PACKET_FLAG_PES_EXT_STREAMID;
+       break;
+     }
+     case TSMUX_ST_PS_AUDIO_DTS:
+--- a/gst/mpegtsmux/tsmux/tsmuxstream.h
++++ b/gst/mpegtsmux/tsmux/tsmuxstream.h
+@@ -125,6 +125,7 @@ enum TsMuxStreamType {
+ 
+   /* private stream types */
+   TSMUX_ST_PS_AUDIO_AC3               = 0x81,
++  TSMUX_ST_PS_AUDIO_EAC3              = 0x87,
+   TSMUX_ST_PS_AUDIO_DTS               = 0x8a,
+   TSMUX_ST_PS_AUDIO_LPCM              = 0x8b,
+   TSMUX_ST_PS_DVB_SUBPICTURE          = 0x8c,

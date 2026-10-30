@@ -1,0 +1,73 @@
+{
+    "version": "1.4.2",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "scte": {
+            "prerollTime": 4000,
+            "pois": {
+                "enable": true,
+                "timeout": 400,
+                "server": {
+                    "uri": "http://34.47.163.153:7000/v1/esam",
+                    "acquisitionPointId": "media-transcoder"
+                }
+            }
+        },
+         "inputs": [
+            {
+                "transport": {
+                    "uri": [
+                        "srt://103.248.72.28:10009?mode=caller",
+                        "srt://103.248.72.28:10008?mode=caller"
+                    ]
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:7000?mode=listener"
+                    }
+                ],
+
+                "container": "mpegts",
+                "scte": {
+                    "pid": 600,
+                    "mode": "passthrough"
+                },
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

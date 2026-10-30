@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tsduck>
+    <!-- Cue-out at 5 s: the programme is replaced by the ad playlist. -->
+    <splice_information_table>
+        <splice_insert splice_event_id="100" unique_program_id="1" out_of_network="true" pts_time="450000"/>
+    </splice_information_table>
+
+    <!-- Cue-in at 11 s: the programme returns and the ad playlist freezes mid spot. -->
+    <splice_information_table>
+        <splice_insert splice_event_id="100" unique_program_id="1" out_of_network="false" pts_time="990000"/>
+    </splice_information_table>
+
+    <!-- Second break at 15 s, closing at 19 s so the capture still covers the return. -->
+    <splice_information_table>
+        <splice_insert splice_event_id="101" unique_program_id="1" out_of_network="true" pts_time="1350000"/>
+    </splice_information_table>
+
+    <splice_information_table>
+        <splice_insert splice_event_id="101" unique_program_id="1" out_of_network="false" pts_time="1710000"/>
+    </splice_information_table>
+</tsduck>

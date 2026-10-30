@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SignalProcessingEvent xmlns="urn:cablelabs:iptvservices:esam:xsd:signal:1" xmlns:sig="urn:cablelabs:md:xsd:signaling:3.0" xmlns:common="urn:cablelabs:iptvservices:esam:xsd:common:1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <AcquiredSignal acquisitionPointIdentity="michal" acquisitionSignalID="168fdcf8edbb42df8acb99f4c8ae3c2e" acquisitionTime="2024-08-20T16:16:42.123Z" zoneIdentity="">
+    <sig:UTCPoint utcPoint="2024-08-20T16:16:42.123Z"/>
+    <sig:BinaryData signalType="SCTE35">/D//AH/////////wDwUAAozof8/+1Ykjv1VmAAAAAP//////////</sig:BinaryData>
+    <sig:StreamTimes>
+      <sig:StreamTime TimeType="PTS" TimeValue="5022471834"/>
+      </sig:StreamTimes>
+    </AcquiredSignal>
+</SignalProcessingEvent>

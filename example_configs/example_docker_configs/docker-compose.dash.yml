@@ -1,0 +1,38 @@
+# Local DASH-input test channel (config/dash_to_hls_srt.json). Use with docker-compose.playlist.yml:
+#   docker compose -f docker-compose.playlist.yml -f docker-compose.dash.yml up -d
+#
+# It has its own project name, container names and host ports so it can run beside the stack
+# from docker-compose.playlist.yml / docker-compose.ui.yml without touching it:
+#   API + operator UI  http://127.0.0.1:18080/operator   (loopback only; the API is unauthenticated)
+#   HLS, LAN           http://<this-host>:18081/master.m3u8
+#   HLS, via the API   http://127.0.0.1:18080/hls/master.m3u8
+#   SRT                srt://<this-host>:19092?mode=caller
+#
+# The channel pulls its source from the host: http://host.docker.internal:8090/live.mpd, a live
+# DASH feed that must already be running there (an ffmpeg loop published by any HTTP server).
+# The image tag below has to exist locally; it is the runtime image plus the DASH-capable
+# binaries, see doc/codebase/07-inputs-and-ingest.md.
+name: skandha-dash
+
+services:
+  transcoder:
+    image: skandha-transcoder:dash-dev
+    pull_policy: never
+    container_name: skandha-dash
+    ports: !override
+      - "127.0.0.1:18080:8080"
+      - "19092:9092/udp"
+    environment:
+      TRANSCODER_CONFIG_PATH: /opt/utpl/channel/dash_to_hls_srt.json
+      # This channel has no playlist. Without these the bootstrap would apply channel.yml and,
+      # on Publish, rewrite it in the shared config/ directory.
+      PLAYLIST_BOOTSTRAP_FILE: ""
+      PLAYLIST_BOOTSTRAP_WRITEBACK: "false"
+      DB_PATH: /runtime/dash.sqlite
+      MANAGED_PLAYLIST_FILE: /runtime/dash-main.m3u8
+  hls-lan:
+    image: skandha-transcoder:dash-dev
+    pull_policy: never
+    container_name: skandha-dash-hls-lan
+    ports: !override
+      - "18081:8081"

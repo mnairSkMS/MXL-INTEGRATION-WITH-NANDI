@@ -1,0 +1,84 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": false
+                }
+            },
+            
+            "gstreamer": {
+                "level": "warning",
+                "file": {
+                    "enable": true,
+                    "path": "/opt/utpl/var/log/gstreamer.log"
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///media/src/big_buck_bunny_480p_h264.mov"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///media/dst/big_buck_bunny_1280p_h264.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6
+                        },
+                        "ac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "dialnorm": "-24",
+                                "drc-line": "auto",
+                                "drc-rf": "auto",
+                                "surround-trim": "auto",
+                                "height-trim": "auto"
+                            },
+                            "caps": {
+
+                            }
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 480
+                        },
+
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max":  "15",
+                                "tune":         "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate":      "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

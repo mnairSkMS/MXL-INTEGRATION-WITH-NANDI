@@ -1,0 +1,154 @@
+openapi: 3.0.0
+info:
+  title: Transcoder License Server Session API
+  version: 1.0.0
+  description: API for managing transcoder sessions and heartbeats
+
+servers:
+  - url: http://127.0.0.1:8000
+    description: Local development server
+
+components:
+  schemas:
+    LicenseData:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the license
+        max_sessions:
+          type: integer
+          description: Maximum number of concurrent sessions allowed
+        valid_from:
+          type: string
+          format: date-time
+          description: License validity start date
+        valid_until:
+          type: string
+          format: date-time
+          description: License validity end date
+      required:
+        - id
+        - max_sessions
+        - valid_from
+        - valid_until
+
+    LicenseMeta:
+      type: object
+      properties:
+        version:
+          type: string
+          description: License format version
+        created_at:
+          type: string
+          format: date-time
+          description: License creation timestamp
+      required:
+        - version
+        - created_at
+
+    License:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/LicenseData'
+        meta:
+          $ref: '#/components/schemas/LicenseMeta'
+      required:
+        - data
+        - meta
+
+    CreateSessionResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token containing session information
+      required:
+        - token
+
+    HeartbeatResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: New JWT token with updated expiration
+        detail:
+          type: string
+          description: Status message
+      required:
+        - token
+        - detail
+
+  securitySchemes:
+    JWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+  /create_session:
+    post:
+      summary: Create a new transcoder session
+      description: Creates a new session for a valid license file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Base64 encoded license file content
+      responses:
+        '200':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateSessionResponse'
+        '400':
+          description: Invalid license or maximum sessions reached
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    description: Error message
+                required:
+                  - detail
+        '500':
+          description: Internal server error
+
+  /heartbeat/{session_id}:
+    post:
+      summary: Send heartbeat for a session
+      description: Updates the last heartbeat time for a session and returns a new JWT token
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            description: Session ID from the JWT token
+      responses:
+        '200':
+          description: Heartbeat received successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeartbeatResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    description: Error message
+                required:
+                  - detail
+        '500':
+          description: Internal server error 

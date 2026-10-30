@@ -1,0 +1,40 @@
+diff --git a/ext/hls/gsthlsdemux.c b/ext/hls/gsthlsdemux.c
+index 929212cf09..c0ed5e951f 100644
+--- a/ext/hls/gsthlsdemux.c
++++ b/ext/hls/gsthlsdemux.c
+@@ -62,6 +62,15 @@ GST_DEBUG_CATEGORY (gst_hls_demux_debug);
+ #define GST_M3U8_CLIENT_LOCK(l) /* FIXME */
+ #define GST_M3U8_CLIENT_UNLOCK(l)       /* FIXME */
+ 
++
++enum
++{
++  SIGNAL_UPDATE_VARIANT_MANIFEST,
++  SIGNAL_LAST
++};
++
++static guint signals[SIGNAL_LAST];
++
+ /* GObject */
+ static void gst_hls_demux_finalize (GObject * obj);
+ 
+@@ -185,6 +194,10 @@ gst_hls_demux_class_init (GstHLSDemuxClass * klass)
+   adaptivedemux_class->finish_fragment = gst_hls_demux_finish_fragment;
+   adaptivedemux_class->data_received = gst_hls_demux_data_received;
+ 
++  signals[SIGNAL_UPDATE_VARIANT_MANIFEST] =
++      g_signal_new ("update-variant-manifest", G_TYPE_FROM_CLASS (klass),
++      G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 3, G_TYPE_STRING, G_TYPE_INT64, GST_TYPE_CLOCK_TIME);
++
+   GST_DEBUG_CATEGORY_INIT (gst_hls_demux_debug, "hlsdemux", 0,
+       "hlsdemux element");
+ }
+@@ -1661,6 +1674,8 @@ retry:
+     return FALSE;
+   }
+ 
++  g_signal_emit (demux, signals[SIGNAL_UPDATE_VARIANT_MANIFEST], 0, playlist, m3u8->sequence, m3u8->sequence_position);
++
+   if (!gst_m3u8_update (m3u8, playlist)) {
+     GST_WARNING_OBJECT (demux, "Couldn't update playlist");
+     g_set_error (err, GST_STREAM_ERROR, GST_STREAM_ERROR_FAILED,

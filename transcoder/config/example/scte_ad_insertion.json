@@ -1,0 +1,132 @@
+{
+    "version": "1.5.0",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true,
+                    "stderr": false
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "role": "primary",
+                "transport": {
+                    "uri": "srt://127.0.0.1:2222/?mode=caller"
+                }
+            },
+            {
+                "role": "secondary",
+                "offAir": "pause",
+                "transport": {
+                    "uri": "pls+file:///opt/utpl/etc/commercials.m3u8"
+                }
+            }
+        ],
+
+        "adInsertion": {
+            "enable": true,
+
+            "maxBreakDuration": 300000,
+
+            "outputScte": "passthrough",
+
+            "trigger": {
+                "restriction": {
+                    "ignore": "NONE"
+                },
+
+                "conditions": {
+                    "spliceInsert": {
+                        "matchWhenNoSegmentationDescriptors": true,
+                        "segments": []
+                    },
+
+                    "timeSignal": {
+                        "matchWhenNoSegmentationDescriptors": false,
+
+                        "segments": [
+                            {
+                                "name": "Provider placement opportunity",
+                                "priority": 2,
+                                "start": "0x34",
+                                "stop": "0x35"
+                            },
+                            {
+                                "name": "Distributor placement opportunity",
+                                "priority": 3,
+                                "start": "0x36",
+                                "stop": "0x37"
+                            },
+                            {
+                                "name": "Provider advertisement",
+                                "priority": 4,
+                                "start": "0x30",
+                                "stop": "0x31"
+                            },
+                            {
+                                "name": "Distributor advertisement",
+                                "priority": 4,
+                                "start": "0x32",
+                                "stop": "0x33"
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:7000?mode=listener"
+                    }
+                ],
+
+                "container": "mpegts",
+
+                "scte": {
+                    "pid": 600,
+                    "mode": "passthrough"
+                },
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

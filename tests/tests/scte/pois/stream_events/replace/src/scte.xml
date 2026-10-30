@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tsduck>
+    <splice_information_table>
+        <splice_insert splice_event_id="100" unique_program_id="1" out_of_network="true" pts_time="450000"/>
+    </splice_information_table>
+
+    <splice_information_table>
+        <splice_insert splice_event_id="100" unique_program_id="1" out_of_network="false" pts_time="900000"/>
+    </splice_information_table>
+
+    <splice_information_table>
+        <time_signal pts_time="1350000" />
+
+        <splice_segmentation_descriptor
+            identifier="0x43554549"
+            segmentation_event_id="2000"
+            segmentation_event_cancel="false"
+            web_delivery_allowed="true"
+            no_regional_blackout="true"
+            archive_allowed="true"
+            device_restrictions="3"
+            segmentation_duration="900000"
+            segmentation_type_id="14"
+            segment_num="0"
+            segments_expected="0"
+            sub_segment_num="0"
+            sub_segments_expected="0"
+        >
+            <segmentation_upid type="0"></segmentation_upid>
+        </splice_segmentation_descriptor>
+
+        <splice_segmentation_descriptor
+            identifier="0x43554549"
+            segmentation_event_id="2001"
+            segmentation_event_cancel="true"
+        >
+        </splice_segmentation_descriptor>
+    </splice_information_table>
+</tsduck>

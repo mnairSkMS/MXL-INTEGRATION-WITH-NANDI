@@ -1,0 +1,49 @@
+{
+    "version": "1.0.7",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "srt://127.0.0.1:2222/?mode=listener"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "srt://127.0.0.1:4444/?mode=listener",
+                "container": "mpegts",
+
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "passthrough"
+                    },
+                    {
+                        "type": "video",
+                        "codec": "passthrough"
+                    }
+                ]
+            }
+        ]
+    }
+}

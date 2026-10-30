@@ -1,0 +1,2880 @@
+
+classDiagram
+
+	TranscoderApi <|-- TranscoderGrpcApi
+	EventProvider <|-- DummyEventProvider
+	EventProvider <|-- SqliteEventProvider
+	BaseMultiversionJsonParser <|-- MultiVersionConfigJsonParser
+	BaseMultiversionJsonParser <|-- MultiVersionDebugConfigJsonParser
+	Event <|-- EventSqueeze
+	Event <|-- EventOverlay
+	Event <|-- EventSlate
+	Event <|-- EventSpliceInsert
+	Event <|-- EventReturnToNetwork
+	Event <|-- EventTimeSignal
+	OutputStream <|-- OutputPadStream
+	Stream <|-- PadStream
+	BaseInputStream <|-- DummyVideoStream
+	InputStream <|-- BaseInputStream
+	BaseInputStream <|-- DummyAudioStream
+	InputStream <|-- ImageInputStream
+	Output <|-- GroupOutput
+	OutputTransportParameters <|-- SrtOutputTransportParameters
+	OutputTransportParameters <|-- S3OutputTransportParameters
+	OutputTransportParameters <|-- UdpOutputTransportParameters
+	OutputTransportParameters <|-- FileOutputTransportParameters
+	OutputTransportParameters <|-- HlsOutputTransportParameters
+	Output <|-- SingleOutput
+	Stream <|-- InputStream
+	Stream <|-- OutputStream
+	InputTransportParameters <|-- SrtInputTransportParameters
+	InputTransportParameters <|-- UdpInputTransportParameters
+	InputTransportParameters <|-- FileInputTransportParameters
+	InputTransportParameters <|-- HlsInputTransportParameters
+	InputTransportParameters <|-- PlaylistTransportInputParameters
+	Input <|-- PlaylistInput
+	Input <|-- SingleInput
+	BaseInputStream <|-- SingleInputStream
+	Input <|-- OverlayInput
+	BaseInputStream <|-- OverlayInputStream
+	Input <|-- StandardInput
+	Factory <|-- GstreamerFactory
+	Playlist <|-- MediaPlaylist
+	Playlist <|-- MasterPlaylist
+	SegmentStorageFactory <|-- SegmentMemoryStorageFactory
+	BaseUploader <|-- FileUploader
+	Uploader <|-- BaseUploader
+	BaseUploader <|-- HttpUploader
+	GstWrapper <|-- Element
+	Bin <|-- Pipe
+	GstWrapper <|-- Caps
+	GstWrapper <|-- Pad
+	Pad <|-- GhostPad
+	Element <|-- Bin
+	OutputSink <|-- S3OutputSink
+	OutputSink <|-- HlsOutputSink
+	OutputSink <|-- SrtOutputSink
+	OutputSink <|-- FileOutputSink
+	OutputSink <|-- UdpOutputSink
+	Muxer <|-- MpegTsMuxer
+	ScheduledEvent <|-- ScheduledSqueezeEvent
+	ScheduledEvent <|-- ScheduledReturnToNetworkEvent
+	ScheduledEvent <|-- ScheduledSpliceInsertEvent
+	ScheduledEvent <|-- ScheduledOverlayEvent
+	ScheduledEvent <|-- ScheduledTimeSignalEvent
+	ScheduledEvent <|-- ScheduledSlateEvent
+	Processor <|-- VideoTranscodingProcessor
+	Processor <|-- DolbyTranscodingProcessor
+	Processor <|-- AudioTranscodingProcessor
+	Flowline <|-- TranscodingFlowline
+	Processor <|-- PassthroughProcessor
+	StreamConnector <|-- VideoComplexConnector
+	StreamConnector <|-- DolbyComplexConnector
+	StreamConnector <|-- AudioComplexConnector
+	StreamConnector <|-- PasstroughConnector
+	Exception <|-- GenericLicenseException
+	LicenseSerializer <|-- JsonLicenseSerializer
+	LicenseFileSerializer <|-- JsonLicenseFileSerializer
+
+	AttributeValue <|-- AttributeValueInteger
+	AttributeValue <|-- AttributeValueFloat
+	AttributeValue <|-- AttributeValueString
+	AttributeValue <|-- AttributeValueEnum
+	AttributeValue <|-- AttributeValueRational
+	AttributeValue <|-- AttributeValueDateTime
+	Entry <|-- TagEntry
+	Entry <|-- UriEntry
+	Key <|-- PublicKey
+	Key <|-- PrivateKey
+	CipherParameters <|-- CipherIvParameters
+	CryptoManager <|-- OpensslCryptoManager
+	Hasher <|-- OpensslHasher
+	Signature <|-- OpensslSignature
+	Key <|-- OpensslKey
+	PrivateKey <|-- OpensslPrivateKey
+	PublicKey <|-- OpensslPublicKey
+
+	TranscoderParameters -- ApplicationConfig
+	ApplicationParameters -- ApplicationConfig
+	DebugParameters -- DebugConfig
+	DebugConfig -- MultiVersionDebugConfigJsonParser
+	Fraction -- EventOverlay
+	PadStream -- OutputPadStream
+	StreamParameters -- PadStream
+	StreamParameters -- BaseInputStream
+	InputParameters -- EngineParameters
+	PredefinedSqueezes -- EngineParameters
+	InputParameters -- EngineParameters
+	PredefinedSqueezes -- EngineParameters
+	ScteParameters -- EngineParameters
+	BlackoutParameters -- EngineParameters
+	BlackoutParameters -- EngineParameters
+	OutputParameters -- GroupOutput
+	UnicastParameters -- UnicastParameters
+	MulticastParameters -- UnicastParameters
+	Credentials -- HlsOutputTransportParameters
+	ScteOutputParameters -- OutputParameters
+	OutputParameters -- SingleOutput
+	Channel -- ScheduledEvent
+	EventProvider -- ScheduledEvent
+	Channel -- ScheduledEvent
+	Channel -- ScheduledSlateEvent
+	PredefinedSqueezes -- ScheduledSlateEvent
+	ScteParameters -- ScheduledSlateEvent
+	AudioParameters -- StreamParameters
+	VideoParameters -- StreamParameters
+	CaptionParameters -- StreamParameters
+	LinkParameters -- StreamParameters
+	GstEncoderParameters -- StreamParameters
+	Fraction -- VideoParameters
+	OutputLinkParameters -- LinkParameters
+	PoisParameters -- ScteParameters
+	BlackoutCondition -- BlackoutConditions
+	BlackoutCondition -- BlackoutConditions
+	BlackoutConditions -- BlackoutParameters
+	Processor -- Channel
+	InputList -- Channel
+	Event -- Blanker
+	Channel -- Blanker
+	BlackoutParameters -- Blanker
+	Credentials -- HlsInputTransportParameters
+	ScteInputParameters -- HlsInputTransportParameters
+	InputParameters -- InputParameters
+	StreamSelector -- InputParameters
+	InputTransportStatus -- InputStatus
+	Rectangle -- Layer
+	PlaylistInput -- PlaylistStream
+	InputStatus -- PlaylistStream
+	InputParameters -- PlaylistStream
+	InputStatus -- SingleInputStream
+	InputParameters -- SingleInputStream
+	OverlayInput -- OverlayInputStream
+	InputStatus -- OverlayInputStream
+	InputParameters -- OverlayInputStream
+	InputStatus -- StandardInput
+	Variant -- MasterPlaylist
+	Parameters -- SegmentImpl
+	Capabilities -- StopDispatchHandler
+	Fraction -- Caps
+	Caps -- Pad
+	S3OutputTransportParameters -- S3OutputSink
+	ScteOutputParameters -- HlsOutputSink
+	UdpOutputTransportParameters -- UdpOutputSink
+	OutputParameters -- MpegTsMuxer
+	EventProvider -- ScheduledSqueezeEvent
+	Channel -- ScheduledSqueezeEvent
+	Event -- ScheduledSqueezeEvent
+	EventSqueeze -- ScheduledSqueezeEvent
+	EventProvider -- ScheduledReturnToNetworkEvent
+	Channel -- ScheduledReturnToNetworkEvent
+	Event -- ScheduledReturnToNetworkEvent
+	EventReturnToNetwork -- ScheduledReturnToNetworkEvent
+	EventProvider -- ScheduledSpliceInsertEvent
+	Channel -- ScheduledSpliceInsertEvent
+	Event -- ScheduledSpliceInsertEvent
+	EventSpliceInsert -- ScheduledSpliceInsertEvent
+	EventProvider -- ScheduledOverlayEvent
+	Channel -- ScheduledOverlayEvent
+	Event -- ScheduledOverlayEvent
+	EventOverlay -- ScheduledOverlayEvent
+	EventProvider -- ScheduledTimeSignalEvent
+	Channel -- ScheduledTimeSignalEvent
+	Event -- ScheduledTimeSignalEvent
+	EventTimeSignal -- ScheduledTimeSignalEvent
+	EventProvider -- ScheduledSlateEvent
+	Channel -- ScheduledSlateEvent
+	Event -- ScheduledSlateEvent
+	EventSlate -- ScheduledSlateEvent
+	StreamParameters -- VideoTranscodingProcessor
+	StreamParameters -- VideoTranscodingProcessor
+	StreamParameters -- DolbyTranscodingProcessor
+	StreamParameters -- AudioTranscodingProcessor
+	StreamParameters -- AudioTranscodingProcessor
+	StreamParameters -- PassthroughProcessor
+
+	StreamParameters -- VideoComplexConnector
+
+	StreamParameters -- DolbyComplexConnector
+
+	StreamParameters -- DolbyComplexConnector
+	StreamParameters -- AudioComplexConnector
+
+	StreamParameters -- PasstroughConnector
+	License -- JsonLicenseSerializer
+	LicenseFile -- JsonLicenseFileSerializer
+	LicenseModel -- License
+	LicenseMetadata -- License
+	LicenseModel -- License
+	LicenseMetadata -- License
+	LoggerParameters -- Logger
+	Point -- Rectangle
+	Dimension -- Rectangle
+	Point -- Rectangle
+	Dimension -- Rectangle
+	CryptoManager -- CryptoManager
+	CryptoManager -- OpensslCipher
+	OpensslKey -- OpensslPrivateKey
+	OpensslKey -- OpensslPublicKey
+
+	class Application {
+		+ configure()
+		+ start()
+		+ stop()
+		+ loop()
+		- self
+	}
+
+	class ApplicationParameters {
+		+ getDbPath()
+		+ setDbPath()
+		+ getLicenseServerUri()
+		+ setLicenseServerUri()
+		+ getGstPluginsParameters()
+		+ addGstPluginParameters()
+		- _dbPath
+		- _licenseServerUri
+		- _pluginParameters
+	}
+
+	class ConfigParser {
+	}
+	class DebugConfigParser {
+	}
+
+	class JsonConfigParserFactory {
+		+ createParser()
+	}
+	class JsonDebugConfigParserFactory {
+		+ createParser()
+	}
+
+	class DebugParameters {
+		+ getTranscoderLogger()
+		+ setTranscoderLogger()
+		+ getGstreamerLogger()
+		+ setGstreamerLogger()
+		- _dbPath
+		- _transcoderLogger
+		- _gstreamerLogger
+	}
+
+	class TranscoderParameters {
+		+ getEngineParameters()
+		+ setEngineParameters()
+		- _engineParameters
+	}
+
+	class LicenseManager {
+		+ configure()
+		+ start()
+		+ stop()
+		- _onCheckLicense()
+		- _processTokenResponse()
+		- license
+		- licenseServer
+		- licensePath
+		- licenseData
+		- licensePublicKey
+		- licenseStatus
+		- timerId
+		- callback
+		- httpSession
+		- httpAttempts
+		- sessionToken
+		- sessionTokenCheckTimestamp
+	}
+
+
+
+	class TranscoderApi {
+		- stop()
+	}
+
+	class TranscoderGrpcApi {
+		+ start()
+		+ stop()
+		- _service
+		- _server
+	}
+
+	class DummyEventProvider {
+		+ markProcessed()
+		+ isValid()
+		+ start()
+		+ stop()
+		- nextEvent()
+		- _lastEventTimestamp
+		- _eventId
+		- _eventType
+		- _eventReady
+		- _eventTimestamp
+	}
+
+	class SqliteEventProvider {
+		+ markProcessed()
+		+ isValid()
+		+ start()
+		+ stop()
+		- _handleSqliteException()
+		- _parseOverlay()
+		- _parseSqueeze()
+		- _parseSlate()
+		- _parseTimeSignal()
+		- _parseSpliceInsert()
+		- _parseReturnToNetwork()
+		- _dbPath
+	}
+
+	class EventModel {
+		+ getId()
+		+ setId()
+		+ getType()
+		+ setType()
+		+ getDetails()
+		+ setDetails()
+		+ getTime()
+		+ setTime()
+		+ getEndTime()
+		+ setEndTime()
+		+ getCreationTime()
+		+ setCreationTime()
+		+ getReadTime()
+		+ setReadTime()
+		- _id
+		- _type
+		- _details
+		- _time
+		- _creationTime
+		- _readTime
+		- _endTime
+	}
+
+	class EventsDao {
+		+ getInTimeRange()
+		+ getById()
+		+ updateReadTime()
+		+ getAll()
+		+ update()
+		- _handleException()
+		- _db
+	}
+
+
+
+	class Transcoder {
+		+ configure()
+		+ addEventProvider()
+		+ removeEventProvider()
+		+ start()
+		+ stop()
+		+ getEngine()
+		- _workerRoutine()
+		- _engine
+		- _stopCallback
+		- _worker
+	}
+
+	class ApplicationConfig {
+		+ getTranscoderParameters()
+		+ setTranscoderParameters()
+		+ getApplicationParameters()
+		+ setApplicationParameters()
+		- _transcoderParams
+		- _applicationParams
+	}
+	class DebugConfig {
+		+ getDebugParameters()
+		+ setDebugParameters()
+		- _debugParams
+	}
+	
+    class BaseMultiversionJsonParser {
+		+ begin()
+		# getVersion()
+		- _version
+	}
+	class MultiVersionConfigJsonParser {
+		+ parse()
+	}
+	class MultiVersionDebugConfigJsonParser {
+		+ parse()
+	}
+
+
+
+	class ScteRunningTimeMap {
+		+ get()
+		+ release()
+		+ getTimeSignalTime()
+		+ getSpliceEventTime()
+		+ setSpliceEventTime()
+		+ getPtsOffset()
+		- _getTime()
+		- _spliceEventIdToName()
+		- _timeSignalName()
+		- _str
+		- _allocated
+	}
+	class GstElementPtr {
+		+ take()
+		+ wrap()
+		+ operator=()
+		+ operator=()
+		+ ref()
+		+ unref()
+		+ acquire()
+		+ release()
+		+ get()
+		+ operator*()
+		+ operator==()
+		- _ptr
+		- _refCount
+	}
+	class GstBinPtr {
+		+ take()
+		+ wrap()
+		+ operator=()
+		+ operator=()
+		+ ref()
+		+ unref()
+		+ acquire()
+		+ release()
+		+ get()
+		+ operator*()
+		+ operator==()
+		- _ptr
+		- _refCount
+	}
+	class GstPadPtr {
+		+ take()
+		+ wrap()
+		+ operator=()
+		+ operator=()
+		+ ref()
+		+ unref()
+		+ acquire()
+		+ release()
+		+ get()
+		+ operator*()
+		+ operator==()
+		- _ptr
+		- _refCount
+	}
+	class GstGhostPadPtr {
+		+ take()
+		+ wrap()
+		+ operator=()
+		+ operator=()
+		+ ref()
+		+ unref()
+		+ acquire()
+		+ release()
+		+ get()
+		+ operator*()
+		+ operator==()
+		- _ptr
+		- _refCount
+	}
+	class GstCapsPtr {
+		+ take()
+		+ wrap()
+		+ operator=()
+		+ operator=()
+		+ ref()
+		+ unref()
+		+ acquire()
+		+ release()
+		+ get()
+		+ operator*()
+		+ operator==()
+		- _ptr
+		- _refCount
+	}
+
+
+	class Event {
+		+ getId()
+		+ getTimestamp()
+		+ getDuration()
+		+ toString()
+		+ operator==()
+		+ operator!=()
+		- isEqual()
+		- _id
+		- _start
+		- _duration
+	}
+	class EventSqueeze {
+		+ getName()
+		+ getFadeInDuration()
+		+ getFadeOutDuration()
+		+ setFadeDuration()
+		+ getSrcWindow()
+		+ getDstWindow()
+		+ setWindows()
+		+ toString()
+		- isEqual()
+		- _name
+		- _fadeIn
+		- _fadeOut
+		- _srcWindow
+		- _dstWindow
+	}
+	class EventOverlay {
+		+ getGeometry()
+		+ setGeometry()
+		+ getOpacity()
+		+ setOpacity()
+		+ getFadeInDuration()
+		+ getFadeOutDuration()
+		+ setFadeDuration()
+		+ getRate()
+		+ setRate()
+		+ getUris()
+		+ setUris()
+		+ toString()
+		- isEqual()
+		- _uris
+		- _geometry
+		- _opacity
+		- _fadeIn
+		- _fadeOut
+		- _rate
+	}
+	class EventSlate {
+		+ setUri()
+		+ getUri()
+		+ toString()
+		- isEqual()
+		- _uri
+	}
+	class EventSpliceInsert {
+		+ getEventId()
+		+ getDuration()
+		+ toString()
+		- isEqual()
+		- _duration
+		- _eventId
+	}
+	class EventReturnToNetwork {
+		+ getEventId()
+		+ toString()
+		- isEqual()
+		- _eventId
+	}
+	class EventTimeSignal {
+		+ getSegmentationDescriptors()
+		+ toString()
+		+ isEqual()
+		- _descriptors
+	}
+
+	class Output {
+		- cleanup()
+		- isLive()
+		- getNode()
+		- putScteData()
+		- getOutputParameters()
+	}
+
+	class OutputPadStream {
+		+ getStreamParameters()
+		+ link()
+		+ unlink()
+		+ getPad()
+		- _base
+		- _pad
+	}
+
+	class PadStream {
+		+ getStreamParameters()
+		+ link()
+		+ unlink()
+		- _parameters
+	}
+
+	class DummyVideoStream {
+		# getSrcPad()
+		- _srcPad
+	}
+
+	class BaseInputStream {
+		+ requestPad()
+		+ releasePad()
+		+ peekPad()
+		+ getStreamParameters()
+		+ link()
+		+ unlink()
+		# getSrcPad()
+		# setStreamParameters()
+		# linkSrcPad()
+		# getBin()
+		- _passthroughPads
+		- _decodedPads
+		- _bin
+		- _streamParameters
+		- _passthroughPad
+		- _decodedPad
+		- _splitter
+	}
+
+	class DummyAudioStream {
+		# getSrcPad()
+		- _srcPad
+	}
+
+	class ImageInputStream {
+		+ requestPad()
+		+ releasePad()
+		+ peekPad()
+		+ getStreamParameters()
+		+ link()
+		+ unlink()
+		+ preload()
+		+ isPreloaded()
+		+ block()
+		+ unblock()
+		+ updatePosition()
+		- self
+	}
+
+	class EngineParameters {
+		+ setInputParameters()
+		+ getInputParameters()
+		+ getInputParameters()
+		+ addOutputParameters()
+		+ getOutputParameters()
+		+ getOutputParameters()
+		+ setPredefinedSqueezes()
+		+ getPredefinedSqueezes()
+		+ getPredefinedSqueezes()
+		+ setScteParameters()
+		+ getScteParameters()
+		+ setBlackoutParameters()
+		+ getBlackoutParameters()
+		+ setBlankingParameters()
+		+ getBlankingParameters()
+		- _input
+		- _predefinedSqueezes
+		- _scte
+		- _blackout
+		- _blanking
+		- _outputsParameters
+	}
+	class Engine {
+		+ prepare()
+		+ start()
+		+ loop()
+		+ stop()
+		+ cleanup()
+		+ interrupt()
+		+ addEventProvider()
+		+ removeEventProvider()
+		+ getChannel()
+		- _self
+	}
+	class Pimpl {
+	}
+
+	class Muxer {
+		- getName()
+		- putScteData()
+		- getNode()
+		- getSrcPad()
+		- getSinkPad()
+	}
+
+	class GroupOutput {
+		+ prepare()
+		+ cleanup()
+		+ isLive()
+		+ getNode()
+		+ putScteData()
+		+ getOutputParameters()
+		- _parameters
+		- _hlsStreamer
+		- _hlsMasterPlaylist
+	}
+	
+    class OutputTransportParameters {
+		+ getProtocol()
+		- _protocol
+		- _liveSource
+	}
+	class SrtOutputTransportParameters {
+		+ getLatency()
+		+ setLatency()
+		+ getMode()
+		+ setMode()
+		+ getBufferSize()
+		+ setBufferSize()
+		- _latency
+		- _mode
+		- _bufferSize
+	}
+	class S3OutputTransportParameters {
+		+ setBucket()
+		+ getBucket()
+		+ setAccessKey()
+		+ getAccessKey()
+		+ setSecretAccessKey()
+		+ getSecretAccessKey()
+		+ setRegion()
+		+ getRegion()
+		+ setKeyPrefix()
+		+ getKeyPrefix()
+		- _bucket
+		- _accessKey
+		- _secretAccessKey
+		- _region
+		- _keyPrefix
+	}
+	class UdpOutputTransportParameters {
+		+ getMulticastParameters()
+		+ setMulticastParameters()
+		+ getUnicastParameters()
+		+ setUnicastParameters()
+		- _unicastParameters
+		- _multicastParameters
+	}
+	class MulticastParameters {
+		+ getTtl()
+		+ setTtl()
+		+ getInterface()
+		+ setInterface()
+		- _interface
+		- _ttl
+	}
+	class UnicastParameters {
+		+ getTtl()
+		+ setTtl()
+		- _ttl
+	}
+	class FileOutputTransportParameters {
+	}
+	class HlsOutputTransportParameters {
+		+ setMaxSegments()
+		+ getMaxSegments()
+		+ setMaxSegmentDuration()
+		+ getMaxSegmentDuration()
+		+ isVodMode()
+		+ setVodMode()
+		+ getTransferType()
+		+ setTransferType()
+		+ getTransferFraming()
+		+ setTransferFraming()
+		+ isSingleDir()
+		+ setSingleDir()
+		+ getCredentials()
+		+ setCredentials()
+		+ getTimeout()
+		+ setTimeout()
+		+ getRetryCount()
+		+ setRetryCount()
+		+ getRetryInterval()
+		+ setRetryInterval()
+		+ getAdMarkers()
+		+ addAdMarker()
+		+ clearMarkers()
+		+ getAuthentication()
+		+ setAuthentication()
+		+ getBaseFileName()
+		+ setBaseFileName()
+		- _maxSegments
+		- _maxSegmentDuration
+		- _vodMode
+		- _transferType
+		- _framingMode
+		- _singleDir
+		- _credentials
+		- _authentication
+		- _baseFileName
+		- _timeout
+		- _retryCount
+		- _retryInterval
+		- _adMarkers
+	}
+	class OutputTransport {
+		+ setUri()
+		+ getUri()
+		+ addTransportParameters()
+		+ getTransportParameters()
+		- _uri
+	}
+	class OutputParameters {
+		+ setName()
+		+ getName()
+		+ setType()
+		+ getType()
+		+ setContainer()
+		+ getContainer()
+		+ getScteParameters()
+		+ setScteParameters()
+		+ addStream()
+		+ getStreams()
+		+ hasStreams()
+		+ addTransport()
+		+ getTransports()
+		+ clearTransports()
+		+ setLiveSource()
+		+ hasLiveSource()
+		+ getGroupName()
+		+ setGroupName()
+		- _name
+		- _type
+		- _container
+		- _scteParameters
+		- _streams
+		- _transports
+		- _liveSource
+		- _groupName
+	}
+
+	class SingleOutput {
+		+ prepare()
+		+ cleanup()
+		+ getStreams()
+		+ isLive()
+		+ getNode()
+		+ putScteData()
+		+ getOutputParameters()
+		+ prepare()
+		- getMuxer()
+		- linkSplitterToPad()
+		- _bin
+		- _muxer
+		- _streams
+		- _sinks
+		- _parameters
+	}
+
+	class OutputSink {
+		- getNode()
+		- getPad()
+		- putScteData()
+		- isLive()
+		- needExternalSync()
+		- getSupportedMediaTypes()
+		+ create()
+		+ createHls()
+	}
+
+	class EventProvider {
+		+ getNextEvents()
+		+ markProcessed()
+		+ isValid()
+		+ start()
+		+ stop()
+	}
+
+	class SqueezeParameters {
+		+ getSrcWindow()
+		+ getDstWindow()
+		+ setSrcWindow()
+		+ setDstWindow()
+		- _srcWindow
+		- _dstWindow
+	}
+	class PredefinedSqueezes {
+		+ getSqueezes()
+		+ getSqueezeParametersByName()
+		+ addSqueeze()
+		- _squeezes
+	}
+	class EventScheduler {
+		+ addProvider()
+		+ removeProvider()
+		+ start()
+		+ stop()
+		- _onCheckForNewEvent()
+		- _providers
+		- _channel
+		- _onCheckForNewEventSigId
+		- _events
+		- _squeezes
+		- _scte
+	}
+	class ScheduledEvent {
+		+ operator=()
+		+ prepare()
+		+ isHandled()
+		+ isInProgress()
+		+ isStopping()
+		+ update()
+		+ cancel()
+		+ getChannel()
+		+ getChannel()
+		+ getProvider()
+		+ getProvider()
+		+ getEvent()
+		+ handleStart()
+		+ handleStop()
+		# setState()
+		- _onEventStart()
+		- _onEventStop()
+		- provider
+		- error
+		- channel
+		- state
+		- asyncStart
+		- asyncStop
+		- startCallbackId
+		- stopCallbackId
+		- timedSource
+		- mutex
+	}
+	class ScheduledSqueezeEvent {
+	}
+	class ScheduledOverlayEvent {
+	}
+	class ScheduledSpliceInsertEvent {
+	}
+	class ScheduledTimeSignalEvent {
+	}
+	class ScheduledReturnToNetworkEvent {
+	}
+	class ScheduledSlateEvent {
+	}
+	class GstEncoderParameters {
+		+ getName()
+		+ addProperty()
+		+ getProperties()
+		+ addCapability()
+		+ getCapabilities()
+		+ operator==()
+		+ operator!=()
+		- _encoderName
+		- _properties
+		- _caps
+	}
+	class StreamParameters {
+		+ setAudioParameters()
+		+ setVideoParameters()
+		+ setCaptionParameters()
+		+ setLinkParameters()
+		+ hasAudioParameters()
+		+ hasVideoParameters()
+		+ hasCaptionParameters()
+		+ hasLinkParameters()
+		+ getAudioParameters()
+		+ getAudioParameters()
+		+ getVideoParameters()
+		+ getVideoParameters()
+		+ getCaptionParameters()
+		+ getCaptionParameters()
+		+ getLinkParameters()
+		+ getLinkParameters()
+		+ getCodec()
+		+ setCodec()
+		+ isPassthrough()
+		+ getEncoderParameters()
+		+ setEncoderParameters()
+		+ toString()
+		+ operator==()
+		+ operator!=()
+		+ fromCaps()
+		- _dataParameters
+		- _encoderParameters
+		- _codec
+	}
+	class Stream {
+		+ getStreamParameters()
+		+ link()
+		+ unlink()
+	}
+	class InputStream {
+		+ requestPad()
+		+ releasePad()
+		+ peekPad()
+		+ synchronizeClock()
+		+ synchronizeClock()
+	}
+	class OutputStream {
+		+ getPad()
+	}
+	class StreamSelector {
+		+ fixedProgram()
+		+ getProgram()
+		+ setProgramNumber()
+		- _programNumber
+	}
+
+	class AudioParameters {
+		+ getBitrate()
+		+ getChannels()
+		+ getRate()
+		+ setBitrate()
+		+ setChannels()
+		+ setRate()
+		+ apply()
+		+ operator==()
+		+ operator!=()
+		- _bitrate
+		- _channels
+		- _rate
+	}
+	class VideoParameters {
+		+ setWidth()
+		+ getWidth()
+		+ setHeight()
+		+ getHeight()
+		+ setFramerate()
+		+ getFramerate()
+		+ setInterlace()
+		+ getInterlace()
+		+ setPixelFormat()
+		+ getPixelFormat()
+		+ apply()
+		+ operator==()
+		- _width
+		- _height
+		- _framerate
+		- _interlace
+		- _pixelFormat
+	}
+	class OutputLinkParameters {
+		+ setOutputName()
+		+ getOutputName()
+		+ setOutputNameModifier()
+		+ getOutputNameModifier()
+		+ operator==()
+		- _name
+		- _modifier
+	}
+	class LinkParameters {
+		+ hasOutputParameters()
+		+ getOutputParameters()
+		+ getOutputParameters()
+		+ setOutputParameters()
+		+ operator==()
+		- _dataParameters
+	}
+	class CaptionParameters {
+		+ apply()
+		+ operator==()
+	}
+	class ScteOutputParameters {
+		+ getPid()
+		+ setPid()
+		+ getMode()
+		+ setMode()
+		+ getNullInterval()
+		+ setNullInterval()
+		+ apply()
+		- _mode
+		- _pid
+		- _nullInterval
+	}
+	class ScteInputParameters {
+		+ getSource()
+		+ setSource()
+		- _source
+	}
+	class PoisParameters {
+		+ isEnabled()
+		+ setEnabled()
+		+ setEndpoint()
+		+ getEndpoint()
+		+ setAcquisitionPointId()
+		+ getAcquisitionPointId()
+		+ setTimeout()
+		+ getTimeout()
+		+ apply()
+		- _enabled
+		- _endpoint
+		- _acquisitionPointId
+		- _timeout
+	}
+	class ScteParameters {
+		+ getPrerollTime()
+		+ setPrerollTime()
+		+ getPoisParameters()
+		+ setPoisParameters()
+		+ setNullInterval()
+		+ getNullInterval()
+		+ apply()
+		- _poisParams
+		- _prerollTime
+		- _nullInterval
+	}
+	class Scte35Data {
+		+ setSection()
+		+ setTimingMap()
+		+ getSection()
+		+ getSection()
+		+ getTimingMap()
+		+ getTimingMap()
+		+ getRunningTime()
+		+ setRunningTime()
+		+ getSpliceTime()
+		+ isType()
+		+ isTimeSignal()
+		+ isSpliceInsert()
+		- _section
+		- _timingMap
+		- _runningTime
+	}
+	class BlackoutSegment {
+		+ getName()
+		+ setName()
+		+ getTypeOfBegin()
+		+ setTypeOfBegin()
+		+ getTypeOfEnd()
+		+ setTypeOfEnd()
+		+ getPriority()
+		+ setPriority()
+		- _name
+		- _typeBegin
+		- _typeEnd
+		- _priority
+	}
+	class BlackoutCondition {
+		+ addSegment()
+		+ getSegments()
+		+ shouldBlankWhenNoDescriptors()
+		+ setBlankWhenNoDescriptors()
+		- _blankWhenNoDescriptors
+		- _segments
+	}
+	class BlackoutConditions {
+		+ getSpliceInsertCondition()
+		+ setSpliceInsertCondition()
+		+ getTimeSignalCondition()
+		+ setTimeSignalCondition()
+		- _timeSignal
+		- _spliceInsert
+	}
+	class BlackoutParameters {
+		+ isEnabled()
+		+ setEnabled()
+		+ getRestrictionIgnore()
+		+ setRestrictionIgnore()
+		+ getConditions()
+		+ setConditions()
+		- _enabled
+		- _ignoreMode
+		- _conditions
+	}
+	class GstPluginParameters {
+		+ getName()
+		+ getRank()
+		- _name
+		- _rank
+	}
+
+	class Channel {
+		+ configure()
+		+ addInput()
+		+ removeInput()
+		+ setCurrentInput()
+		+ getCurrentInput()
+		+ addOutput()
+		+ prepare()
+		+ makeReady()
+		+ cleanup()
+		+ getNode()
+		+ getVideoProcessor()
+		+ getAudioProcessors()
+		+ getVideoCompositor()
+		+ squeeze()
+		+ createImageStream()
+		+ createOverlayInput()
+		+ addTimedCallback()
+		+ cancelTimedCallback()
+		+ injectScte35Event()
+		+ onScteData()
+		+ blank()
+		+ getInputs()
+		+ getInput()
+		- self
+	}
+
+	class Blanker {
+		+ configure()
+		- _handleEvent()
+		- _scheduleEvent()
+		- _removeEvent()
+		- _updateBlankingState()
+		- _durationToTimestamp()
+		- _getEventStartTime()
+		- _scheduleEventStart()
+		- _scheduleEventStop()
+		- _channel
+		- _blackoutParams
+		- _blankingParams
+		- _events
+		- _eventsGuard
+	}
+	 class InputParameters {
+	}
+	class InputTransportParameters {
+		+ clone()
+		+ getProtocol()
+		+ merge()
+		- _protocol
+	}
+	class SrtInputTransportParameters {
+		+ clone()
+		+ getLatency()
+		+ setLatency()
+		+ getMode()
+		+ setMode()
+		+ getBufferSize()
+		+ setBufferSize()
+		+ merge()
+		- _latency
+		- _mode
+		- _bufferSize
+	}
+	class UdpInputTransportParameters {
+		+ clone()
+		+ getMulticastParameters()
+		+ setMulticastParameters()
+		- _multicast
+	}
+	class MulticastParameters {
+		+ getInterfaces()
+		+ clearInterfaces()
+		+ addInterface()
+		- _interfaces
+	}
+	class FileInputTransportParameters {
+		+ clone()
+	}
+	class HlsInputTransportParameters {
+		+ clone()
+		+ getBandwith()
+		+ setBandwith()
+		+ getCredentials()
+		+ setCredentials()
+		+ getScteParameters()
+		+ setScteParameters()
+		+ merge()
+		- _bandwith
+		- _credentials
+		- _scteParameters
+		- _authentication
+	}
+	class PlaylistTransportInputParameters {
+		+ clone()
+	}
+	class NdiInputTransportParameters {
+		+ clone()
+		+ getNdiName()
+		+ setNdiName()
+		+ getUrlAddress()
+		+ setUrlAddress()
+		- _ndiName
+		- _urlAddress
+	}
+	class InputParameters {
+		+ operator=()
+		+ addUri()
+		+ getUris()
+		+ clearUris()
+		+ addTransportParameters()
+		+ getTransportParameters()
+		+ _selector
+	}
+	class InputTransportStatus {
+		+ getState()
+		+ getUri()
+		+ getId()
+		- _state
+		- _uri
+		- _id
+	}
+	class InputStatus {
+		+ getTransportsStatus()
+		+ getCurrentTransportId()
+		+ setCurrentTransportId()
+		+ addTransport()
+		- _transportsStatus
+		- _transportCurrent
+	}
+	class Input {
+		+ prepare()
+		+ probe()
+		+ cleanup()
+		+ getStreams()
+		+ getInputParameters()
+		+ onScteData()
+		+ onStateChanged()
+		+ onStreamsChanged()
+		+ onError()
+		+ getNode()
+		+ isLive()
+		+ getProtocol()
+		+ getName()
+		+ getDuration()
+		+ getId()
+		+ getStatus()
+		+ setCurrentStream()
+	}
+
+	class StreamConnector {
+		- getStreamParameters()
+		- getPad()
+		- peekPad()
+		- prepare()
+		- link()
+		- unlink()
+		- cleanup()
+		- getNode()
+	}
+
+	class Compositor {
+	}
+	class Compositor {
+		+ prepare()
+		+ getSrcPad()
+		+ getVideoLayer()
+		+ getWindowSize()
+		+ setWindowSize()
+		+ createLayer()
+		+ destroyLayer()
+		+ blank()
+		- _compositor
+		- _outputScaler
+		- _outputFilter
+		- _bin
+		- _createProxyPadsForLayers
+		- _srcPad
+		- _layerSize
+		- _videoLayer
+	}
+	class Layer {
+		+ setZOrder()
+		+ getZOrder()
+		+ setOpacity()
+		+ getOpacity()
+		+ getOuputWindow()
+		+ getInputWindow()
+		+ setWindows()
+		+ setSize()
+		+ getSinkPad()
+		+ getCompositorPad()
+		+ getRunningTime()
+		+ getMutex()
+		- _setWindows()
+		- _mutex
+		- _compositorPad
+		- _sinkPad
+		- _cropElement
+		- _layerSize
+		- _inputWindow
+		- _outputWindow
+		- _inputPendingWindow
+		- _outpuPendingtWindow
+	}
+
+	class Flowline {
+		- compatible()
+		- prepare()
+		- getInputPad()
+		- getParameters()
+		- link()
+	}
+
+	class Processor {
+		- isAudio()
+		- isVideo()
+		- isCaption()
+		- getInputParameters()
+		- prepare()
+		- link()
+		- getCompositor()
+		- getMuter()
+		- getConnector()
+		- setConnector()
+		- getName()
+		- blank()
+		- compatible()
+		+ create()
+	}
+
+	class PlaylistInput {
+		+ prepare()
+		+ probe()
+		+ cleanup()
+		+ getStreams()
+		+ getInputParameters()
+		+ onScteData()
+		+ onStateChanged()
+		+ onStreamsChanged()
+		+ onError()
+		+ getNode()
+		+ isLive()
+		+ getId()
+		+ getStatus()
+		+ getProtocol()
+		+ getName()
+		+ getDuration()
+		+ setCurrentStream()
+		- _switchToNextItemAsync()
+		- _switchToNextItem()
+		- _switchToItem()
+		- _commitPending()
+		- _onEos()
+		- _asyncCleanup()
+		- _asyncSwitchNext()
+		- _id
+		- _mutex
+		- _bin
+		- _currentItem
+		- _pendingItem
+		- _streamsChangedCallback
+		- _probeCallback
+		- _scteCallback
+		- _stateChangeCallback
+		- _errorCallback
+		- _streams
+		- _audioStream
+		- _videoStream
+		- _inputParameters
+		- _playlistItemsInputParameters
+		- _playlistItemIndex
+		- _playlistItemIds
+		- _toCleanup
+		- _asyncSwitchToNextIsForced
+	}
+	class PlaylistStream {
+	}
+
+	class SingleInput {
+		+ prepare()
+		+ probe()
+		+ cleanup()
+		+ getInputParameters()
+		+ onScteData()
+		+ onStateChanged()
+		+ onStreamsChanged()
+		+ onError()
+		+ getNode()
+		+ isLive()
+		+ getProtocol()
+		+ getName()
+		+ getDuration()
+		+ getId()
+		+ getStatus()
+		+ setCurrentStream()
+		# _autoPlugContinueCallback()
+		# _autoPlugSelectCallback()
+		# _demuxerElementAdded()
+		- _createDemuxer()
+		- _onBufferUnderrun()
+		- _onBufferOverrun()
+		- _blockBuffer()
+		- _getHlsTags()
+		- _processHlsScteEvent()
+		- _onPlaylistUpdate()
+		- _restartSrc()
+		- _calculateBackoffDelay()
+		- _clearRetry()
+		- _duration
+		- _bin
+		- _inputParameters
+		- _streamsGuard
+		- _demuxers
+		- _probeCallback
+		- _scteDataCallback
+		- _stateChangeCallback
+		- _errorCallback
+		- _bufferMutex
+		- _buffer
+		- _state
+		- _bufferBlockId
+		- _protocol
+		- _name
+		- _isLive
+		- _srcHasAllStreams
+		- _srcStreamsCount
+		- _srcDemuxersCount
+		- _useBuffering
+		- _id
+		- _hlsScteTags
+		- _hlsScteEventId
+		- _srcRestartTimerId
+		- _srcRetryAttempt
+		- _srcErrorSeq
+	}
+	class SingleInputStream {
+		+ peekPad()
+		+ link()
+		+ unlink()
+		+ unblock()
+		# getSrcPad()
+		- block()
+		- _decoderSortCallback()
+		- _getSplitterName()
+		- _getDecoderName()
+		- _blockedPadsMutex
+		- _linkPassthrough
+		- _linkDecoded
+		- _passthroughPad
+		- _passthroughPeekPad
+		- _linked
+		- _blockedPads
+	}
+
+	class OverlayInput {
+		+ prepare()
+		+ probe()
+		+ cleanup()
+		+ getInputParameters()
+		+ onScteData()
+		+ onStateChanged()
+		+ onError()
+		+ getNode()
+		+ isLive()
+		+ getProtocol()
+		+ getName()
+		+ getDuration()
+		+ getId()
+		+ getStatus()
+		+ setCurrentStream()
+		+ onStreamsChanged()
+		- _setState()
+		- _feedTaskRoutine()
+		- _createAppSrc()
+		- _id
+		- _bin
+		- _inputParameters
+		- _tmpPath
+		- _localFilePath
+		- _probeCallback
+		- _stateChangedCallback
+		- _state
+		- _formatCtx
+		- _audioCodecCtx
+		- _audioStreamId
+		- _audioSrc
+		- _audioPts
+		- _audioInfo
+		- _videoCodecCtx
+		- _videoStreamId
+		- _videoScaller
+		- _videoSrc
+		- _videoPts
+		- _feedTask
+		- _feedTaskExit
+		- _session
+	}
+	class OverlayInputStream {
+		+ synchronizeClock()
+		# getSrcPad()
+		- _pad
+		- _parent
+	}
+
+	class StandardInput {
+		+ prepare()
+		+ probe()
+		+ cleanup()
+		+ getStreams()
+		+ getInputParameters()
+		+ onScteData()
+		+ onStateChanged()
+		+ onStreamsChanged()
+		+ onError()
+		+ getNode()
+		+ isLive()
+		+ getProtocol()
+		+ getName()
+		+ getDuration()
+		+ getId()
+		+ getStatus()
+		+ setCurrentStream()
+		- _createFlow()
+		- _switchStream()
+		- _destroyInputAsync()
+		- _mutex
+		- _inputs
+		- _probeCallback
+		- _scteCallback
+		- _stateChangeCallback
+		- _errorCallback
+		- _probedInputs
+		- _currentInput
+		- _streams
+		- _bin
+		- _prepared
+		- _id
+	}
+
+	class GstreamerFactory {
+		+ createPipe()
+		+ createBin()
+		+ createSource()
+		+ createSink()
+	}
+
+	class Parser {
+		+ parse()
+		- _parseM3U8()
+		- _createInputFromEntry()
+	}
+    class RenditionGroup {
+		+ getName()
+		+ getMediaType()
+		+ getDefaultPlaylist()
+		+ setDefaultPlaylist()
+		- _name
+		- _mediaType
+		- _defaultPlaylist
+	}
+	class Playlist {
+		- getName()
+	}
+	class MediaPlaylist {
+		+ getName()
+		+ getGroup()
+		+ setGroup()
+		+ getMediaTypes()
+		+ hasAudio()
+		+ hasVideo()
+		+ getContainer()
+		+ getSegmentDuration()
+		+ serialize()
+		+ serialize()
+		- _name
+		- _group
+		- _live
+		- _mediaTypes
+		- _container
+		- _segmentDuration
+	}
+	class Variant {
+		+ setPlaylist()
+		+ getPlaylist()
+		+ getBandwidth()
+		+ setBandwidth()
+		- _playlist
+		- _groups
+		- _bandwidth
+	}
+	class MasterPlaylist {
+		+ createVariant()
+		+ createMediaPlaylist()
+		+ getName()
+		- _name
+		- _variants
+	}
+
+	class Segment {
+		- getBeginRunningTime()
+		- setEndRunningTime()
+		- getEndRunningTime()
+		- getDuration()
+		- setDuration()
+		- getName()
+		- getSequence()
+		- getBitrate()
+		- getProgramDateTime()
+		- setProgramDateTime()
+		- isEmpty()
+		- isBuffered()
+		- isBuffering()
+		- setEmpty()
+		- setBuffering()
+		- setBuffered()
+		- getStorage()
+	}
+
+	class Streamer {
+		+ getParameters()
+		+ setParameters()
+		+ setPlaylist()
+		+ getPlaylist()
+		+ start()
+		+ stop()
+		+ createSegment()
+		+ createInitialSegment()
+		+ putScteData()
+		- onSegmentBuffering()
+		- onSegmentBuffered()
+		- onSegmentUploaded()
+		- refreshSegmentLists()
+		- addSegment()
+		- genSegmentName()
+		- getMediaPlaylistPath()
+		- getSegmentPath()
+		- getSegmentPath()
+		- uploadPlaylists()
+		- _parameters
+		- _started
+		- _storageFactory
+		- _playlist
+		- _masterUploaded
+		- _scteEvents
+		- _mutex
+		- _playlistsContext
+		- _segmentToPlaylistContextMap
+		- _windowSegments
+		- _keepSegments
+	}
+	class Parameters {
+		+ setNumberOfSegments()
+		+ addUploader()
+		+ setStorageFactory()
+		+ setUploadTimeout()
+		+ setSingleDir()
+		+ setRetriesCount()
+		+ setRetryInterval()
+		+ setScteMarkers()
+		+ setBaseDirName()
+		+ getNumberOfSegments()
+		+ getStorageFactory()
+		+ getUploaders()
+		+ getUploadTimeout()
+		+ getSingleDir()
+		+ getRetriesCount()
+		+ getRetryInterval()
+		+ getScteMarkers()
+		+ getBaseDirName()
+		- _uploaders
+		- _storageFactory
+		- _numberOfSegments
+		- _uploadTimeout
+		- _singleDir
+		- _retries
+		- _retryInterval
+		- _scteMarkers
+		- _baseDirName
+	}
+	class SegmentImpl {
+	}
+
+	class ScteEvent {
+		+ operator=()
+		+ operator=()
+		+ getSection()
+		+ getStart()
+		+ getDuration()
+		+ isIn()
+		+ isOut()
+		- section
+		- start
+		- duration
+		- in
+		- out
+	}
+
+	class SegmentStorage {
+		- write()
+		- length()
+		- getMimeType()
+		- dispose()
+		- write()
+		- write()
+	}
+
+	class SegmentMemoryStorageFactory {
+		+ create()
+	}
+
+	class SegmentStorageFactory {
+	}
+
+	class Uploader {
+		+ start()
+		+ stop()
+		+ getCapabilities()
+		+ dispatchUpload()
+		+ dispatchRemoval()
+	}
+	class Capabilities {
+		+ canMkdir()
+		+ canRetry()
+		- _mkdir
+		- _retry
+	}
+
+	class FileUploader {
+		# doUpload()
+		# doRemoval()
+		# doMkir()
+		# doStat()
+		- getPath()
+		- _basePath
+	}
+
+	class BaseUploader {
+		+ start()
+		+ stop()
+		+ getCapabilities()
+		+ dispatchUpload()
+		+ dispatchRemoval()
+		- _threadRoutine()
+		- _dispatch()
+		# doUpload()
+		# doRemoval()
+		# doMkir()
+		# doStat()
+		# doCancel()
+		- _mutex
+		- _cond
+		- _queue
+		- _retryQueue
+		- _thread
+		- _caps
+		- _existingDirectories
+	}
+	class DispatchHandler {
+	}
+	class UploadDispatchHandler {
+	}
+	class RemovalDispatchHandler {
+	}
+	class MkdirDispatchHandler {
+	}
+	class StopDispatchHandler {
+	}
+
+	class HttpUploader {
+		+ setAuthorization()
+		# doUpload()
+		# doRemoval()
+		# doMkir()
+		# doStat()
+		- getUrl()
+		- _serverUrl
+		- _session
+		- _existingDirectories
+		- _chunked
+	}
+
+	class Element {
+	}
+	class Element {
+		+ getName()
+		+ link()
+		+ onPadAdded()
+		+ onPadRemoved()
+		+ onAllPads()
+		+ onSignal()
+		+ onMessage()
+		+ onReady()
+		+ onPause()
+		+ onPlay()
+		+ onNull()
+		+ ready()
+		+ pause()
+		+ play()
+		+ null()
+		+ requestPad()
+		+ releasePad()
+		+ releasePad()
+		+ getPad()
+		+ getPads()
+		+ syncWithParent()
+		+ lockState()
+		+ make()
+		+ make()
+		# onStateChanged()
+		# onMessageArrived()
+		- _onPadAdded()
+		- _onPadRemoved()
+		- _onNoMorePads()
+		- _setState()
+		- _name
+		- _mutex
+		- _onPadAddedCallbacks
+		- _onPadRemovedCallbacks
+		- _onAllPadsCallbacks
+		- _onGstMessageCallbacks
+		- _signals
+		- _srcPads
+		- _sinkPads
+		- _pendingCallback
+		- _pendingState
+	}
+
+	class Pipe {
+	}
+	class Pipe {
+		+ loop()
+		+ interrupt()
+		+ create()
+		+ parse()
+		+ onEos()
+		+ onError()
+		- _busCallback()
+		- _notifyMessage()
+		- _eosCallbacks
+		- _errorCallbacks
+		- _pipelineLoop
+		- _bus
+	}
+
+	class Caps {
+	}
+	class Caps {
+		+ getName()
+		+ toString()
+		+ getMediaType()
+		+ getContainer()
+		+ getCodec()
+		+ setMediaFormat()
+		+ getInt()
+		+ getString()
+		+ getFraction()
+		+ setInt()
+		+ setString()
+		+ setFraction()
+		+ setValue()
+		+ getHeight()
+		+ getWidth()
+		+ getFrameRate()
+		+ getInterlace()
+		+ getFormat()
+		+ setHeight()
+		+ setWidth()
+		+ setFrameRate()
+		+ setInterlace()
+		+ setFormat()
+		+ getRate()
+		+ getChannels()
+		+ setRate()
+		+ setChannels()
+		+ clear()
+		+ fromString()
+		+ create()
+		- _name
+	}
+	class Pad {
+	}
+	class GhostPad {
+	}
+	class Pad {
+		- _onSourcePadBlocked()
+		- _onEventCallback()
+		- _onProbe()
+		+ getName()
+		+ link()
+		+ unlink()
+		+ isLinked()
+		+ isSource()
+		+ isSink()
+		+ getPeer()
+		+ getCaps()
+		+ getParent()
+		+ block()
+		+ unblock()
+		+ probeCurrentPts()
+		+ probeIdle()
+		+ addProbe()
+		+ removeProbe()
+		+ event()
+		+ getTimePosition()
+		+ getTimeOffset()
+		+ setTimeOffset()
+		+ pushEvent()
+		- _callbacksGuard
+		- _name
+		- _eventCallback
+		- _eventProbeId
+		- _blockCallbacks
+		- _probeCallbacks
+	}
+	class GhostPad {
+		+ setTarget()
+		+ getTarget()
+		+ create()
+		+ create()
+	}
+
+
+	class Bin {
+		+ add()
+		+ remove()
+		+ get()
+		+ forEach()
+		+ forEach()
+		+ contains()
+		+ addPad()
+		+ removePad()
+		+ create()
+		+ parse()
+		+ parse()
+		+ isBin()
+		- contains()
+		- _children
+		- _childrenLock
+	}
+
+	class EventResponse {
+		+ mode
+		+ conditioningInfo
+		+ sectionData
+	}
+	class Client {
+		+ setEndpoint()
+		+ setTimeout()
+		+ setAcquisitionPointId()
+		+ signalEvent()
+		+ signalEventAsync()
+		- _sendSignalProcessingEvent()
+		- _base64Decode()
+		- _base64Encode()
+		- _parseISO8601Duration()
+		- _dump()
+		- _session
+		- _acquisitionPointId
+	}
+
+
+
+
+
+
+
+	class S3OutputSink {
+		+ link()
+		+ getNode()
+		+ getPad()
+		+ isLive()
+		+ needExternalSync()
+		+ getSupportedMediaTypes()
+		+ putScteData()
+		- _bucket
+		- _accessKey
+		- _secretAccessKey
+		- _region
+		- _keyPrefix
+		- _bin
+		- _pad
+		- _transportParameters
+		- _supportedMediaTypes
+		+ _queue
+		+ _demux
+		+ _audioQueue
+		+ _videoQueue
+		+ _videoParser
+		+ _audioParser
+		+ _hlssink
+		+ _awss3hlssink
+		+ _demuxAudioPad
+	}
+
+	class HlsOutputSink {
+		+ link()
+		+ getNode()
+		+ getPad()
+		+ putScteData()
+		+ isLive()
+		+ needExternalSync()
+		+ getSupportedMediaTypes()
+		- onFormatLocation()
+		- onNewSample()
+		- _name
+		- _container
+		- _splitmuxsink
+		- _muxer
+		- _sink
+		- _bin
+		- guard
+		- streamer
+		- currentSegment
+		- lastSegment
+		- masterPlaylist
+		- mediaPlaylist
+		- runningTime
+		- chunkLength
+		- vodMode
+		- _supportedMediaTypes
+		- _scteParameters
+	}
+
+	class SrtOutputSink {
+		+ link()
+		+ getNode()
+		+ getPad()
+		+ isLive()
+		+ needExternalSync()
+		+ getSupportedMediaTypes()
+		+ putScteData()
+		- _bin
+		- _pad
+		- _targetUri
+		- _supportedMediaTypes
+	}
+
+	class FileOutputSink {
+		+ link()
+		+ getNode()
+		+ getPad()
+		+ isLive()
+		+ needExternalSync()
+		+ getSupportedMediaTypes()
+		+ putScteData()
+		- _location
+		- _bin
+		- _pad
+		- _supportedMediaTypes
+	}
+
+	class UdpOutputSink {
+		+ link()
+		+ getNode()
+		+ getPad()
+		+ isLive()
+		+ needExternalSync()
+		+ getSupportedMediaTypes()
+		+ putScteData()
+		- _host
+		- _port
+		- _bin
+		- _pad
+		- _transportParameters
+		- _supportedMediaTypes
+	}
+
+	class MpegTsMuxer {
+		+ link()
+		+ getName()
+		+ putScteData()
+		+ getNode()
+		+ getSrcPad()
+		+ getSinkPad()
+		# _name
+		# _muxer
+		# _bin
+		# _srcPads
+		# _sinkPads
+		# _outputParameters
+	}
+
+    class VideoTranscodingProcessor {
+		+ createFlowLine()
+		+ isAudio()
+		+ isVideo()
+		+ isCaption()
+		+ getInputParameters()
+		+ prepare()
+		+ link()
+		+ getCompositor()
+		+ getMuter()
+		+ getConnector()
+		+ setConnector()
+		+ getName()
+		+ blank()
+		+ compatible()
+		- _name
+		- _decoderPad
+		- _bin
+		- _inputParameters
+		- _outputParameters
+		- _compositor
+		- _prepared
+		- _linked
+		- _connector
+	}
+
+	class DolbyTranscodingProcessor {
+		+ isCompatible()
+		+ createFlowLine()
+		+ isAudio()
+		+ isVideo()
+		+ isCaption()
+		+ getInputParameters()
+		+ prepare()
+		+ link()
+		+ getCompositor()
+		+ getMuter()
+		+ getConnector()
+		+ setConnector()
+		+ getName()
+		+ blank()
+		+ compatible()
+		- _decoderSortCallback()
+		- _name
+		- _decoderPad
+		- _muter
+		- _inputParameters
+		- _connector
+	}
+
+	class AudioTranscodingProcessor {
+		+ createFlowLine()
+		+ isAudio()
+		+ isVideo()
+		+ isCaption()
+		+ getInputParameters()
+		+ prepare()
+		+ link()
+		+ getCompositor()
+		+ getMuter()
+		+ getConnector()
+		+ setConnector()
+		+ getName()
+		+ blank()
+		+ compatible()
+		- _name
+		- _decoderPad
+		- _muter
+		- _bin
+		- _inputParameters
+		- _outputParameters
+		- _prepared
+		- _linked
+		- _connector
+	}
+
+	class TranscodingFlowline {
+		+ addOutput()
+		+ compatible()
+		+ prepare()
+		+ getParameters()
+		+ getInputPad()
+		+ link()
+		- _name
+		- _encoder
+		- _encoderInputPad
+		- _outputParameters
+		- _outputContainer
+		- _outputs
+		- _filters
+	}
+
+	class PassthroughProcessor {
+		+ createFlowLine()
+		+ isAudio()
+		+ isVideo()
+		+ isCaption()
+		+ getInputParameters()
+		+ prepare()
+		+ link()
+		+ getCompositor()
+		+ getMuter()
+		+ getConnector()
+		+ setConnector()
+		+ getName()
+		+ blank()
+		+ compatible()
+		- _name
+		- _muter
+		- _decoder
+		- _inputParameters
+		- _outputParameters
+		- _connector
+	}
+
+	class VideoComplexConnector {
+		+ getStream()
+		+ getStreamParameters()
+		+ getPad()
+		+ peekPad()
+		+ prepare()
+		+ link()
+		+ unlink()
+		+ cleanup()
+		+ getNode()
+		+ hasStream()
+		+ addStream()
+		+ removeStream()
+		+ setCurrentStream()
+		+ getCurrentStream()
+		+ getCompositor()
+		- _linkStream()
+		- _unlinkStream()
+		- _setActiveInput()
+		- _getOutputPad()
+		- _bin
+		- _channelBin
+		- _prepared
+		- _linked
+		- _selector
+		- _deinterlace
+		- _splitter
+		- _fallback
+		- _fallbackSrc
+		- _fallbackSrcFilter
+		- _dummySrc
+		- _dummySrcFilter
+		- _dummySrcSync
+		- _dummySrcPad
+		- _dummySrcParameters
+		- _compositor
+		- _selectorSegment
+		- _pads
+		- _streamCurrent
+		- _outputParameters
+		- _outputIsLive
+	}
+
+	class DolbyComplexConnector {
+		+ getStream()
+		+ getStreamParameters()
+		+ getPad()
+		+ peekPad()
+		+ prepare()
+		+ link()
+		+ unlink()
+		+ cleanup()
+		+ getNode()
+		+ hasStream()
+		+ addStream()
+		+ removeStream()
+		+ setCurrentStream()
+		+ getCurrentStream()
+		+ getMuter()
+		+ blank()
+		- _linkStream()
+		- _unlinkStream()
+		- _setActiveInput()
+		- _createDolbyTransformer()
+		- _getUpdatedStreamParamters()
+		- _getOutputPad()
+		- _bin
+		- _channelBin
+		- _prepared
+		- _linked
+		- _selector
+		- _splitter
+		- _fallback
+		- _fallbackSrc
+		- _fallbackSrcFilter
+		- _fallbackSrcTransformer
+		- _fallbackSrcSinkPad
+		- _muter
+		- _dummySrc
+		- _dummySrcFilter
+		- _dummySrcTransformer
+		- _dummySrcSync
+		- _dummySrcPad
+		- _dummySrcParameters
+		- _selectorSegment
+		- _pads
+		- _streamCurrent
+		- _outputParameters
+		- _outputIsLive
+	}
+
+	class AudioComplexConnector {
+		+ getStream()
+		+ getStreamParameters()
+		+ getPad()
+		+ peekPad()
+		+ prepare()
+		+ link()
+		+ unlink()
+		+ cleanup()
+		+ getNode()
+		+ hasStream()
+		+ addStream()
+		+ removeStream()
+		+ setCurrentStream()
+		+ getCurrentStream()
+		+ getMuter()
+		+ blank()
+		- _linkStream()
+		- _unlinkStream()
+		- _setActiveInput()
+		- _getOutputPad()
+		- _bin
+		- _channelBin
+		- _prepared
+		- _linked
+		- _selector
+		- _convert
+		- _splitter
+		- _fallback
+		- _fallbackSrc
+		- _fallbackSrcFilter
+		- _muter
+		- _dummySrc
+		- _dummySrcFilter
+		- _dummySrcSync
+		- _dummySrcPad
+		- _dummySrcParameters
+		- _selectorSegment
+		- _pads
+		- _streamCurrent
+		- _outputParameters
+		- _outputIsLive
+	}
+
+	class PasstroughConnector {
+		+ getStream()
+		+ getPad()
+		+ peekPad()
+		+ getStreamParameters()
+		+ prepare()
+		+ link()
+		+ unlink()
+		+ cleanup()
+		+ getNode()
+		- _bin
+		- _inputStream
+		- _inputPad
+		- _outputParameters
+		- _splitter
+		- _identity
+		- _pads
+	}
+
+	class LicenseModel {
+		+ getId()
+		+ setId()
+		+ getName()
+		+ setName()
+		+ getValidSince()
+		+ setValidSince()
+		+ getTtl()
+		+ setTtl()
+		+ isOffline()
+		+ setOffline()
+		+ getMaxSessions()
+		+ setMaxSessions()
+		- _id
+		- _name
+		- _offline
+		- _maxSessions
+		- _validSince
+		- _ttl
+	}
+
+	class LicenseMetadata {
+		+ getCreationTime()
+		+ setCreationTime()
+		- _creationTime
+	}
+
+	class LicenseSignature {
+		+ verify()
+		+ sign()
+	}
+
+	class LicenseSerializer {
+		- deserialize()
+	}
+
+	class GenericLicenseException {
+	}
+
+	class ElfKeyStorer {
+		+ setPublicKey()
+		+ setEncryptionKey()
+		+ store()
+		- publicKey
+		- encKey
+	}
+
+	class ElfKeyLoader {
+		+ load()
+		+ getPublicKey()
+		+ getEncryptionKey()
+		- publicKey
+		- encKey
+	}
+
+	class LicenseFile {
+		+ getSignature()
+		+ getData()
+		+ setData()
+		+ setSignature()
+		- _signature
+		- _data
+	}
+
+	class JsonLicenseSerializer {
+		+ serialize()
+		+ deserialize()
+	}
+
+	class LicenseUtils {
+		+ isValid()
+		+ isExpired()
+		+ isNotYetValid()
+		+ isValid()
+		+ isExpired()
+		+ isNotYetValid()
+	}
+
+
+
+
+
+	class LicenseFileSerializer {
+		- deserialize()
+		- deserialize()
+	}
+
+	class JsonLicenseFileSerializer {
+		+ serialize()
+		+ deserialize()
+	}
+
+	class ElfHasher {
+		+ hash()
+		- path
+	}
+
+	class ElfReader {
+		+ load()
+		+ close()
+		+ getSections()
+		+ getSection()
+		- fd
+		- elf
+		- sections
+	}
+	class Section {
+		+ getIndex()
+		+ getName()
+		+ data()
+		+ length()
+		+ isStringTab()
+		+ isDynamic()
+		- _index
+		- _name
+		- _data
+		- _type
+	}
+
+	class ElfModifier {
+		+ addSection()
+		+ addSection()
+		+ addSection()
+		+ removeSection()
+	}
+
+	class License {
+		+ getModel()
+		+ getMetadata()
+		+ getModel()
+		+ getMetadata()
+		- _model
+		- _metadata
+	}
+
+	class Logger {
+		+ getLogger()
+		+ getParameters()
+		+ setParameters()
+		- applyParameters()
+		- initializer()
+		- loggerLevelToSpdlogLevel()
+		- _logger
+		- _params
+	}
+
+	class Time {
+		+ getUTCTimestamp()
+		+ getMonotonicTimestamp()
+		+ toSqliteDateTime()
+		+ fromSqliteDateTime()
+		+ toUTCString()
+		+ toLocalString()
+		+ toEsamDateTime()
+		+ fromIso8601()
+	}
+
+	class AutoGeneratedId {
+		+ getString()
+		+ getInt()
+		- _uuid
+		- _id
+	}
+
+	class Fraction {
+		+ getNumerator()
+		+ getDenominator()
+		+ operator==()
+		+ operator!=()
+		+ operator>()
+		- _numerator
+		- _denominator
+	}
+	class Point {
+		+ x()
+		+ x()
+		+ y()
+		+ y()
+		+ operator==()
+		+ operator!=()
+		- _x
+		- _y
+	}
+	class Dimension {
+		+ width()
+		+ height()
+		+ width()
+		+ height()
+		+ operator==()
+		+ operator!=()
+		- _width
+		- _height
+	}
+	class Rectangle {
+		+ getPosition()
+		+ getPosition()
+		+ getDimension()
+		+ getDimension()
+		+ x()
+		+ x()
+		+ y()
+		+ y()
+		+ width()
+		+ width()
+		+ height()
+		+ height()
+		+ operator==()
+		+ operator!=()
+		- _position
+		- _dimension
+	}
+	class Credentials {
+		+ getUsername()
+		+ getPassword()
+		+ setUsername()
+		+ setPassword()
+		+ empty()
+		- _username
+		- _password
+	}
+
+	class Debug {
+		+ initialize()
+		+ configureTranscoderDebug()
+		+ configureGstreamerDebug()
+		+ getLogger()
+		- getGstLogger()
+		- _gstLogFunction()
+		- _toSpdlogLevel()
+		- _toGstLevel()
+	}
+	class Exception {
+		- UTPL_CLASS_ROF()
+		+ getCode()
+		+ getMessage()
+		- _code
+	}
+    
+
+
+
+	class LoggerOutput {
+		+ getType()
+		+ setType()
+		+ getPath()
+		+ setPath()
+		+ isEnabled()
+		+ setEnabled()
+		+ isColor()
+		+ setColor()
+		- _type
+		- _path
+		- _enabled
+		- _color
+	}
+
+	class LoggerParameters {
+		+ isBasicPattern()
+		+ setBasicPattern()
+		+ getLevel()
+		+ setLevel()
+		+ addOutput()
+		+ getOutputs()
+		- _basicPattern
+		- _level
+		- _outputs
+	}
+
+
+	class M3U8 {
+		+ addTagEntry()
+		+ addUriEntry()
+		+ getEntries()
+		+ serialize()
+		+ parse()
+		- _entries
+	}
+	class AttributeValue {
+	}
+	class AttributeValueInteger {
+		+ getValue()
+		- _value
+	}
+	class AttributeValueFloat {
+		+ getValue()
+		- _value
+	}
+	class AttributeValueString {
+		+ getValue()
+		- _value
+	}
+	class AttributeValueEnum {
+		+ getValue()
+		- _value
+	}
+	class AttributeValueRational {
+		+ getNumerator()
+		+ getDenominator()
+		- _numerator
+		- _denominator
+	}
+	class AttributeValueDateTime {
+		+ getValue()
+		- _value
+	}
+	class Attribute {
+		+ getName()
+		+ getValue()
+		- _name
+		- _value
+	}
+	class Entry {
+	}
+	class TagEntry {
+		+ getTag()
+		+ addAttribute()
+		+ addAttribute()
+		+ getAttributes()
+		- _tagName
+		- _attributes
+	}
+	class UriEntry {
+		+ getUri()
+		- _uri
+	}
+
+
+
+	class CryptoManager {
+		- newCipher()
+		- newSignature()
+		- generateKey()
+		- genRandom()
+		- loadKey()
+		- loadKey()
+		- loadKey()
+		- loadPublicKey()
+		- loadPublicKey()
+		- loadPublicKey()
+		- loadPrivateKey()
+		- loadPrivateKey()
+		- loadPrivateKey()
+	}
+
+	class Hasher {
+		- update()
+		- final()
+		- update()
+	}
+
+	class Signature {
+		- sign()
+		- update()
+		- update()
+		- update()
+		- initVerify()
+		- verify()
+		- verify()
+	}
+
+	class Cipher {
+		- update()
+		- update()
+		- final()
+		- final()
+		- updateAAD()
+		- updateAAD()
+		- getIv()
+	}
+	
+    class Key {
+		- size()
+	}
+	class PublicKey {
+	}
+	class PrivateKey {
+	}
+	class KeyPair {
+		+ getPublicKey()
+		+ getPrivateKey()
+		- _public
+		- _private
+	}
+	class CipherParameters {
+	}
+	class CipherIvParameters {
+		+ getIv()
+		- iv
+	}
+
+	class OpensslCryptoManager {
+		+ newHasher()
+		+ newCipher()
+		+ newSignature()
+		+ generateKey()
+		+ genRandom()
+		+ loadKey()
+		+ loadKey()
+		+ loadPublicKey()
+		+ loadPublicKey()
+		+ loadPrivateKey()
+		+ loadPrivateKey()
+	}
+
+	class OpensslHasher {
+		+ reset()
+		+ update()
+		+ final()
+		- md
+		- ctx
+	}
+
+	class OpensslSignature {
+		+ initSign()
+		+ sign()
+		+ update()
+		+ initVerify()
+		+ verify()
+		- init()
+		- term()
+		- mdCtx
+		- signMode
+		- algo
+	}
+
+	class OpensslCipher {
+		+ init()
+		+ update()
+		+ final()
+		+ updateAAD()
+		+ getIv()
+		- _final()
+		- _update()
+		- processAAD()
+		- init()
+		- term()
+		- ctx
+		- cipher
+		- encrypt
+		- algo
+		- mode
+		- manager
+		- iv
+	}
+
+	class OpensslKey {
+		+ raw()
+		+ size()
+		- _raw
+	}
+	class OpensslPrivateKey {
+		+ raw()
+		+ size()
+		+ getHandle()
+		- _key
+		- _evpKey
+	}
+	class OpensslPublicKey {
+		+ raw()
+		+ size()
+		+ getHandle()
+		- _key
+		- _evpKey
+	}

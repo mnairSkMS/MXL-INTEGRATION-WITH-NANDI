@@ -1,0 +1,135 @@
+{
+    "version": "1.4.2",
+
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "trace",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+            "gstreamer": {
+                "level": "warn",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "srt://103.248.72.28:10009?mode=caller"
+                }
+            }
+        ],
+
+        "outputs": [
+            {
+                "transports": [
+                    {
+                        "uri": "hls+file:/var/www/html/uploads",
+                        "hls": {
+                            "numSegments": 10,
+                            "segmentLength": 5,
+                            "singleDirectory": true,
+                            "adMarkers":[ "elemental"],
+                            "vodMode": false
+                        }
+                    }
+                ],
+                "container": "mpegts",
+                "scte": {
+                    "pid": 543,
+                    "mode": "passthrogh"
+                },
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "mp3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "15",
+                                "tune": "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate": "3500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "transports": [
+                    {
+                        "uri": "hls+file:/var/www/html/uploads",
+                        "hls": {
+                            "numSegments": 10,
+                            "segmentLength": 4,
+                            "singleDirectory": true,
+                            "adMarkers":[ "elemental"],
+                            "vodMode": true
+                        }
+                    }
+                ],
+                "container": "mpegts",
+                "scte": {
+                    "pid": 543,
+                    "mode": "passthrough"
+                },
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "mp3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "15",
+                                "tune": "zerolatency",
+                                "speed-preset": "ultrafast",
+                                "bitrate": "5500"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

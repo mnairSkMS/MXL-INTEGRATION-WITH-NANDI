@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tsduck>
+    <splice_information_table>
+        <splice_insert splice_event_id="100" unique_program_id="1" out_of_network="true" pts_time="900000"/>
+    </splice_information_table>
+
+    <splice_information_table>
+        <splice_insert splice_event_id="100" unique_program_id="1" out_of_network="false" pts_time="1350000"/>
+    </splice_information_table>
+</tsduck>

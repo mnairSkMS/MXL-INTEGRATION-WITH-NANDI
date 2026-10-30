@@ -1,0 +1,464 @@
+{
+    "version": "1.4.2",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "pls+file:///runtime/main.m3u8",
+                    "playlist": {
+                        "mode": "managed",
+                        "id": "main"
+                    }
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "std_mdh-700300010-144p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 256,
+                            "height": 144,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "200",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdh-700300010-240p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 426,
+                            "height": 240,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "350",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdh-700300010-480p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 854,
+                            "height": 480,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "700",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdh-700300010-720p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "2000",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdl-600300010-144p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 256,
+                            "height": 144,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "200",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdl-600300010-240p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 426,
+                            "height": 240,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "350",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdl-600300010-480p",
+                "type": "single",
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 854,
+                            "height": 480,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "700",
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "option-string": "scenecut=0"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdh-700300010",
+                "type": "group",
+                "transports": [
+                    {
+                        "uri": "https://p-ep20000390.i.mslentrypoint.net/20000390/gecmsl52509/HIN",
+                        "hls": {
+                            "baseFileName": "std_mdh-700300010",
+                            "transferMode": "http_put",
+                            "transferFraming": "fixed",
+                            "singleDirectory": true,
+                            "vodMode": false,
+                            "segmentLength": 6,
+                            "numSegments": 6,
+                            "timeout": 5000,
+                            "retry": {
+                                "count": 3,
+                                "interval": 1000
+                            }
+                        }
+                    }
+                ],
+                "streams": [
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdh-700300010-144p",
+                                "modifier": "_144p"
+                            }
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdh-700300010-240p",
+                                "modifier": "_240p"
+                            }
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdh-700300010-480p",
+                                "modifier": "_480p"
+                            }
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdh-700300010-720p",
+                                "modifier": "_720p"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "std_mdl-600300010",
+                "type": "group",
+                "transports": [
+                    {
+                        "uri": "https://p-ep20000390.i.mslentrypoint.net/20000390/gecmsl52509/HIN",
+                        "hls": {
+                            "baseFileName": "std_mdl-600300010",
+                            "transferMode": "http_put",
+                            "transferFraming": "fixed",
+                            "singleDirectory": true,
+                            "vodMode": false,
+                            "segmentLength": 6,
+                            "numSegments": 6,
+                            "timeout": 5000,
+                            "retry": {
+                                "count": 3,
+                                "interval": 1000
+                            }
+                        }
+                    }
+                ],
+                "streams": [
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdl-600300010-144p",
+                                "modifier": "_144p"
+                            }
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdl-600300010-240p",
+                                "modifier": "_240p"
+                            }
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "std_mdl-600300010-480p",
+                                "modifier": "_480p"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

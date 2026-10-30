@@ -1,0 +1,86 @@
+{
+    "version": "1.4.2",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": true
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "pls+file:///runtime/srt-playlist-switch-managed.m3u8",
+                    "playlist": {
+                        "mode": "managed",
+                        "id": "main"
+                    }
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "switch-srt",
+                "type": "single",
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:9092?mode=listener",
+                        "srt": {
+                            "mode": "listener",
+                            "latency": 120
+                        }
+                    }
+                ],
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate": "6000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        }
+                    }
+                ],
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 4269
+                }
+            }
+        ]
+    }
+}

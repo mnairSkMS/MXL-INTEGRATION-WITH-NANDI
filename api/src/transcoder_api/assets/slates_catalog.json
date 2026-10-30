@@ -1,0 +1,18 @@
+{
+  "assets": [
+    {
+      "id": "slate-with-audio",
+      "label": "Slate with audio",
+      "file": "slate_with_audio.mp4",
+      "mediaType": "video",
+      "hasAudio": true
+    },
+    {
+      "id": "technical-fault",
+      "label": "Technical fault (still)",
+      "file": "technical-fault.jpg",
+      "mediaType": "image",
+      "hasAudio": false
+    }
+  ]
+}

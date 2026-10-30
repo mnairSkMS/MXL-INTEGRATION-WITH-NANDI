@@ -1,0 +1,87 @@
+{
+    "version": "1.5.0",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": false
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "http://host.docker.internal:8090/live.mpd",
+                    "dash": {
+                        "presentationDelay": 4000
+                    }
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "hls-srt-output",
+                "type": "single",
+                "transports": [
+                    {
+                        "uri": "hls+file:/runtime/hls",
+                        "hls": {
+                            "numSegments": 6,
+                            "segmentLength": 4,
+                            "singleDirectory": true,
+                            "vodMode": false
+                        }
+                    },
+                    {
+                        "uri": "srt://0.0.0.0:9092?mode=listener"
+                    }
+                ],
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "channels": 2,
+                            "rate": 48000
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720,
+                            "rate": 24
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "48",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate": "3000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

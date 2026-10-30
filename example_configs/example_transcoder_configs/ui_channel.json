@@ -1,0 +1,74 @@
+{
+    "version": "1.4.2",
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "pls+file:///media/queue/promos.m3u8",
+                    "playlist": {}
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "hls-output",
+                "type": "single",
+                "container": "mpegts",
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:9092",
+                        "srt": {
+                            "mode": "listener",
+                            "latency": 120
+                        }
+                    }
+                ],
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720,
+                            "rate": 25,
+                            "format": "I420",
+                            "interlace": "interleaved",
+                            "fieldOrder": "tff"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate": "6000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "ac3",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 6
+                        },
+                        "ac3": {
+                            "encoder": "dlbpatenc",
+                            "properties": {
+                                "bitrate": "384k"
+                            }
+                        }
+                    }
+                ],
+                "scte": {
+                    "mode": "removal",
+                    "pid": 4269,
+                    "nullInterval": 0
+                }
+            }
+        ]
+    }
+}

@@ -1,0 +1,104 @@
+[
+  {
+    "id": 1,
+    "type": "image_overlay",
+    "time": "2024-07-05T12:00:00Z",
+    "details": {
+      "image_overlay": {
+        "duration": 1000000,
+        "image_urls": [
+          "https://example.com/image1.png",
+          "https://example.com/image2.png"
+        ],
+        "opacity": 0.5,
+        "fade_in": 1000,
+        "fade_out": 1000,
+        "delay_between_images": 500,
+        "geometry_norm": {
+          "x": 0.052083,
+          "y": 0.185185,
+          "width": 0.15625,
+          "height": 0.37037
+        }
+      }
+    }
+  },
+  {
+    "id": 2,
+    "type": "squeeze",
+    "time": "2024-07-05T15:00:00+02:00",
+    "details": {
+      "squeeze": {
+        "squeeze_name": "crop",
+        "duration": 1000000
+      }
+    }
+  },
+  {
+    "id": 3,
+    "type": "scte35_timesignal",
+    "time": "2024-07-05T14:00:00Z",
+    "details": {
+      "scte35_timesignal": {
+        "scte35_descriptors": [
+          {
+            "delivery_restrictions": {
+              "archive_allowed_flag": "ARCHIVE_ALLOWED",
+              "device_restrictions": "NONE",
+              "no_regional_blackout_flag": "NO_REGIONAL_BLACKOUT",
+              "web_delivery_allowed_flag": "WEB_DELIVERY_ALLOWED"
+            },
+            "segment_num": 1,
+            "segmentation_cancel_indicator": "SEGMENTATION_EVENT_CANCELED",
+            "segmentation_duration": 3600,
+            "segmentation_event_id": 1001,
+            "segmentation_type_id": 52,
+            "segmentation_upid": "64757061fa",
+            "segmentation_upid_type": 1,
+            "segments_expected": 1,
+            "sub_segment_num": 1,
+            "sub_segments_expected": 1
+          },
+          {
+            "segmentation_cancel_indicator": "SEGMENTATION_EVENT_NOT_CANCELED",
+            "segmentation_event_id": 1001
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": 4,
+    "type": "scte35_spliceinsert",
+    "time": "2024-07-05T15:00:00Z",
+    "details": {
+      "scte35_spliceinsert": {
+        "duration": 120,
+        "splice_event_id": 2001
+      }
+    }
+  },
+  {
+    "id": 5,
+    "type": "image_overlay",
+    "time": "2024-07-05T12:00:00Z",
+    "details": {
+      "image_overlay": {
+        "image_urls": [
+          "https://example.com/image1.png",
+          "https://example.com/image2.png"
+        ],
+        "opacity": 0.5,
+        "fade_in": 1000,
+        "fade_out": 1000,
+        "delay_between_images": 500,
+        "geometry_norm": {
+          "x": 0.052083,
+          "y": 0.185185,
+          "width": 0.15625,
+          "height": 0.37037
+        }
+      }
+    }
+  }
+]

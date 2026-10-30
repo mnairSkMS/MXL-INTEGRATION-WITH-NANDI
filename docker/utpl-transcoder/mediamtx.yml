@@ -1,0 +1,50 @@
+# RTMP ingest relay. Encoders publish here; the transcoder engine reads from loopback with
+# rtmp2src. Only RTMP is enabled - everything else MediaMTX can serve is off.
+#
+# MediaMTX enables every protocol it knows by default, so a newer release can add one that
+# is on unless listed below (moq arrived that way). The version is pinned in the Dockerfile;
+# when bumping it, diff the release's mediamtx.yml for new "<protocol>: true" defaults and
+# confirm with `ss -ltnup` in the container that only :1935 is listening.
+#
+# To accept RTMPS from encoders, bind-mount a copy of this file over
+# /opt/utpl/etc/mediamtx.yml with rtmpEncryption: "optional" (or "strict") and
+# rtmpServerKey / rtmpServerCert pointing at mounted files, and publish port 1936.
+
+logLevel: info
+logDestinations: [stdout]
+
+rtsp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+api: false
+metrics: false
+pprof: false
+playback: false
+
+rtmp: true
+rtmpEncryption: "no"
+rtmpAddress: :1935
+
+authMethod: internal
+authInternalUsers:
+  # Anyone may publish, but only to a path whose last segment is a long random stream key.
+  # The key is the credential, as with public ingest endpoints.
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path: "~^live/[A-Za-z0-9_-]{16,}$"
+
+  # Only the engine, inside this container, may read a stream back.
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: read
+        path: "~^live/[A-Za-z0-9_-]{16,}$"
+
+paths:
+  all_others:

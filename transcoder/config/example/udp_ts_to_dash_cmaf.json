@@ -1,0 +1,154 @@
+{
+    "version": "1.5.0",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": false
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "udp://0.0.0.0:5000"
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "dash-720p",
+                "type": "single",
+                "container": "fmp4",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1280,
+                            "height": 720,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "3000",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "128000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "dash-360p",
+                "type": "single",
+                "container": "fmp4",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 640,
+                            "height": 360,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "bitrate": "800",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast"
+                            },
+                            "caps": {
+                                "profile": "main"
+                            }
+                        }
+                    },
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "96000"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "dash",
+                "type": "group",
+                "transports": [
+                    {
+                        "uri": "dash+file:/runtime/dash",
+                        "dash": {
+                            "segmentDuration": 3200,
+                            "numSegments": 20,
+                            "baseFileName": "live"
+                        }
+                    }
+                ],
+                "streams": [
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "dash-720p",
+                                "modifier": "_720p"
+                            }
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "link": {
+                            "type": "output",
+                            "output": {
+                                "name": "dash-360p",
+                                "modifier": "_360p"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

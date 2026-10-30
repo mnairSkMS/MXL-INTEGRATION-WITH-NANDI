@@ -1,0 +1,299 @@
+# MXL Implementation Plan
+
+**Status: plan only. Nothing here is implemented.** Element names and paths below were read from this
+checkout's source on 2026-10-30. Performance figures are **illustrative calculations** from frame
+sizes, not measurements. Phase 1 exists to measure them.
+
+Read [41](41-mxl-integration.md) first for background, release status and open decisions. Paths are
+relative to `transcoder/lib/utpl/src/utpl/transcoder/` unless shown otherwise.
+
+**Ground rules (agreed 2026-10-30):**
+- **No separate MXL image.** MXL is built into the existing image chain (`utpl/base` → `utpl/devel` →
+  `utpl/transcoder` → `utpl/transcoder-test`).
+- **Changes to the current codebase are allowed** wherever integration and testing need them,
+  including Dockerfiles, compose files, the media graph, parser, API, UI and tests. The AGENTS.md
+  contract and validation rules still apply.
+
+## 1. Summary
+
+- **Nandi's default media path is not replaced.** Every channel without MXL configuration builds
+  exactly the graph it builds today.
+- **Most MXL work adds elements.** A publishing tap is a new branch off an existing `tee`, and the
+  existing branches keep running.
+- **Only two changes replace existing elements,** and only for channels that opt in:
+  1. An **MXL input** replaces the network source, demuxer and decoder for that input with `mxlsrc`
+     elements.
+  2. An **output moved to an external encoder worker** removes that output's conversion, encoder,
+     muxer and sink from Nandi. They are rebuilt in the worker behind an `mxlsrc`.
+- **The cost is mostly memory bandwidth and pixel conversion.** The programme canvas is 8-bit
+  **BGRA**, so publishing it as V210 is an RGB → YUV 4:2:2 10-bit conversion, not a repack. Moving an
+  encode out of Nandi through MXL roughly triples the memory traffic for that output and leaves the
+  encoding work unchanged ([section 4](#4-performance-impact)).
+
+## 2. Today's element graph
+
+These are the elements a transcoding channel builds today, in order. Optional elements are in
+brackets.
+
+| Stage | Video | Audio | Source |
+| --- | --- | --- | --- |
+| Source | `srtsrc` / `udpsrc` / `filesrc` / `rtmp2src` + `flvdemux` / `souphttpsrc` + `hlsdemux` or `dashdemux2` / `ndisrc` | (same source) | `input/single.cpp:486` onward |
+| Split and decode | passthrough `tee` → `decodebin` (demux + parse + decoder, e.g. `avdec_h264`) → decoded raw video, usually I420 or NV12 | `decodebin` → raw audio | `input/single.cpp:238`, `:280` |
+| Connector | `clocksync` (per input) → `input-selector` → `deinterlace` → `fallbackswitch` (0.5 s) → `compositor`, **BGRA** canvas → `tee` | `clocksync` (per input) → `input-selector` → `audioconvert` → `fallbackswitch` → `utplaudiomute` → `tee` | `channel/connector/complex/video.cpp:11`, `:65`, `:151–249`, `:426`; `audio.cpp:62–226`, `:488` |
+| Per-consumer branch | `queue` → `capsfilter` → `videoconvertscale` → `capsfilter` (BGRA, size) → `videorate` → `capsfilter` (rate) | `capsfilter` → `audioconvert` → `audioresample` → `capsfilter` | `video.cpp:255–345`; `audio.cpp:244–291` |
+| Processor | `identity` → [`tee` + `queue` when there is more than one flowline] | likewise; Dolby uses `dlbpat*` in its own connector | `channel/processor/transcoder/video.cpp:24`, `:118` |
+| Flowline | `videoconvert` → `capsfilter` (output pixel format, default I420) → [`videorate`] → [`interlace`] → `encodebin` (e.g. `x264enc`) → [`tee` → `queue` per output] | `encodebin` (AAC, AC-3 …) | `channel/processor/transcoder/flowline.cpp:118–175`, `:328` |
+| Mux and sink | `mpegtsmux` → `srtsink` / `udpsink`; `splitmuxsink` / `hlssink` / `awss3hlssink`; `isofmp4mux`; `dashsink2` | (same mux) | `output/`, `output/sink/` |
+
+## 3. What changes, element by element
+
+### 3.1 Phase 1: qualification inside the existing images (WS-01)
+
+**Replaced: nothing in the media graph.** Channels build the same graph; the images gain MXL.
+
+| Added | Where |
+| --- | --- |
+| `mxlsink`, `mxlsrc` (from `libgstmxl.so`, installed in the GStreamer plugin directory), `libmxl.so` (on the default library path), MXL tools (`mxl-info`, `mxl-video-probe`, `mxl-gst-testsrc`, `mxl-gst-sink`) | `utpl/base`, so every image built on it has them |
+| Test pipelines: `videotestsrc` → `videoconvert` → `capsfilter` (v210) → `queue` → `mxlsink`; `mxlsrc` → `videoconvert` → sink; the same for `audiotestsrc` → F32LE | `tests/tests/mxl/sdk/`, run by `tests/run.sh` in `utpl/transcoder-test` |
+
+### 3.2 Processed-programme tap, CP2 (WS-03/WS-04)
+
+**Replaced: nothing.** The tap adds one consumer to the connector `tee`, built by the same
+`getPad(params)` branch builder the processors already use.
+
+| Path | Added elements | Notes |
+| --- | --- | --- |
+| Video | `queue` (**leaky**, small) → `videoconvertscale` → `capsfilter` (`format=v210`, output size, `colorimetry=bt709`) → `videorate` → `capsfilter` (rate) → `mxlsink flow-id=… domain=…` | Reuses the `video.cpp:255–345` builder with a v210 parameter set. The tap is progressive already, because `deinterlace` runs before the compositor. |
+| Audio | `queue` (leaky) → `audioconvert` → `audioresample` → `capsfilter` (`F32LE`, 48 kHz, N channels) → `mxlsink` | Reuses the `audio.cpp:244–291` builder. Dolby-processed audio needs the equivalent tap on the Dolby connector. |
+
+The leaky `queue` is required. A `tee` waits for every branch, so without it a stalled `mxlsink`
+would stall every on-air output in the channel. With it, the tap drops frames instead, which is the
+fail-open behaviour. A fail-closed policy (decision Q8) would use a normal queue.
+
+### 3.3 Decoded-source tap, CP1 (WS-03)
+
+**Replaced: nothing.**
+
+| Added | Notes |
+| --- | --- |
+| On each decoded input stream, after `decodebin`: `tee` → `queue` (leaky) → [`deinterlace`] → `videoconvert` → `capsfilter` (v210) → `mxlsink`; audio likewise to F32LE | Before the connector, so the media is **not** deinterlaced and **not** scaled to a fixed size. A playlist input changes size or rate between items, so the flow would need versioning or a fixed-format scaler. Build CP2 first. |
+
+### 3.4 MXL input (WS-02)
+
+**Replaced, for that input only:** the source element, the passthrough `tee` and `decodebin`
+(demuxer, parser, decoder).
+
+| Today | With `mxl://` input |
+| --- | --- |
+| `srtsrc` (or other) → passthrough `tee` → `decodebin` → raw video + raw audio | `mxlsrc video-flow-id=…` → raw v210; `mxlsrc audio-flow-id=…` → raw F32LE; [`mxlsrc data-flow-id=…` → ST 2038 ancillary data] |
+| Everything from `input-selector` onward | **Unchanged.** The compositor's sink pad converts v210 → BGRA. |
+
+NDI is the precedent: `ndisrc` already delivers raw media into the same graph (`input/single.cpp:509`,
+`NdiInputTransportParameters`, parser `transport.ndi`). One difference is that `mxlsrc` reads exactly
+one flow per element, so an MXL input has two or three source elements instead of one.
+
+**Lost for an MXL input:**
+- passthrough outputs (there is no compressed stream);
+- in-band SCTE-35 (no TS sections), which need the separate event path (decision Q7);
+- caption extraction from the bitstream, unless it is carried as ST 291 ancillary data;
+- multi-programme selection.
+
+### 3.5 Output moved to an external encoder worker (WS-05, Phase 3)
+
+**Replaced, for each moved output only:** inside Nandi, that output's flowline and sink chain:
+`videoconvert` → `capsfilter` → [`videorate`, `interlace`] → `encodebin` → mux → sink.
+
+| Nandi keeps | Worker process (new) |
+| --- | --- |
+| The CP2 tap (3.2), shared by every moved output | `mxlsrc` (video) + `mxlsrc` (audio) → `videoconvert` (v210 → encoder format, e.g. I420) → [`interlace`] → encoder → mux → sink, the same elements Nandi uses today |
+
+Outputs that are not moved keep their flowlines in Nandi. The encoding work does not go away; it
+moves to the worker.
+
+### 3.6 MXL Fabrics (WS-08, Phase 4)
+
+**Replaced: nothing in Nandi.** A separate `mxl-fabrics` process replicates a flow from the local
+domain to a remote host's domain. Remote workers use `mxlsrc` as in 3.5.
+
+### 3.7 Unchanged in every phase
+
+`clocksync`, `input-selector`, `deinterlace`, `fallbackswitch`, `compositor` and graphics,
+`utplaudiomute`, the Dolby `dlbpat*` chain, and every flowline, mux and sink for outputs not moved
+to a worker. Fill/key graphics from an external engine (a V210A `mxlsrc` as a compositor layer) are
+deferred.
+
+## 4. Performance impact
+
+### 4.1 Frame sizes used
+
+At 1920×1080 (ILLUSTRATIVE CALCULATION, payload only, no stride or allocator overhead):
+
+| Format | Bytes per frame | MB/s at 25 | at 30000/1001 | at 50 | at 60 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| BGRA (compositor canvas) | 8,294,400 | 207.4 | 248.6 | 414.7 | 497.7 |
+| V210 (MXL) | 5,529,600 | 138.2 | 165.7 | 276.5 | 331.8 |
+| I420 (typical encoder input) | 3,110,400 | 77.8 | 93.2 | 155.5 | 186.6 |
+| F32LE audio, 48 kHz, 2 ch / 6 ch | — | 0.38 / 1.15 | | | |
+
+Audio is negligible next to video, so the figures below are video only, at 1080p60.
+
+### 4.2 Change by change
+
+| Change | What is added | Memory traffic added (1080p60) | CPU | Other effects |
+| --- | --- | --- | --- | --- |
+| **CP2 tap** (3.2) | BGRA → V210 conversion, then the write into the ring | Conversion: read 497.7 + write 331.8 = **829.5 MB/s**. If `mxlsink` copies into the ring (verify in Phase 1): +663.6 MB/s, about **1.5 GB/s** in total. | One extra conversion thread per tap: RGB → YUV matrix, 4:4:4 → 4:2:2, 8 → 10-bit packing. Unmeasured; may be a significant share of a core. | `/dev/shm`: 33.2 MB per 100 ms of history. Quality: 8-bit source in a 10-bit container gains no precision, chroma is halved horizontally, and the colour matrix must be set explicitly (BT.709, limited range) or colours shift. |
+| **CP1 tap** (3.3) | Decoder output (I420) → V210 | Read 186.6 + write 331.8 = **518.4 MB/s**, plus a possible ring copy (+663.6) | Cheaper than CP2 (YUV → YUV), plus deinterlace if the source is interlaced | Same `/dev/shm` cost. |
+| **MXL input** (3.4) | Ring read, then V210 → BGRA in the compositor | Compositor conversion: read 331.8 + write 497.7 = 829.5 MB/s, against 684.3 MB/s for today's I420 → BGRA; plus a possible copy out of the ring (+663.6) | **Saves the decode in this process** (H.264/HEVC decode, the heaviest step of ingest). The saving is real only if the raw source already exists on the host; otherwise the decode has moved to another process. | No network receive or jitter buffer for that input. |
+| **Encoder moved to a worker** (3.5) | Nandi: CP2 tap. Worker: ring read and V210 → I420. | Today: BGRA → I420 = 684.3 MB/s. With MXL: 829.5 (tap) + 663.6 (ring copy, if any) + 518.4 (worker conversion) ≈ **2.0 GB/s**, about **3×** today | **Encoding CPU is unchanged; it moves.** Two conversions are added. | Gains: the encoder can crash or be upgraded without stopping Nandi. Loses: one process's GOP and PTS state; restart continuity needs work (Phase 3). |
+| **Fabrics** (3.6) | Network replication | Per remote copy, network: **2.65 Gb/s** at 1080p60 (10.62 Gb/s at 2160p60) | libfabric progress threads; RDMA lowers CPU, TCP raises it | Does not fit 1 GbE. Usually loses to a compressed SRT feed unless the NIC budget is there. |
+
+### 4.3 Latency
+
+- **CP2 tap:** none added to the on-air path. The tap runs on its own `queue` thread, but it competes
+  for cores and memory bandwidth.
+- **Paths through MXL:** each adds at least the reader's chosen delay. MXL's reference
+  `mxl-gst-sink` reads 40 ms behind by default (`--read-delay`). This is a hint, not a Nandi figure.
+  Measure it in Phase 1 (T2) and Phase 2.
+
+### 4.4 Where MXL saves resources
+
+Only where a second process would otherwise ingest and decode the same source again: external QC, AI
+or monitoring that today opens its own SRT/UDP connection. Inside one Nandi channel, decode is
+already shared by `tee`s ([41](41-mxl-integration.md)), so MXL adds cost there and saves none. Its
+value inside Nandi is process isolation and interoperability, which Gates B to D must show is worth
+the cost in section 4.2.
+
+## 5. Implementation plan
+
+Each step lists the technical changes by layer. AGENTS.md treats parser, parameters, schema,
+examples, API, UI and tests as one contract, so each feature step touches all of them.
+
+Nandi creates GStreamer elements by name (`pipeline::Element::make("mxlsink")`). Using `gst-mxl-rs`
+therefore needs **no C++ link against `libmxl`**: the plugin only has to be installed in the image.
+Only the C API fallback ([section 6](#6-risks-that-change-this-plan)) would add a link dependency.
+
+### Step 0: Repository and baseline (Phase 0, WS-00)
+
+| Layer | Change |
+| --- | --- |
+| Repository | `git init`; initial commit of the tree as received. Each later step is its own commit, so any step can be reverted. |
+| Baseline images | Build `utpl/base`, `utpl/devel`, `utpl/transcoder` and `utpl/transcoder-test` from this checkout **before** any MXL change, and tag them `:baseline`. After Step 1 every image contains MXL, so this is the only point where "today" can be captured. Run CTest. |
+| Measurement | One reference channel (bars and tone → 1080p, 2 outputs). Record the DOT graph (`GST_DEBUG_DUMP_DOT_DIR`), CPU per thread, RSS, memory bandwidth if available, and glass-to-glass latency. This is test T0, and it is the "today" column in section 4. |
+| Docs | Record the results in 41. |
+
+### Step 1: MXL in the existing images, SDK qualification (Phase 1, WS-01)
+
+| Layer | Change |
+| --- | --- |
+| `docker/utpl-base/Dockerfile`, builder stage (`base-builder`) | Add `ARG MXL_TAG=v1.1.0` and `ARG ENABLE_MXL=1`. Install MXL's apt build dependencies and vcpkg. Clone `dmf-mxl/mxl` at the tag; build the SDK and tools with the `Linux-GCC-Release` preset; `cmake --install` into a staging prefix under `/tmp/built/mxl`. Build `gst-mxl-rs` with the rustup toolchain the stage already installs for `dashsink2` (`DASH_RUST_TOOLCHAIN=1.99.1`, which meets MXL's minimum of 1.87), adding `libclang-dev` if `mxl-sys` uses bindgen. Stage `libgstmxl.so`. |
+| `docker/utpl-base/Dockerfile`, runtime stage (`base`) | `COPY --from=base-builder` the staged MXL files: libraries and tools to `/usr/local`, `libgstmxl.so` to the GStreamer plugin directory; then `ldconfig`. Elements and tools then work without `LD_LIBRARY_PATH` or `GST_PLUGIN_PATH`. Install any shared runtime libraries MXL needs that vcpkg does not link statically (found during the build). |
+| `utpl-devel`, `utpl-transcoder`, `utpl-transcoder-test` | No Dockerfile change expected: `utpl/devel` and the final `utpl/transcoder` stage are built `FROM utpl/base`, and `utpl/transcoder-test` from `utpl/transcoder`, so all of them inherit MXL. `utpl/transcoder-test` already has `gstreamer1.0-tools` for `gst-inspect-1.0`. |
+| `docker/build-docker.sh` | Same image list. Pass `--build-arg MXL_TAG` and `ENABLE_MXL` through, so MXL can be switched off if it ever breaks the base build. |
+| `docker-compose.yml` (and any other compose file that runs an MXL channel) | A named tmpfs volume for the MXL domain (for example `mxl-domain`, `driver_opts: {type: tmpfs, device: tmpfs, o: "size=256m"}`) mounted at `/run/mxl`. Other containers mount it read-only to consume flows. The size comes from Step 1 measurements. `/dev/shm` is left alone. |
+| `tests/tests/mxl/sdk/<case>/` (new) | One `test.sh` per Phase 1 check (install, video, audio, A/V, frame rates, cross-container, ring size, restart, slow reader, read-only reader, cost), using `gst-launch-1.0` and the MXL tools inside `utpl/transcoder-test`. Flow-definition JSON fixtures (v210 1920×1080 30000/1001 BT.709 progressive; float32 48 kHz 2 and 6 ch, fixed UUIDs) sit beside each test. If the existing `test_execute` helper cannot run a non-transcoder test, add a small helper to `tests/framework/`. |
+| `tests/README.md` | How to run the suite: `tests/run.sh mxl`. |
+| Source reading | Read `gst-mxl-rs` at the pinned tag and record the answers in 41. How do buffer PTS map to the MXL grain index (TAI)? Does `mxlsink` copy into the ring or write in place? What do `sync` and `latency` do? What happens on a caps change? These answers settle the "if it copies" figures in section 4.2 and the clock decision. |
+| Measurement | Conversion cost per format (`videotestsrc` BGRA and I420 → `videoconvert` → v210), ring read and write cost, publish-to-read latency p50/p95/p99. Compare base-image size and build time against `:baseline`. |
+| Docs | 03 (images now contain MXL; build arguments), 19 (external plugin), 23, 41. |
+| Exit | Gate A on reference flows; the defaults in [section 7](#7-proposed-defaults-for-the-open-decisions) are confirmed. |
+
+### Step 2: CP2 publishing tap (Phase 2, WS-03/WS-04)
+
+| Layer | Change |
+| --- | --- |
+| Parameters (`include/utpl/transcoder/`) | New output type and parameters: domain, video flow UUID, audio flow UUIDs, size, rate, channel layout, history, fail policy. |
+| Pixel format | `PixelFormat` (`transcoder/lib/common/include/utpl/common/types.h`) has no V210 value today. Add it, plus its caps-string mapping in `transcoder/lib/utpl/src/utpl/pipeline/caps.cpp`, its parser value and its schema enum. |
+| Media graph (`channel/connector/complex/video.cpp`, `audio.cpp`, `dolby.cpp`) | Register the tap as a connector consumer through `getPad(params)` with the v210 format and F32LE. Terminate the branch in `mxlsink` instead of a processor, behind a leaky `queue` for fail-open. |
+| Output wiring (`output/`, `channel.cpp`) | An `mxl` output builds a tap instead of a flowline, muxer and sink. |
+| Clock | An adapter from pipeline running time (monotonic clock) to TAI, unless Step 1 shows `mxlsink` already does it. |
+| Parser (`transcoder/app/src/application/config/parser/json/parser.cpp`) | `type: "mxl"` next to `single`/`group` (line 637); validate UUIDs and the domain path. |
+| Schema and examples | `transcoder/config/doc/openapi.yaml` and an example in `transcoder/config/`. An example moves to `config/` only when something runs it (AGENTS.md). |
+| API and UI | Pydantic models, `frontend/src/features/channels` mappers and form. |
+| Metrics | Frames written, frames dropped by the leaky queue, conversion time, last-write time. |
+| Tests | `tests/tests/mxl/tap/<case>/` with a `src/config.json` fixture (T3/T4). Nandi publishes; `mxl-video-probe` and `ffprobe` check the flow; TSDuck checks the on-air output **with and without** the tap to show it does not regress. |
+| Docs | 02, 05, 10, 11, 13, 26, 41. |
+
+### Step 3: MXL input (Phase 2, WS-02)
+
+| Layer | Change |
+| --- | --- |
+| Parameters (`include/utpl/transcoder/input.h`) | `Protocol::MXL` and `MxlInputTransportParameters` (domain, video/audio/data flow UUIDs), on the `NdiInputTransportParameters` pattern. |
+| Media graph (`input/single.cpp`) | A `mxl` scheme branch next to `ndi` (line 509). Build one `mxlsrc` per flow, skip `decodebin`, expose the raw pads as input streams, and mark the input live. |
+| Parser, schema, API, UI | `transport.mxl`, as for `transport.ndi`. `GET /inputs/probe` describes MXL inputs with `mxl-info` instead of `ffprobe`. |
+| Tests | `tests/tests/mxl/input/<case>/` (T8): 30000/1001, writer restart and discontinuity; output checked with `ffprobe` and TSDuck. A loopback test feeds one channel's CP2 tap into a second channel's MXL input. |
+| Docs | 07, 05, 02, 26. |
+
+### Step 4: External consumers and encoder worker (Phases 2–3, WS-05 to WS-07)
+
+| Layer | Change |
+| --- | --- |
+| Worker | A container from `utpl/transcoder` running `gst-launch-1.0` (or a second Nandi instance with an MXL input): `mxlsrc` → conversion → encoder → mux → sink. Docker restarts it; no orchestrator is needed. |
+| Nandi config | Outputs move to the worker by replacing them with one `mxl` output in Nandi. |
+| Events | SCTE-35 delivery to the worker, by the decision in section 7. |
+| Registry | Flow UUID persistence, one writer per flow, stale-flow cleanup (`mxl-info -g`). |
+| Compose | A worker service sharing the `mxl-domain` volume read-only. |
+| Tests | T5–T7, T9, T10: consumer restart, slow reader, multi-audio, SCTE during restart. |
+
+### Step 5: Fabrics (Phase 4, WS-08)
+
+No Nandi media-graph change. Two hosts run `mxl-fabrics` over TCP and then Verbs/EFA, compared
+against a compressed SRT feed under contention (T11). Fabrics is built into `utpl/base` in Step 1 if
+its dependencies (libfabric) allow; otherwise it is added here. Target-info exchange gets a security
+review. Gate E decides, per topology.
+
+## 6. Risks that change this plan
+
+| Risk | Effect | Found in |
+| --- | --- | --- |
+| `gst-mxl-rs` does not build or run against GStreamer 1.24.2 | Use the MXL C API from C++ (a custom element in `transcoder/plugins/gstreamer/`, or an `appsink`/`appsrc` bridge). This adds a link dependency and more work. | Step 1 |
+| The MXL build breaks or slows the base image | Every image depends on `utpl/base`. `ENABLE_MXL=0` restores today's build while it is fixed. | Step 1 |
+| BGRA → V210 conversion is too expensive | Move the tap, or change the canvas to a YUV format, which is a wider change affecting graphics | Step 1 measurement, Step 2 |
+| `mxlsink` blocks or waits on the clock unexpectedly | On-air stall unless the leaky queue is in place | Step 1 source reading, Step 2 tests |
+| Only the first audio stream reaches outputs ([27](27-known-gaps-contradictions-and-remediation.md)) | Per-language audio flows are impossible until it is fixed | Before Step 2 audio |
+| No audio during source loss ([27](27-known-gaps-contradictions-and-remediation.md)) | Gaps in the MXL audio flow | Before Step 2 audio |
+
+## 7. Proposed defaults for the open decisions
+
+These let implementation start without waiting for a workshop. **Each needs the project owner's
+approval.** Each can be changed later, with the cost shown.
+
+| Decision | Proposed default | Reason | Cost of changing later |
+| --- | --- | --- | --- |
+| MXL version | `v1.1.0`, as a build argument | Latest stable; includes `gst-mxl-rs` and Fabrics | Rebuild the base image |
+| Fail open or closed (Q8) | **Open**: leaky queue, errors logged and counted, on-air outputs continue. A per-output `failPolicy: "closed"` comes later if needed. | The brief's design principle: optional consumers never take the main output down | Small: a queue setting |
+| Clock | Keep the monotonic pipeline clock and convert to TAI at the tap, unless `mxlsink` already maps it | Changing the pipeline clock affects every output | Medium |
+| SCTE-35 timeline (Q7) | Stays in Nandi. MXL flows carry no SCTE through Step 3; the carrier to workers is decided at Step 4. | MXL has no SCTE-35 semantics; ST 291 is not SCTE-35 | None until Step 4 |
+| Stop condition (Q18) | Stop or rethink if (a) neither `gst-mxl-rs` nor the C API works on GStreamer 1.24, or (b) the CP2 tap makes the on-air output regress (any TSDuck/`ffprobe` failure or dropped frames), or (c) the tap's CPU cost exceeds a limit set by the project owner | Keeps the project reversible | — |
+| Domain location | Named tmpfs volume at `/run/mxl` | Sized separately from `/dev/shm`; shareable read-only between containers | Small: compose only |
+| Config shape | See below | Fits the existing output `type` enum and `transport.<protocol>` pattern | Medium once API/UI exist |
+
+Proposed configuration. Field names follow the existing parser; this is a proposal, not a schema
+yet.
+
+```json
+"outputs": [
+  {
+    "name": "programme-mxl",
+    "type": "mxl",
+    "transports": [
+      { "uri": "mxl:///run/mxl", "mxl": { "failPolicy": "open", "historyMs": 100 } }
+    ],
+    "streams": [
+      { "type": "video", "codec": "raw", "video": { "width": 1920, "height": 1080 },
+        "mxl": { "flowId": "5fbec3b1-1b0f-417d-9059-8b94a47197ed" } },
+      { "type": "audio", "codec": "raw", "audio": { "rate": 48000, "channels": 2 },
+        "mxl": { "flowId": "<audio-flow-uuid>" } }
+    ]
+  }
+]
+```
+
+```json
+"inputs": [
+  { "transport": { "uri": "mxl:///run/mxl",
+                   "mxl": { "videoFlowId": "<uuid>", "audioFlowId": "<uuid>" } } }
+]
+```
+
+The frame rate follows the channel's existing video rate key. The `mxl://` scheme matches MXL's own
+domain URI form (`mxl://[authority[:port]]/domain`).

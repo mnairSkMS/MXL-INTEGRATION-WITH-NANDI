@@ -1,0 +1,356 @@
+{
+  "assets": [
+    {
+      "id": "logo-default",
+      "label": "Logo.png",
+      "kind": "logo",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/logo.png",
+      "thumbnail": "/operator/static/graphics/logo.png",
+      "geometry": {
+        "x": 0.03125,
+        "y": 0.055556,
+        "width": 0.171875,
+        "height": 0.125
+      },
+      "defaultMode": "fade",
+      "defaultAnimationMs": 600,
+      "supportedModes": [
+        "snap",
+        "fade"
+      ]
+    },
+    {
+      "id": "lband-voltedge",
+      "label": "VoltEdge",
+      "kind": "lband",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/lband_voltedge.png",
+      "thumbnail": "/operator/static/graphics/lband_voltedge.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 0.78125,
+        "height": 0.763889
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-aquapure",
+      "label": "AquaPure",
+      "kind": "lband",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/lband_aquapure.png",
+      "thumbnail": "/operator/static/graphics/lband_aquapure.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 0.78125,
+        "height": 0.763889
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-apex-tyres",
+      "label": "Apex Tyres",
+      "kind": "lband",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/lband_apex_tyres.png",
+      "thumbnail": "/operator/static/graphics/lband_apex_tyres.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 0.78125,
+        "height": 0.763889
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-greenfuel",
+      "label": "GreenFuel",
+      "kind": "lband",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/lband_greenfuel.png",
+      "thumbnail": "/operator/static/graphics/lband_greenfuel.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 0.78125,
+        "height": 0.763889
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-pennzoil",
+      "label": "Pennzoil",
+      "kind": "lband",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/pennzoil_lband.png",
+      "thumbnail": "/operator/static/graphics/pennzoil_lband.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 0.78125,
+        "height": 0.763889
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-playboxtv",
+      "label": "PlayboxTV",
+      "kind": "lband",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/lband_playboxtv.png",
+      "thumbnail": "/operator/static/graphics/lband_playboxtv.png",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.161979,
+        "y": 0.0,
+        "width": 0.838021,
+        "height": 0.822222
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-video",
+      "label": "L-band (video)",
+      "kind": "lband",
+      "mediaType": "video",
+      "mediaUri": "file:///media/graphics/lband_video_short.mov",
+      "thumbnail": "/operator/static/graphics/lband_video.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.208333,
+        "y": 0.0,
+        "width": 0.791667,
+        "height": 0.790741
+      },
+      "clipDurationMs": 4200,
+      "defaultDurationMs": 4200,
+      "defaultAnimationMs": 0,
+      "defaultMode": "reveal",
+      "preloadLeadMs": 3000,
+      "supportedModes": [
+        "snap",
+        "reveal"
+      ]
+    },
+    {
+      "id": "lband-video-anim",
+      "label": "L-band (animated test card)",
+      "kind": "lband",
+      "mediaType": "video",
+      "mediaUri": "file:///media/graphics/lband_video_anim.mov",
+      "thumbnail": "/operator/static/graphics/lband_video_anim.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.208333,
+        "y": 0.0,
+        "width": 0.791667,
+        "height": 0.790741
+      },
+      "clipDurationMs": 4200,
+      "defaultDurationMs": 4200,
+      "defaultAnimationMs": 0,
+      "defaultMode": "reveal",
+      "preloadLeadMs": 3000,
+      "supportedModes": [
+        "snap",
+        "reveal"
+      ]
+    },
+    {
+      "id": "bug-default",
+      "label": "Bug.png",
+      "kind": "bug",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/bug.png",
+      "thumbnail": "/operator/static/graphics/bug.png",
+      "geometry": {
+        "x": 0.86875,
+        "y": 0.055556,
+        "width": 0.1,
+        "height": 0.177778
+      },
+      "defaultMode": "fade",
+      "defaultAnimationMs": 600,
+      "supportedModes": [
+        "snap",
+        "fade"
+      ]
+    },
+    {
+      "id": "aston-static",
+      "label": "Aston",
+      "kind": "aston",
+      "mediaType": "image",
+      "mediaUri": "file:///media/graphics/aston1.png",
+      "thumbnail": "/operator/static/graphics/aston1.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 0.849074
+      },
+      "defaultDurationMs": 15000,
+      "defaultAnimationMs": 600,
+      "defaultMode": "reveal",
+      "supportedModes": [
+        "snap",
+        "shrink_overlay",
+        "reveal"
+      ]
+    },
+    {
+      "id": "aston-video",
+      "label": "Aston (video)",
+      "kind": "aston",
+      "mediaType": "video",
+      "mediaUri": "file:///media/graphics/aston_video_short.mov",
+      "thumbnail": "/operator/static/graphics/aston_video.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 0.790741
+      },
+      "clipDurationMs": 2200,
+      "defaultDurationMs": 2200,
+      "defaultAnimationMs": 0,
+      "defaultMode": "reveal",
+      "preloadLeadMs": 3000,
+      "supportedModes": [
+        "snap",
+        "reveal"
+      ]
+    },
+    {
+      "id": "aston-video-anim",
+      "label": "Aston (animated test card)",
+      "kind": "aston",
+      "mediaType": "video",
+      "mediaUri": "file:///media/graphics/aston_video_anim.mov",
+      "thumbnail": "/operator/static/graphics/aston_video_anim.jpg",
+      "geometry": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 1.0
+      },
+      "squeezeWindow": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 1.0,
+        "height": 0.790741
+      },
+      "clipDurationMs": 2200,
+      "defaultDurationMs": 2200,
+      "defaultAnimationMs": 0,
+      "defaultMode": "reveal",
+      "preloadLeadMs": 3000,
+      "supportedModes": [
+        "snap",
+        "reveal"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+# Local CMAF DASH output channel (config/rtmp_to_dash_cmaf.json). Use with docker-compose.playlist.yml:
+#   docker compose -f docker-compose.playlist.yml -f docker-compose.dash-out.yml up -d
+#
+# It has its own project name, container names and host ports so it can run beside the stack
+# from docker-compose.playlist.yml / docker-compose.ui.yml without touching it:
+#   API + operator UI  http://127.0.0.1:18080/operator   (loopback only; the API is unauthenticated)
+#   DASH, via the API  http://127.0.0.1:18080/dash/live.mpd
+#   DASH, LAN          http://<this-host>:18082/live.mpd
+#
+# The channel pulls rtmp://103.248.72.28:1935/live/Cook_Vook_Out (H.264 1080p25 + AAC) and
+# publishes a 1080p/720p/360p H.264 + AAC ladder as one live MPD with 3.2 s CMAF segments into
+# ./runtime/dash. The image must carry dashsink2 and fmp4 0.14.5: build it from docker/ (see
+# doc/codebase/40-cmaf-dash-output.md) and tag it as below.
+name: skandha-dash-out
+
+services:
+  transcoder:
+    image: skandha-transcoder:dash-out
+    pull_policy: never
+    container_name: skandha-dash-out
+    ports: !override
+      - "127.0.0.1:18080:8080"
+    environment:
+      TRANSCODER_CONFIG_PATH: /opt/utpl/channel/rtmp_to_dash_cmaf.json
+      # This channel has no playlist. Without these the bootstrap would apply channel.yml and,
+      # on Publish, rewrite it in the shared config/ directory.
+      PLAYLIST_BOOTSTRAP_FILE: ""
+      PLAYLIST_BOOTSTRAP_WRITEBACK: "false"
+      DB_PATH: /runtime/dash-out.sqlite
+      MANAGED_PLAYLIST_FILE: /runtime/dash-out-main.m3u8
+      # Served by the API at /dash. Must match the DASH output URI in the channel config.
+      DASH_DIR: /runtime/dash
+  hls-lan:
+    image: skandha-transcoder:dash-out
+    pull_policy: never
+    container_name: skandha-dash-out-lan
+    ports: !override
+      - "18082:8082"
+    command: ["/opt/venv/bin/python", "/opt/hls_lan_server.py", "/runtime/dash", "8082"]

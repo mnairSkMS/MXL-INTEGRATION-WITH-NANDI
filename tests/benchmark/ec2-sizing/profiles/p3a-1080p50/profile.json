@@ -1,0 +1,37 @@
+{
+  "name": "p3a-1080p50",
+  "description": "P1 at 1080p50 (8 Mbps, 2 s GOP) from 50p content.",
+  "output": {
+    "kind": "udp",
+    "fps": 50,
+    "width": 1920,
+    "height": 1080,
+    "video_kbps": 8128
+  },
+  "content": {
+    "real": {
+      "program": [
+        {
+          "media": "xiph-1080p50.mp4",
+          "lband": true
+        }
+      ]
+    },
+    "synthetic": {
+      "program": [
+        {
+          "media": "stress-1080p50.mp4",
+          "lband": true
+        }
+      ]
+    }
+  },
+  "default_content": "real",
+  "ads": [
+    "red.mp4",
+    "green.mp4",
+    "blue.mp4",
+    "yellow.mp4",
+    "magenta.mp4"
+  ]
+}

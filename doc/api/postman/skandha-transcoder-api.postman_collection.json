@@ -1,0 +1,4599 @@
+{
+ "info": {
+  "name": "Skandha Transcoder API",
+  "description": "# Skandha Transcoder \u2014 control-plane API\n\nFastAPI control plane in front of a C++/GStreamer engine. Folders `01`\u2013`09` are the **reference**: one request per endpoint. Folders `W0`\u2013`W6` are **runnable workflows** \u2014 open the Collection Runner, pick a `W` folder, set **Delay = 1000 ms**, and hit Run.\n\n## Start here\n\n`W0 Smoke test` \u2014 read-only, five assertions, proves the container is healthy.\n\n## No authentication\n\nThere is none. Use only on a trusted management network.\n\n## Three rules this API enforces\n\n**1. Optimistic concurrency.** Queue mutations carry `expectedRevision`; rundown mutations carry `expectedVersionId`. Read it with a GET first \u2014 a stale value is `409`.\n\n**2. Asynchronous reconciliation.** Playlist mutations return **`202`**, meaning *accepted into the desired queue*, not *on air*. Nothing changed until `appliedRevision` catches up with `desiredRevision`. A non-null `applyError` means the engine rejected it.\n\n**3. Two-phase validation.** `POST /rundowns/{id}/apply` with `\"dryRun\": true` validates the merged result and rolls back. It is the safe way to test a schedule edit.\n\n## Units\n\nEvery duration, offset and fade on the API is **integer milliseconds**. A graphic's duration is the whole visible interval, fades included.\n\n## Variables\n\n`{{baseUrl}}` comes from the **skandha-local** environment. `{{playlistId}}` and `{{rundownId}}` are collection variables, both `main`. Everything else is captured at runtime by the workflow scripts.",
+  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+  "_postman_id": "eb99a776-d118-46d7-bc2d-f3e8dbd616f5"
+ },
+ "item": [
+  {
+   "name": "01 Inputs",
+   "item": [
+    {
+     "name": "List inputs",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const inputs = pm.response.json();",
+         "pm.test(\"at least one input\", () => pm.expect(inputs.length).to.be.at.least(1));",
+         "const inp = inputs[0];",
+         "pm.environment.set(\"inputId\", inp.id);",
+         "const other = (inp.streams || []).find(s => s.id !== inp.currentStreamId);",
+         "if (other) pm.environment.set(\"streamId\", other.id);",
+         "console.log(`input ${inp.id} | ${inp.streams.length} streams | current ${inp.currentStreamId}`);"
+        ]
+       }
+      }
+     ],
+     "id": "8d8ca22e-4391-471f-935e-4cab9202c3e1",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs"
+       ]
+      },
+      "description": "Every logical input with its streams, URIs, states and current selection. For a playlist input, each entry in `streams` is one switchable playlist item.\n\nOnly `transcoder.inputs[0]` becomes an engine input \u2014 do not use `/config/get-inputs` to count them.\n\n**Capture:** stores `inputId` and picks a `streamId` that is not currently on air."
+     },
+     "response": []
+    },
+    {
+     "name": "Get input",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const i = pm.response.json();",
+         "console.log(`current stream ${i.currentStreamId}`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "a0de1d32-753f-44c2-8571-26ab7d828f96",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/{{inputId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "{{inputId}}"
+       ]
+      },
+      "description": "One input. Poll this after a switch until `currentStreamId` matches what you asked for \u2014 the switch is asynchronous.\n\n**Needs** `{{inputId}}`. Unknown id \u2192 `404`."
+     },
+     "response": []
+    },
+    {
+     "name": "Switch current stream",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200, or 400/404 for a bad id\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));",
+         "if (pm.response.code === 200) console.log(\"switch requested - poll 'Get input' until currentStreamId matches\");",
+         "else console.log(pm.response.text().slice(0, 160));"
+        ]
+       }
+      }
+     ],
+     "id": "62715c67-2d5e-48cc-9381-4776164dade0",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"currentStreamId\": \"{{streamId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/inputs/{{inputId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "{{inputId}}"
+       ]
+      },
+      "description": "Point the input at a different stream. Asynchronous: poll `GET /inputs/{id}`.\n\n**Needs** `{{inputId}}`, `{{streamId}}`. Missing `currentStreamId` \u2192 `400`; unknown id \u2192 `404`.\n\n**Caveat:** on a managed playlist the reconciler may switch back. `POST /playlists/main/skip` is the supported way to change what is on air."
+     },
+     "response": []
+    },
+    {
+     "name": "Probe file input",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const p = pm.response.json();",
+         "pm.test(\"reported a container\", () => pm.expect(p.container).to.be.a(\"string\"));",
+         "const v = p.video || {};",
+         "console.log(`${p.container} | ${v.codec} ${v.width}x${v.height} @ ${v.frameRate} | ${v.scanType} | pid ${v.pid} | ${(p.audio || []).length} audio | bitrate ${p.bitrateBps}`);",
+         "(p.warnings || []).forEach(w => console.log(`warning: ${w}`));",
+         "pm.test(\"a local file reports a duration\", () => pm.expect(p.durationSeconds).to.be.a(\"number\"));"
+        ]
+       }
+      }
+     ],
+     "id": "17732ac9-9696-4b8d-959f-4875af571f38",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/probe?uri={{probeFileUri}}&transport=file",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "probe"
+       ],
+       "query": [
+        {
+         "key": "uri",
+         "value": "{{probeFileUri}}"
+        },
+        {
+         "key": "transport",
+         "value": "file"
+        }
+       ]
+      },
+      "description": "Probe a clip under MEDIA_DIR. `uri` may be `file:///abs`, an absolute path, or a path relative to MEDIA_DIR; anything resolving outside MEDIA_DIR is rejected with 400.\n\nA local file is the only case that reports `bitrateBps` reliably."
+     },
+     "response": []
+    },
+    {
+     "name": "Probe playlist input",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const p = pm.response.json();",
+         "pm.test(\"probed the first entry, not the manifest\", () => pm.expect(p.probedUri).to.not.match(/\\.m3u8$/));",
+         "const v = p.video || {};",
+         "console.log(`playlist -> ${p.probedUri}`);",
+         "console.log(`${p.container} | ${v.codec} ${v.width}x${v.height} @ ${v.frameRate} | ${v.scanType} | bitrate ${p.bitrateBps}`);",
+         "(p.warnings || []).forEach(w => console.log(`warning: ${w}`));"
+        ]
+       }
+      }
+     ],
+     "id": "b502f1bb-ffd2-4167-a3f9-5846ed36a01f",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/probe?uri=pls%2Bfile%3A%2F%2F%2Fruntime%2Fmain.m3u8&transport=playlist",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "probe"
+       ],
+       "query": [
+        {
+         "key": "uri",
+         "value": "pls%2Bfile%3A%2F%2F%2Fruntime%2Fmain.m3u8",
+         "description": "pls+file:///runtime/main.m3u8 (the + must be percent-encoded in a query string)"
+        },
+        {
+         "key": "transport",
+         "value": "playlist"
+        }
+       ]
+      },
+      "description": "Probe the engine's playlist.\n\n**This reports the playlist's FIRST ENTRY, not the M3U8.** The engine's playlist is a UTPL schedule \u2014 `#EXTINF:-1` lines followed by `file://` entries \u2014 and ffprobe returns `Invalid data found` if handed it directly, because it is a schedule and not a container. `probedUri` names the media file that was actually probed.\n\nThe M3U8 must live under `MEDIA_DIR` or `PLAYLIST_ROOT` (default `/runtime`); every entry inside it is confined to `MEDIA_DIR`. An entry pointing outside returns 400, an empty playlist returns 422."
+     },
+     "response": []
+    },
+    {
+     "name": "Probe UDP input",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const p = pm.response.json();",
+         "pm.test(\"reported a container\", () => pm.expect(p.container).to.be.a(\"string\"));",
+         "const v = p.video || {};",
+         "console.log(`${p.container} | ${v.codec} ${v.width}x${v.height} @ ${v.frameRate} | ${v.scanType} | pid ${v.pid} | ${(p.audio || []).length} audio | bitrate ${p.bitrateBps}`);",
+         "(p.warnings || []).forEach(w => console.log(`warning: ${w}`));",
+         "pm.test(\"live\", () => pm.expect(p.isLive).to.eql(true));"
+        ]
+       }
+      }
+     ],
+     "id": "96462a85-b816-4903-b1af-ec6fdb1cf021",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/probe?uri={{probeUdpUri}}&transport=udp&timeoutSeconds=8",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "probe"
+       ],
+       "query": [
+        {
+         "key": "uri",
+         "value": "{{probeUdpUri}}"
+        },
+        {
+         "key": "transport",
+         "value": "udp"
+        },
+        {
+         "key": "timeoutSeconds",
+         "value": "8"
+        }
+       ]
+      },
+      "description": "Probe a live UDP source, for example `udp://239.1.1.1:5000`.\n\nAdd `interfaceAddress` to join a multicast group on a specific NIC \u2014 the equivalent of `transport.udp.multicast.interfaces`. Without it, a multicast probe can time out on a multi-homed appliance where the engine itself works.\n\n`bitrateBps` is null for a live source: ffprobe reports no container bitrate for non-seekable input."
+     },
+     "response": []
+    },
+    {
+     "name": "Probe SRT caller",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const p = pm.response.json();",
+         "pm.test(\"reported a container\", () => pm.expect(p.container).to.be.a(\"string\"));",
+         "const v = p.video || {};",
+         "console.log(`${p.container} | ${v.codec} ${v.width}x${v.height} @ ${v.frameRate} | ${v.scanType} | pid ${v.pid} | ${(p.audio || []).length} audio | bitrate ${p.bitrateBps}`);",
+         "(p.warnings || []).forEach(w => console.log(`warning: ${w}`));"
+        ]
+       }
+      }
+     ],
+     "id": "f1512455-a56a-47de-87a3-78ef325398af",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/probe?uri={{probeSrtUri}}&transport=srt",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "probe"
+       ],
+       "query": [
+        {
+         "key": "uri",
+         "value": "{{probeSrtUri}}"
+        },
+        {
+         "key": "transport",
+         "value": "srt"
+        }
+       ]
+      },
+      "description": "Probe an SRT listener by calling it, for example `srt://10.0.0.1:9000?mode=caller&latency=125`.\n\n**Latency is milliseconds here**, matching `transport.srt.latency` in the engine configuration. libsrt itself wants microseconds, so the route converts and echoes the result in `probedUri` \u2014 check it reads `latency=125000`.\n\nUse `mode=listener` to bind and wait for an encoder to call in instead; that defaults to a 20 second wait and sets `waitedForCaller`."
+     },
+     "response": []
+    },
+    {
+     "name": "Probe HLS input",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const p = pm.response.json();",
+         "pm.test(\"reported a container\", () => pm.expect(p.container).to.be.a(\"string\"));",
+         "const v = p.video || {};",
+         "console.log(`${p.container} | ${v.codec} ${v.width}x${v.height} @ ${v.frameRate} | ${v.scanType} | pid ${v.pid} | ${(p.audio || []).length} audio | bitrate ${p.bitrateBps}`);",
+         "(p.warnings || []).forEach(w => console.log(`warning: ${w}`));"
+        ]
+       }
+      }
+     ],
+     "id": "301ceaf4-6c88-4786-b8e3-5e6b6fb43c0a",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/probe?uri={{probeHlsUri}}&transport=hls",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "probe"
+       ],
+       "query": [
+        {
+         "key": "uri",
+         "value": "{{probeHlsUri}}"
+        },
+        {
+         "key": "transport",
+         "value": "hls"
+        }
+       ]
+      },
+      "description": "Probe an HLS manifest over http(s).\n\nThe ffprobe protocol whitelist for this transport deliberately excludes `file`, so a manifest listing `file://` segments cannot make the API read local files. Credentials in the userinfo are rejected rather than forwarded."
+     },
+     "response": []
+    },
+    {
+     "name": "Probe NDI \u2014 expects 422",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"422\", () => pm.response.to.have.status(422));",
+         "console.log(pm.response.json().message);"
+        ]
+       }
+      }
+     ],
+     "id": "622e3202-438a-4f52-bc59-63c701f77eae",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs/probe?uri=ndi://studio-a&transport=ndi",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs",
+        "probe"
+       ],
+       "query": [
+        {
+         "key": "uri",
+         "value": "ndi://studio-a"
+        },
+        {
+         "key": "transport",
+         "value": "ndi"
+        }
+       ]
+      },
+      "description": "NDI is in the transport enum so it can be refused with an explanation rather than a validation error: ffmpeg has no NDI input protocol, so an NDI source cannot be probed at all."
+     },
+     "response": []
+    }
+   ],
+   "id": "239e4149-2594-4bf9-8877-7eb018b76c85",
+   "description": "The engine's live inputs and their switchable streams. For a playlist input each entry in `streams` is one playlist item.\n\nOnly `transcoder.inputs[0]` becomes an engine input \u2014 do not use `/config/get-inputs` to count them."
+  },
+  {
+   "name": "02 Media",
+   "item": [
+    {
+     "name": "List media",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const media = pm.response.json();",
+         "if (media.length) pm.environment.set(\"mediaId\", media[0].id);",
+         "console.log(`${media.length} registered assets`);",
+         "media.slice(0, 12).forEach(a => {",
+         "  const d = ((a.probe || {}).format || {}).duration;",
+         "  console.log(`  ${a.name} | ${d}s | ${a.id}`);",
+         "});"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "0a4000f7-7481-402d-a1c5-ce8c41300fdb",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/media",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media"
+       ]
+      },
+      "description": "Every registered asset with its ffprobe output. `probe.format.duration` is the real clip length in seconds \u2014 the rundown needs it to project start times.\n\n**Capture:** stores the first asset as `mediaId`."
+     },
+     "response": []
+    },
+    {
+     "name": "Upload media",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"201 created\", () => pm.response.to.have.status(201));",
+         "const a = pm.response.json();",
+         "pm.environment.set(\"mediaId\", a.id);",
+         "const d = ((a.probe || {}).format || {}).duration;",
+         "pm.test(\"ffprobe found a duration\", () => pm.expect(Number(d)).to.be.above(0));",
+         "console.log(`${a.name} -> ${a.relativePath} | ${d}s | ${a.id}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "805e2dcc-d461-4133-b4ec-20382522aaeb",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "type": "file",
+         "key": "file",
+         "description": "Select a video file. Field name must stay 'file' and type must be File, not Text."
+        }
+       ]
+      },
+      "url": {
+       "raw": "{{baseUrl}}/media",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media"
+       ]
+      },
+      "description": "Multipart upload. Writes a **fresh UUID-named copy** into `MEDIA_DIR`, so the asset it creates is yours alone and safe to delete afterwards.\n\n**The form field must be named exactly `file`, and its type must be `File`, not `Text`.** A wrong name or an unreadable path both produce `400 Field required` \u2014 the server sees no file at all. Sending a valid `file` with a bad extension produces `422 unsupported media file extension` instead.\n\nAllowed: `.avi .m2ts .m4v .mkv .mov .mp4 .mpeg .mpg .mxf .ts .webm`.\n\n**Portability:** Postman stores a *local path*, not the file. Re-select it on another machine, and pass `--working-dir` to Newman."
+     },
+     "response": []
+    },
+    {
+     "name": "Register existing file",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"201\", () => pm.response.to.have.status(201));",
+         "const a = pm.response.json();",
+         "pm.environment.set(\"mediaId\", a.id);",
+         "console.log(`${a.relativePath} -> ${a.id}`);",
+         "console.log(\"WARNING: import dedupes by path. This may be an EXISTING asset the channel depends on - do not Delete media on it.\");"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "9f5ef54a-54e7-4784-a156-24fdcef91bfa",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"relativePath\": \"{{sampleClip}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/media/import",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media",
+        "import"
+       ]
+      },
+      "description": "Registers a file that is already inside `MEDIA_DIR`, by relative path. No upload, so this one is fully portable.\n\n**\u26a0\ufe0f It dedupes by `relativePath`.** If the file is already registered you get back the **existing** asset, not a copy \u2014 so the id you receive may be one the live channel depends on. Never follow this with *Delete media* on a clip the channel uses."
+     },
+     "response": []
+    },
+    {
+     "name": "Delete media",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"204 deleted, or 409 while still queued\", () =>",
+         "  pm.expect(pm.response.code).to.be.oneOf([204, 404, 409]));",
+         "if (pm.response.code === 409) console.log(\"still referenced by a playlist item - dequeue it first\");",
+         "if (pm.response.code === 204) console.log(\"asset and its file are gone from disk\");"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "d82dbc47-0991-42d9-9632-75f8723743ad",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/media/{{mediaId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media",
+        "{{mediaId}}"
+       ]
+      },
+      "description": "**\u26a0\ufe0f Destructive \u2014 this unlinks the file from disk**, it does not merely deregister it.\n\n`409` while a playlist item references the asset in a state other than `played`. That guard is incomplete: an asset referenced only by a `played` item deletes cleanly, taking the file with it. **Only delete assets you created via Upload.**\n\n**Needs** `{{mediaId}}`. Success is `204` with no body."
+     },
+     "response": []
+    }
+   ],
+   "id": "bd006ef6-3669-4912-927e-c826be792536",
+   "description": "The media library. Registering a clip is separate from putting it in the queue.\n\n**Allowed extensions:** `.avi .m2ts .m4v .mkv .mov .mp4 .mpeg .mpg .mxf .ts .webm`. Anything else \u2192 `422 unsupported media file extension`."
+  },
+  {
+   "name": "03 Playlist",
+   "item": [
+    {
+     "name": "Get playlist",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.environment.set(\"expectedRevision\", s.desiredRevision);",
+         "pm.test(\"no reconciliation error\", () => pm.expect(s.applyError).to.be.null);",
+         "const settled = s.desiredRevision === s.appliedRevision;",
+         "console.log(`rev ${s.desiredRevision}/${s.appliedRevision} ${settled ? \"settled\" : \"RECONCILING\"}`);",
+         "s.items.forEach(i => {",
+         "  const air = i.id === s.currentItemId;",
+         "  if (!air) pm.environment.set(\"itemId\", i.id);",
+         "  console.log(`  ${i.position}. ${i.media.name} - ${i.state}${air ? \"  <-- ON AIR\" : \"\"}`);",
+         "});"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "9acc1c78-2ecf-491a-b3ed-9bf8c1003f7e",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "The queue snapshot. The two revisions are the whole concurrency story:\n\n- `desiredRevision == appliedRevision` \u2192 settled, safe to mutate\n- `desiredRevision > appliedRevision` \u2192 reconciliation in flight\n- `applyError` non-null \u2192 the engine rejected the desired queue\n\n`currentItemId` is the item on air.\n\n**Capture:** stores `expectedRevision`, and an `itemId` that is *not* on air."
+     },
+     "response": []
+    },
+    {
+     "name": "Insert item",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202 accepted (not on air yet)\", () => pm.response.to.have.status(202));",
+         "const s = pm.response.json();",
+         "pm.environment.set(\"targetRevision\", s.desiredRevision);",
+         "console.log(`desired ${s.desiredRevision}, applied ${s.appliedRevision} - re-send 'Get playlist' until they match`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "4d874cc5-863e-48b8-8cf3-12839c0de2e2",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"mediaId\": \"{{mediaId}}\",\n  \"expectedRevision\": {{expectedRevision}}\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}/items",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}",
+        "items"
+       ]
+      },
+      "description": "Adds a registered asset to the queue. Omit `position` to append; `position` is 0-based from the front.\n\n**Returns `202`** \u2014 accepted into the *desired* queue, not on air. Poll *Get playlist* until `appliedRevision` catches up.\n\n**\u26a0\ufe0f While the rundown service is enabled this does not stick.** The reconciler removes the item about a second later because it is not in the active rundown version. Use `POST /rundowns/main/apply` with `insertItems` instead \u2014 see **W1**.\n\n`expectedRevision` is an unquoted integer; quoting it gives `422`. A stale value gives `409`."
+     },
+     "response": []
+    },
+    {
+     "name": "Reorder item",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202, or 409 if stale or on air\", () =>",
+         "  pm.expect(pm.response.code).to.be.oneOf([202, 409, 503]));",
+         "if (pm.response.code !== 202) console.log(pm.response.text().slice(0, 160));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "c189ad07-b5f7-4983-9024-6b9f03c531fb",
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"position\": 0,\n  \"expectedRevision\": {{expectedRevision}}\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}/items/{{itemId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}",
+        "items",
+        "{{itemId}}"
+       ]
+      },
+      "description": "Moves an item to a new 0-based position.\n\n`409` if the revision is stale **or the item is on air**. `503 cannot confirm the on-air item` if the engine is not answering \u2014 a retry loop that only handles `409` will still fall over.\n\n**\u26a0\ufe0f While the rundown service is enabled, the reconciler re-projects the active version and undoes this.** Reorder programs by applying a rundown document with the items in the order you want."
+     },
+     "response": []
+    },
+    {
+     "name": "Remove item",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202, or 409 if on air / stale\", () =>",
+         "  pm.expect(pm.response.code).to.be.oneOf([202, 404, 409, 503]));",
+         "if (pm.response.code !== 202) console.log(pm.response.text().slice(0, 160));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "50318421-d42b-4063-9e74-2241920ceb44",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}/items/{{itemId}}?expectedRevision={{expectedRevision}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}",
+        "items",
+        "{{itemId}}"
+       ],
+       "query": [
+        {
+         "key": "expectedRevision",
+         "value": "{{expectedRevision}}"
+        }
+       ]
+      },
+      "description": "Removes an item from the desired queue. `expectedRevision` goes in the **query string** here, not the body.\n\n`409 cannot delete the item on air; use skip`. `503` if the engine cannot confirm what is on air.\n\n**\u26a0\ufe0f While the rundown service is enabled, use `removeItem` via `POST /rundowns/main/apply` instead.** Removing here leaves the rundown version unchanged, so the next projection puts the item straight back."
+     },
+     "response": []
+    },
+    {
+     "name": "Skip current",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202 accepted\", () => pm.response.to.have.status(202));",
+         "const s = pm.response.json();",
+         "console.log(`skipped | now on air ${s.currentItemId} | skipSequence ${s.skipSequence}`);"
+        ]
+       }
+      }
+     ],
+     "id": "c92b65f6-e70f-4961-bdae-261d04375c01",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}/skip",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}",
+        "skip"
+       ]
+      },
+      "description": "Cuts immediately to the next item.\n\nThe only queue write that is **not** reconciled and carries no revision \u2014 which is why it is the supported way to change what is on air, and the escape hatch when a `409` says an item cannot be touched while playing."
+     },
+     "response": []
+    },
+    {
+     "name": "Start \u2014 expected 410",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"410 gone, by design\", () => pm.response.to.have.status(410));",
+         "console.log(pm.response.text().slice(0, 160));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "6216d6cc-eccc-4ca8-ba46-e587750b43fd",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}/start",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}",
+        "start"
+       ]
+      },
+      "description": "Documents a deliberate removal: managed playlists run continuously, so Start and Pause are gone.\n\nReturns **`410`** with `managed playlists run continuously; Start and Pause are unavailable`. Kept in the collection so the behaviour is discoverable instead of surprising. `pause` behaves identically."
+     },
+     "response": []
+    }
+   ],
+   "id": "9a5efadb-d776-4292-b6b9-bf1b8763b5f4",
+   "description": "The managed on-air queue. It loops continuously.\n\n**\u26a0\ufe0f While `ENABLE_RUNDOWN_SERVICE=true`, the rundown owns this queue.** A direct Insert, Reorder or Remove here is accepted with `202` and then **reverted within about a second**: the reconciler deletes any playlist item that is not in the active rundown version, logging `on_air_bridge_removed`. Verified on this container 2026-08-21.\n\nSo these routes are the right ones only when scheduling is **off**. With it on, change the schedule through `POST /rundowns/main/apply` (`insertItems`, `removeItem`) \u2014 see **W1**.\n\n`POST /skip` is the exception: it is immediate, unreconciled, and works either way.\n\nEvery other mutation here is **reconciled, not immediate** \u2014 read `desiredRevision` before you write, and poll until `appliedRevision` matches."
+  },
+  {
+   "name": "04 Graphics",
+   "item": [
+    {
+     "name": "Get catalog",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const assets = pm.response.json().assets || [];",
+         "pm.test(\"catalog is not empty\", () => pm.expect(assets.length).to.be.at.least(1));",
+         "const safe = assets.find(a => (a.kind === \"logo\" || a.kind === \"bug\") && a.enabled !== false);",
+         "if (safe) { pm.environment.set(\"graphicAssetId\", safe.id); pm.environment.set(\"graphicMode\", safe.defaultMode || \"fade\"); }",
+         "assets.forEach(a => console.log(`  ${a.id} | ${a.kind} | ${a.mediaType} | ${a.defaultMode}${a.enabled === false ? \" | DISABLED\" : \"\"}`));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "5020012f-1665-46aa-912c-b69c902e1066",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/catalog",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "catalog"
+       ]
+      },
+      "description": "Available assets with `kind`, `mediaType`, `defaultMode`, `defaultAnimationMs` and `preloadLeadMs`.\n\nVideo assets are returned with `enabled: false` while `ENABLE_VIDEO_GRAPHICS=false` \u2014 the Compose default, and not a fault.\n\n**Capture:** stores a non-squeeze `graphicAssetId` and its `graphicMode`."
+     },
+     "response": []
+    },
+    {
+     "name": "List active cues",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const cues = pm.response.json();",
+         "if (cues.length) pm.environment.set(\"cueId\", cues[0].id);",
+         "console.log(`${cues.length} active cue(s)`);",
+         "cues.forEach(c => console.log(`  ${c.assetId} | ${c.kind} | ${c.phase} | ends ${c.endsAt}`));",
+         "const squeeze = cues.filter(c => c.kind === \"lband\" || c.kind === \"aston\");",
+         "if (squeeze.length) console.log(`squeeze lock HELD by ${squeeze.map(c => c.kind).join(\", \")}`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "02ac5cf5-c27e-422f-8301-c11e51d93828",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues"
+       ]
+      },
+      "description": "Cues currently scheduled, on air, or restoring.\n\n`phase` moves `scheduled \u2192 on_air \u2192 restoring`, then the cue disappears from this list entirely. An L-band or Aston cue in **any** of those phases holds the shared squeeze lock and blocks the other."
+     },
+     "response": []
+    },
+    {
+     "name": "Start cue",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"201 created\", () => pm.response.to.have.status(201));",
+         "const cue = pm.response.json();",
+         "pm.environment.set(\"cueId\", cue.id);",
+         "console.log(`cue ${cue.id} | ${cue.kind} | ${cue.phase} | starts ${cue.startsAt} | ends ${cue.endsAt}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "b39a76ac-2eaf-4144-8baf-95f2198c2018",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"assetId\": \"{{graphicAssetId}}\",\n  \"mode\": \"fade\",\n  \"durationMs\": 5000,\n  \"startInMs\": 0,\n  \"fadeMs\": 600\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues"
+       ]
+      },
+      "description": "Fires a graphic. All times are milliseconds; `durationMs` is the **whole visible interval**, fades included.\n\n- `durationMs: null` holds indefinitely (logo and bug only)\n- `startInMs: 0` starts immediately\n- for a **video** asset, `startInMs` must be at least the asset's `preloadLeadMs` (3000 by default)\n\nRejected if an L-band or Aston cue already holds the squeeze lock. The same pair inside one `POST /rundowns/main/apply` is accepted \u2014 batching is what decides whether it works."
+     },
+     "response": []
+    },
+    {
+     "name": "Stop cue",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"204 stopped, or 404 already finished\", () =>",
+         "  pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+        ]
+       }
+      }
+     ],
+     "id": "61f02e1f-9bd3-4255-b9e7-dc444b52ccd3",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues/{{cueId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues",
+        "{{cueId}}"
+       ]
+      },
+      "description": "Cancels a cue early and runs its restoration. `204` with no body.\n\nA `404` means the cue already finished on its own \u2014 not an error.\n\n**Needs** `{{cueId}}`."
+     },
+     "response": []
+    }
+   ],
+   "id": "9c5e3408-0db1-4240-9541-da54c4ab32c3",
+   "description": "Manual graphics cues \u2014 logo, bug, L-band and Aston sponsors.\n\n**L-band and Aston share a backend squeeze lock.** Two separate cues over the same window are refused; the same pair inside one `POST /rundowns/main/apply` is accepted."
+  },
+  {
+   "name": "05 SSAI \u00b7 Scheduled events",
+   "item": [
+    {
+     "name": "List scheduled events",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const events = pm.response.json();",
+         "if (events.length) pm.environment.set(\"eventId\", events[0].id);",
+         "console.log(`${events.length} scheduled event(s)`);",
+         "events.slice(0, 8).forEach(e => console.log(`  ${e.id} | ${e.type} | ${e.time}`));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "a8162358-3c8e-49aa-8f37-9426028d4802",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events"
+       ],
+       "query": [
+        {
+         "value": "2026-01-01T00:00:00Z",
+         "key": "start_time",
+         "description": "ISO 8601. Lower bound on event time.",
+         "disabled": true
+        },
+        {
+         "value": "2027-01-01T00:00:00Z",
+         "key": "end_time",
+         "description": "ISO 8601. Upper bound on event time.",
+         "disabled": true
+        },
+        {
+         "value": "scte35_timesignal",
+         "key": "event_type",
+         "description": "e.g. scte35_timesignal, scte35_spliceinsert, image_overlay.",
+         "disabled": true
+        },
+        {
+         "value": "false",
+         "key": "is_read",
+         "description": "Filter by read flag.",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "All scheduled events, newest first. The four optional filters are disabled by default \u2014 enable them in the **Params** tab.\n\nThe list mixes SCTE-35 ad signalling with the graphics overlay events the rundown dispatches, so expect more than just your ad breaks.\n\n**Capture:** stores the newest event as `eventId`."
+     },
+     "response": []
+    },
+    {
+     "name": "Cue out \u2014 time signal",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"accepted\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+         "console.log(\"cue out sent - remember to send a matching cue in (type 53, same segmentation_event_id)\");"
+        ]
+       }
+      }
+     ],
+     "id": "d3ddf89c-7565-43bd-9823-0dc3da235c9c",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "[\n  {\n    \"type\": \"scte35_timesignal\",\n    \"time\": null,\n    \"details\": {\n      \"scte35_timesignal\": {\n        \"scte35_descriptors\": [\n          {\n            \"segmentation_cancel_indicator\": \"SEGMENTATION_EVENT_NOT_CANCELED\",\n            \"segmentation_duration\": 2700000,\n            \"segmentation_event_id\": 1001,\n            \"segmentation_type_id\": 52\n          }\n        ]\n      }\n    }\n  }\n]",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events"
+       ]
+      },
+      "description": "Opens an ad break.\n\nThree things worth knowing about this body:\n\n- it is a **bare JSON array**, not an object\n- `segmentation_type_id: 52` (0x34) is **Provider Placement Opportunity Start**, from SCTE 35 Table 23 \u2014 the full table is at `doc/codebase/38-scte35-segmentation-type-id-table.md`. The matching end id `53` is **rejected here with 400**: a time_signal break closes on its `segmentation_duration`, never on a manual cue-in\n- `segmentation_duration` is in **90 kHz ticks** \u2014 30 s \u00d7 90000 = 2700000. It is the one duration on this API that is not milliseconds\n\n`time: null` fires immediately; otherwise supply an ISO 8601 timestamp up to 14 days ahead. Keep `segmentation_event_id` \u2014 the matching cue in must reuse it.\n\nThe splice-insert variant uses `type: \"scte35_spliceinsert\"` with `{duration, splice_event_id}`, where `duration` **is** milliseconds. Use **W6** for the full break."
+     },
+     "response": []
+    },
+    {
+     "name": "Delete scheduled event",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"deleted, or already gone\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204, 404]));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "fea32757-b097-4173-8a15-a78861a04aa6",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events/{{eventId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events",
+        "{{eventId}}"
+       ]
+      },
+      "description": "Removes one event by its **integer** id \u2014 not a UUID, unlike most ids on this API.\n\n**Needs** `{{eventId}}`. Run *List scheduled events* first to capture one."
+     },
+     "response": []
+    }
+   ],
+   "id": "5f9ad5ad-a8ae-41aa-b258-dc45090d2478",
+   "description": "SCTE-35 ad signalling and other scheduled events.\n\nThe POST body is a **bare JSON array** of events, not an object. `time` may be `null` for immediate execution, or an ISO 8601 timestamp up to 14 days ahead.\n\nAn ad break is **two** events \u2014 cue out and cue in. Nothing pairs them server-side; tracking the break is the caller's job."
+  },
+  {
+   "name": "06 Rundown",
+   "item": [
+    {
+     "name": "Get status",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.test(\"rundown service is enabled\", () => pm.expect(s.enabled).to.be.true);",
+         "console.log(`scheduling ${s.enabled ? \"on\" : \"OFF\"} | channel file ${s.bootstrapState} | observe ${s.observationIntervalMs}ms`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "163779dd-8ca8-dc24-9efb-e2ae04d3485f",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "status"
+       ]
+      },
+      "description": "Is scheduling switched on? The one rundown route that stays reachable while the service is disabled, so an operator can always discover why the workspace is unavailable.\n\n`bootstrapState` reports the declarative channel file: `unchanged` after a restart that changed nothing. `enabled: false` means every other route in this folder returns `404`."
+     },
+     "response": []
+    },
+    {
+     "name": "Get rundown",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const d = pm.response.json();",
+         "pm.test(\"a version is live\", () => pm.expect(d.activeVersionId).to.be.a(\"string\"));",
+         "pm.environment.set(\"versionId\", d.activeVersionId);",
+         "console.log(`live version ${d.activeVersionId} | ${d.versions.length} published | tz ${d.timezone}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "a67f520c-393f-37cd-58e2-4a83cf863404",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}"
+       ]
+      },
+      "description": "What is live, plus the publish history. **Normally your first request** \u2014 copy `activeVersionId` and read the document next.\n\n`versions[]` is a history of what has been **broadcast**, not of keystrokes: every row in it was on air at some point.\n\n**Capture:** stores `versionId`."
+     },
+     "response": []
+    },
+    {
+     "name": "Get version document",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const doc = pm.response.json();",
+         "pm.test(\"has items\", () => pm.expect(doc.items).to.be.an(\"array\").that.is.not.empty);",
+         "pm.environment.set(\"itemKey\", doc.items[0].key);",
+         "console.log(`loop ${doc.timelineDurationMs}ms over ${doc.items.length} programs`);",
+         "doc.items.forEach(i => console.log(`  ${i.key} | ${i.durationMs}ms | ${(i.graphics||[]).length} graphics`));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "f830e240-c2ac-875b-6401-772b0d45f089",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/versions/{{versionId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "versions",
+        "{{versionId}}"
+       ]
+      },
+      "description": "The complete schedule: programs, their graphics, stable IDs, durations and timeline positions.\n\n`items[].stableItemId` is the join key to the playlist \u2014 it equals `PlaylistItem.id` in `GET /playlists/main`. `items[].key` is what `ops` address.\n\n`timelineDurationMs` is the loop length. `scheduledGraphics[]` holds wall-clock graphics tied to no program.\n\n**Needs** `{{versionId}}` \u2014 run *Get rundown* first."
+     },
+     "response": []
+    },
+    {
+     "name": "Get clock",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const c = pm.response.json();",
+         "pm.test(\"a cycle is running\", () => pm.expect(c.cycle).to.be.at.least(1));",
+         "const skew = Date.parse(c.serverNow) - Date.now();",
+         "console.log(`cycle ${c.cycle} | loop ${c.loopDurationMs}ms | on air ${c.currentItemId} | skew ${skew}ms`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "67ad61ff-bcf4-80f0-f4b3-3645fc3bab22",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/clock",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "clock"
+       ]
+      },
+      "description": "What is on air right now, and when this schedule synced. The anchor the operator grid projects row start times from.\n\n- `currentStartedAt` is **observed fact**; every other row's time is projected from it\n- `cycle` counts completed loops since `syncedAt`\n- `serverNow` lets a browser correct for clock skew \u2014 without it every projected time is wrong by the container/browser difference\n\nTiming comes from 250 ms control-plane polling, not timecode. Nulls are legitimate when nothing has aired yet."
+     },
+     "response": []
+    },
+    {
+     "name": "Apply ops \u2014 dry run",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"dry run published nothing\", () => pm.expect(r.version).to.be.null);",
+         "console.log(`would apply ${JSON.stringify(r.applied)} | warnings ${(r.warnings||[]).length}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "c3562bfd-849e-8c92-8cc2-ca12eb875810",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"addGraphic\",\n      \"itemKey\": \"{{itemKey}}\",\n      \"assetId\": \"logo-default\",\n      \"mode\": \"fade\",\n      \"offsetMs\": 0,\n      \"durationMs\": 4000,\n      \"fadeMs\": 600\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\",\n  \"dryRun\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Validates the change and **rolls back**. Nothing reaches air; `version` comes back `null` while `applied` still reports what would have happened.\n\nThis is the safe way to test an edit, and it is what the operator page's YAML import preview uses.\n\n**The five operations:** `addGraphic`, `updateGraphic`, `removeGraphic`, `removeItem`, `insertItems`. `addGraphic` needs **exactly one** of `itemKey` (item-relative) or `startsAt` (wall-clock).\n\nSupply exactly one of `ops` or `document` \u2014 both, or neither, is `422`."
+     },
+     "response": []
+    },
+    {
+     "name": "Apply ops \u2014 commit",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"a new version is live\", () => pm.expect(r.version.id).to.be.a(\"string\"));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "const f = r.channelFile || {};",
+         "if (f.state === \"failed\") console.log(`ON AIR but ${f.path} not rewritten (${f.error}) - lost on restart`);",
+         "console.log(`version ${r.version.number} live | applied ${JSON.stringify(r.applied)} | channel file ${f.state}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "ece941a3-b851-a953-c582-3bb79ac00e63",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"addGraphic\",\n      \"itemKey\": \"{{itemKey}}\",\n      \"assetId\": \"logo-default\",\n      \"mode\": \"fade\",\n      \"offsetMs\": 0,\n      \"durationMs\": 4000,\n      \"fadeMs\": 600\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "The single write path. Reads the live version, applies the ops to a copy, validates the **result**, and publishes it in one transaction \u2014 either the whole change reaches air or nothing moves.\n\n`409` if `expectedVersionId` is stale. Pass `null` to force the change through regardless.\n\nApply also rewrites the declarative channel file and reports the outcome in `channelFile`, so an applied change survives a restart.\n\nTwo validation rules bite here: a graphic must fit inside its clip **including 1200 ms of restoration**, and L-band and Aston may not share a squeeze window."
+     },
+     "response": []
+    },
+    {
+     "name": "Apply whole document",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"server answered\", () => pm.expect(pm.response.code).to.be.oneOf([202, 422]));",
+         "console.log(pm.response.text().slice(0, 300));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "417b0fb1-498f-209b-668f-464c7fdb1d11",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"document\": {},\n  \"expectedVersionId\": \"{{versionId}}\",\n  \"dryRun\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "The alternative to `ops`: send the complete end state. A client that already holds the whole document \u2014 as the operator grid does, because it edits a copy \u2014 should not have to synthesise the operations that would produce it. Both paths share one validation.\n\nPaste a document from *Get version document* into `document` before sending. The empty `{}` here is deliberate: the service layer rejects it, which is what you want to see once.\n\n**Presence, not truthiness** \u2014 sending `document: {}` alongside `ops` is still \"both\", and returns `422`."
+     },
+     "response": []
+    },
+    {
+     "name": "Import programs (YAML)",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "console.log(r.version ? `committed as version ${r.version.number}` : \"dry run - nothing published\");",
+         "(r.warnings || []).forEach(w => console.log(`warning: ${w}`));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "0b0ed60d-a704-1f50-a209-63b22f755eab",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "description": "A channel YAML, max 1 MiB, UTF-8.",
+         "value": null
+        },
+        {
+         "type": "text",
+         "key": "position",
+         "value": "1",
+         "description": "0-based insert point. Omit to append.",
+         "disabled": true
+        },
+        {
+         "type": "text",
+         "key": "expectedVersionId",
+         "value": "{{versionId}}",
+         "description": "Stale value -> 409."
+        },
+        {
+         "type": "text",
+         "key": "dryRun",
+         "value": "true",
+         "description": "Preview. Set false to commit."
+        }
+       ]
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/programs/import",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "programs",
+        "import"
+       ]
+      },
+      "description": "Splices a channel YAML's programs into the live schedule.\n\n**It imports a program *list*, not the media.** Upload the clips with `POST /media` first, or you get `422` naming the unregistered path.\n\nOther `422`s: wrong `channel:`, bare durations without units, over 1 MiB, non-UTF-8.\n\nPreview with `dryRun=true`, then send again with `false` to commit \u2014 that two-step is what the operator page's import preview does.\n\n**Portability:** the file is a local path. Not runnable in CI without `--working-dir`."
+     },
+     "response": []
+    },
+    {
+     "name": "Seed first version",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"201 or already seeded\", () => pm.expect(pm.response.code).to.be.oneOf([201, 404, 409, 422]));",
+         "console.log(pm.response.text().slice(0, 200));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "953dde43-408e-ae72-fc07-404d896d56c1",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"name\": \"Main rundown\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/seed",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "seed"
+       ]
+      },
+      "description": "Publishes a first version from the playlist that is already running.\n\n`apply` edits the *live* version, so a channel that has never published one has no way in \u2014 this is it. Returns `201`.\n\n**Only for a fresh channel.** On `main`, which already has a live version, expect this to be unnecessary. The operator page calls it exactly once: when `GET /rundowns/main` returns `404`."
+     },
+     "response": []
+    },
+    {
+     "name": "Resolve local time",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const t = pm.response.json();",
+         "pm.environment.set(\"startsAt\", t.startsAt);",
+         "console.log(`${t.localTime} ${t.abbreviation} (UTC${t.utcOffset}) -> ${t.startsAt}`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "305df0ca-14e7-61da-04e9-47dacc3668f3",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"date\": \"2026-12-25\",\n  \"time\": \"18:30:00\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/time/resolve",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "time",
+        "resolve"
+       ]
+      },
+      "description": "Turns a local date and time into a UTC instant **in the rundown's timezone**, and tells you which offset it used.\n\nA date and time typed by a human is not a valid instant until something resolves it \u2014 DST and the channel timezone both matter. Resolve first, then put `startsAt` into an `addGraphic` op with a wall-clock trigger.\n\n`date` must be `YYYY-MM-DD`; `time` is `HH:MM` or `HH:MM:SS`."
+     },
+     "response": []
+    },
+    {
+     "name": "List occurrences",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const rows = pm.response.json();",
+         "console.log(`${rows.length} occurrences (capped at 200)`);",
+         "rows.slice(0, 5).forEach(r => console.log(`  seq ${r.sequence} | ${r.observedAt} | ${r.endedAt ? \"ended\" : \"ON AIR\"}`));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "b765bb1c-4b89-d007-2bc4-7a0b102b0fc7",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/occurrences",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "occurrences"
+       ]
+      },
+      "description": "As-run history: every observed program transition, newest first, **capped at 200** \u2014 roughly 40 minutes at a 37 s loop.\n\n`observedAt` is written by the 250 ms poller at each transition; `endedAt` is null for the item still on air. This is the only real timing record in the system \u2014 `PlaylistItem.started_at` is a dead column nothing writes.\n\nUse `GET /clock` instead if you only need \"what is on now\"; it is one small object rather than 200 rows."
+     },
+     "response": []
+    },
+    {
+     "name": "List executions",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const rows = pm.response.json();",
+         "const failed = rows.filter(r => r.state === \"error\");",
+         "pm.test(\"no failed executions\", () => pm.expect(failed.length, failed.map(f => f.error).join(\"; \")).to.eql(0));",
+         "console.log(`${rows.length} executions | ${failed.length} failed`);"
+        ]
+       }
+      }
+     ],
+     "id": "25104364-e647-46a0-a0e4-db2e2aa9cb89",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/executions",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "executions"
+       ]
+      },
+      "description": "**Did a graphic actually fire?** `apply` tells you a graphic is *scheduled*; only this tells you it aired.\n\n`state` is `pending`, `dispatched` or `error`; `cueId` links to the graphics cue that was created. `error` carries the reason when the dispatch failed.\n\nNewest first, capped at 200. The operator grid polls this every 3 s to badge each graphic."
+     },
+     "response": []
+    },
+    {
+     "name": "List audit log",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const rows = pm.response.json();",
+         "console.log(`${rows.length} audit rows`);",
+         "rows.slice(0, 5).forEach(r => console.log(`  ${r.createdAt} | ${r.action} | ${r.subjectType}`));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "457a8bc4-712b-f6e1-4c47-a2cac90ded9f",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/audit",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "audit"
+       ]
+      },
+      "description": "Who changed what. One row per action \u2014 publish, import, seed \u2014 with the subject and a `details` object, newest first, capped at 200.\n\nUseful after an unexpected schedule change: the audit log says which action produced the version that is live."
+     },
+     "response": []
+    }
+   ],
+   "id": "a1852346-9a00-6075-29f0-7c14e16c7f60",
+   "description": "The versioned schedule \u2014 programs plus their graphics triggers.\n\n**There is one kind of stored object: a version.** Every version in the history was on air at some point; there is no draft. A change is either live or it is unsaved text in your client.\n\nThe usual path is `Get rundown` \u2192 `Get version document` \u2192 `Apply ops`. `dryRun: true` checks a change before committing to it.\n\nAvailable only while `ENABLE_RUNDOWN_SERVICE=true`; otherwise every route here except `/status` returns `404`."
+  },
+  {
+   "name": "07 Engine config",
+   "item": [
+    {
+     "name": "Get config",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const c = pm.response.json();",
+         "pm.test(\"has the three top-level keys\", () => {",
+         "  pm.expect(c).to.have.property(\"version\");",
+         "  pm.expect(c).to.have.property(\"transcoder\");",
+         "});",
+         "// Seeds the round-trip PUT below, so replacing the config writes back exactly",
+         "// what is already live rather than something invented here.",
+         "pm.collectionVariables.set(\"configDocument\", JSON.stringify(c, null, 2));",
+         "console.log(`${(c.transcoder.inputs||[]).length} inputs | ${(c.transcoder.outputs||[]).length} outputs`);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "e9c18d48-7f0c-4f9f-a356-504551e9d5a9",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config"
+       ]
+      },
+      "description": "The whole engine config as JSON, read from the path in `TRANSCODER_CONFIG_PATH` (default `/opt/utpl/etc/config.json`).\n\nRead-only and safe. The test stores the document in the `configDocument` collection variable, which **Validate** and **Replace** below send back unchanged \u2014 run this one first.\n\n`GET /config/get-config` is the original spelling and still works."
+     },
+     "response": []
+    },
+    {
+     "name": "Get outputs",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "pm.test(\"is a list\", () => pm.expect(pm.response.json()).to.be.an(\"array\"));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "53bb67aa-6cd3-e512-0311-efa4b815cc12",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config/get-outputs",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "get-outputs"
+       ]
+      },
+      "description": "The `transcoder.outputs` array. The supplied contract is fixed H.264 1920\u00d71080 at 25 fps, regardless of the source resolution or frame rate of the playlist files."
+     },
+     "response": []
+    },
+    {
+     "name": "Get output by index",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "pm.test(\"index exists\", () => pm.expect(pm.response.json().message).to.be.undefined);"
+        ]
+       }
+      }
+     ],
+     "id": "94db7f55-5aee-9f53-e152-55479425d451",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config/get-output/0",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "get-output",
+        "0"
+       ]
+      },
+      "description": "One output by **0-based array index**, not an id.\n\nAn out-of-range index returns `{\"message\": \"output_id doesn't exist\"}` with HTTP **200**, not a `404` \u2014 so check the body, not the status."
+     },
+     "response": []
+    },
+    {
+     "name": "Get inputs (config file, not engine)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const n = pm.response.json().length;",
+         "if (n > 1) console.log(`config lists ${n} inputs but only inputs[0] becomes an engine input`);"
+        ]
+       }
+      }
+     ],
+     "id": "24f8d0b1-7a66-c0d6-e524-a6a2b828fe02",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config/get-inputs",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "get-inputs"
+       ]
+      },
+      "description": "\u26a0\ufe0f **Misleading \u2014 do not use this to count engine inputs.**\n\nIt returns the `transcoder.inputs` array *from the config file*. Only `transcoder.inputs[0]` ever becomes a real engine input, so this list can be longer than reality.\n\nUse `GET /inputs` (folder 01) for what the engine actually has."
+     },
+     "response": []
+    },
+    {
+     "name": "Get input by index",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "ffcedc50-79a6-d6c6-ec13-b67661e2521b",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config/get-input/0",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "get-input",
+        "0"
+       ]
+      },
+      "description": "One configured input by 0-based index. Same caveat as *Get inputs*: this is the config file, not the engine. Out of range returns a `message` body with HTTP 200."
+     },
+     "response": []
+    },
+    {
+     "name": "Check transcoder",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const state = pm.response.json().message;",
+         "pm.test(`engine is RUNNING (got ${state})`, () => pm.expect(state).to.eql(\"RUNNING\"));"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "33494cfb-33e1-6f90-66a2-dc697a868a91",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config/check-transcoder",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "check-transcoder"
+       ]
+      },
+      "description": "Asks Supervisor for the engine process state. `{\"message\": \"RUNNING\"}` is healthy.\n\n`500` means the API could not reach the Supervisor socket \u2014 a permissions or path problem, not necessarily a dead engine.\n\nPoll this after a restart until it reads `RUNNING`."
+     },
+     "response": []
+    },
+    {
+     "name": "Validate config (dry run)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const b = pm.response.json();",
+         "pm.test(\"validated, not written\", () => {",
+         "  pm.expect(b.state).to.eql(\"validated\");",
+         "  pm.expect(b.restartRequired).to.eql(false);",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "3bc943a2-a90c-4f71-98f8-a91840e01530",
+     "request": {
+      "method": "PUT",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config?dryRun=true",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config"
+       ],
+       "query": [
+        {
+         "key": "dryRun",
+         "value": "true"
+        }
+       ]
+      },
+      "description": "Runs validation and the writability probe, then stops. **Nothing is written.**\n\nThe safe way to check a document before committing to it. Send any candidate config as the body; this sends back whatever **Get config** last read.",
+      "body": {
+       "mode": "raw",
+       "raw": "{{configDocument}}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Replace config \u26a0\ufe0f",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const b = pm.response.json();",
+         "pm.test(\"written, and a restart is needed\", () => {",
+         "  pm.expect(b.state).to.eql(\"written\");",
+         "  pm.expect(b.restartRequired).to.eql(true);",
+         "});",
+         "console.log(`wrote ${b.path} - restart the engine to pick it up`);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "b1501737-49c7-441f-bcee-ad55f5791a55",
+     "request": {
+      "method": "PUT",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config"
+       ]
+      },
+      "description": "\u26a0\ufe0f **Writes the config file.**\n\nReplaces the whole document. As sent here it is a round trip \u2014 the body is the `configDocument` variable that **Get config** stored, so it writes back what is already live and changes nothing. Edit the body to actually change the channel.\n\nThe engine parses its config once at start, so this takes effect only after **Restart transcoder** below; that is what `restartRequired` in the response means.\n\nThe write is validated first and then applied as an atomic rename, so a rejected document leaves the previous file untouched.",
+      "body": {
+       "mode": "raw",
+       "raw": "{{configDocument}}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Replace config \u2014 rejects an object where an array belongs",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"422\", () => pm.response.to.have.status(422));",
+         "pm.test(\"names the offending path\", () =>",
+         "  pm.expect(pm.response.json().message).to.include(\"transcoder.outputs\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "ba39b1f2-db9c-45ce-a93e-52370984da5a",
+     "request": {
+      "method": "PUT",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config"
+       ]
+      },
+      "description": "The failure the retired setters used to write silently: `outputs` as an object rather than an array. Valid JSON, invalid config \u2014 the engine would have failed to start with nothing pointing back at the write.\n\nExpect **422** and an unchanged file. Run **Get config** afterwards to confirm nothing moved.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"version\": \"1.1.0\",\n  \"transcoder\": {\n    \"inputs\": [{\"transport\": {\"uri\": \"srt://127.0.0.1:1234\"}}],\n    \"outputs\": {}\n  }\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Replace config \u2014 rejects a JSON array body",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"400\", () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "a567bdcc-9f6f-4ffe-b013-cc2490c42c31",
+     "request": {
+      "method": "PUT",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config"
+       ]
+      },
+      "description": "The body must be the config **object**. An array is refused by request validation before any of the write path runs.\n\nExpect **400**.",
+      "body": {
+       "mode": "raw",
+       "raw": "[{\"version\": \"1.1.0\"}]",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Restart transcoder \u26a0\ufe0f",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "pm.test(\"restarted\", () =>",
+         "  pm.expect(pm.response.json().message).to.include(\"restarted successfully\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "84911bd8-1ba0-4273-a030-26c18c20520b",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/config/restart-transcoder",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "restart-transcoder"
+       ]
+      },
+      "description": "\u26a0\ufe0f **Takes the channel off air for the duration of the restart.**\n\nStops the engine when it is running, waits `TRANSCODER_RESTART_GRACE_SECONDS` (default 10), and starts it. An engine in any other state is started without a stop.\n\nThis is how a `PUT /config` takes effect. `GET` on the same path still works but is deprecated \u2014 it changes state, so it should not be a GET.\n\nAllow ~15 s before the stream returns."
+     },
+     "response": []
+    },
+    {
+     "name": "Set outputs \u2014 retired, expect 410",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"410 Gone\", () => pm.response.to.have.status(410));",
+         "pm.test(\"names the replacement\", () =>",
+         "  pm.expect(pm.response.json().message).to.include(\"PUT /config\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "775e0901-a33a-468c-b5a5-1cafc1af2893",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config/set-outputs",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "set-outputs"
+       ]
+      },
+      "description": "**Retired.** Returns `410` naming `PUT /config`.\n\nThis route never wrote anything: it called `json.loads()` on a body FastAPI had already parsed, raised `TypeError` into a bare `except:`, and answered **HTTP 200** \u2014 so a caller checking only the status code believed the write had succeeded.\n\nIt also reached only `transcoder.inputs` and `transcoder.outputs`, leaving `version`, `squeeze`, `scte`, `blanking`, `blackout` and the whole `application` object unaddressable. `PUT /config` replaces all four routes and covers the rest of the document.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"note\": \"any body; the route is gone\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Set output by index \u2014 retired, expect 410",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"410 Gone\", () => pm.response.to.have.status(410));",
+         "pm.test(\"names the replacement\", () =>",
+         "  pm.expect(pm.response.json().message).to.include(\"PUT /config\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "5e30592a-dc0d-46a5-bab1-c79828ba7b08",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config/set-output/0",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "set-output",
+        "0"
+       ]
+      },
+      "description": "**Retired.** Returns `410` naming `PUT /config`.\n\nThis route never wrote anything: it called `json.loads()` on a body FastAPI had already parsed, raised `TypeError` into a bare `except:`, and answered **HTTP 200** \u2014 so a caller checking only the status code believed the write had succeeded.\n\nIt also reached only `transcoder.inputs` and `transcoder.outputs`, leaving `version`, `squeeze`, `scte`, `blanking`, `blackout` and the whole `application` object unaddressable. `PUT /config` replaces all four routes and covers the rest of the document.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"note\": \"any body; the route is gone\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Set inputs \u2014 retired, expect 410",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"410 Gone\", () => pm.response.to.have.status(410));",
+         "pm.test(\"names the replacement\", () =>",
+         "  pm.expect(pm.response.json().message).to.include(\"PUT /config\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "ec287afe-5b2c-491e-8796-29ff60651ccd",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config/set-inputs",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "set-inputs"
+       ]
+      },
+      "description": "**Retired.** Returns `410` naming `PUT /config`.\n\nThis route never wrote anything: it called `json.loads()` on a body FastAPI had already parsed, raised `TypeError` into a bare `except:`, and answered **HTTP 200** \u2014 so a caller checking only the status code believed the write had succeeded.\n\nIt also reached only `transcoder.inputs` and `transcoder.outputs`, leaving `version`, `squeeze`, `scte`, `blanking`, `blackout` and the whole `application` object unaddressable. `PUT /config` replaces all four routes and covers the rest of the document.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"note\": \"any body; the route is gone\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Set input by index \u2014 retired, expect 410",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"410 Gone\", () => pm.response.to.have.status(410));",
+         "pm.test(\"names the replacement\", () =>",
+         "  pm.expect(pm.response.json().message).to.include(\"PUT /config\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "8cd94e49-a57e-4615-b7d6-bcbcffc594c4",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": {
+       "raw": "{{baseUrl}}/config/set-input/0",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "config",
+        "set-input",
+        "0"
+       ]
+      },
+      "description": "**Retired.** Returns `410` naming `PUT /config`.\n\nThis route never wrote anything: it called `json.loads()` on a body FastAPI had already parsed, raised `TypeError` into a bare `except:`, and answered **HTTP 200** \u2014 so a caller checking only the status code believed the write had succeeded.\n\nIt also reached only `transcoder.inputs` and `transcoder.outputs`, leaving `version`, `squeeze`, `scte`, `blanking`, `blackout` and the whole `application` object unaddressable. `PUT /config` replaces all four routes and covers the rest of the document.",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"note\": \"any body; the route is gone\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     },
+     "response": []
+    }
+   ],
+   "id": "fdbfab18-15d2-7117-6a13-01bc27421bd5",
+   "description": "Engine configuration and process control.\n\n**\u26a0\ufe0f All four setters are broken and cannot write.** `set-outputs`, `set-output`, `set-inputs` and `set-input` each call `json.loads()` on a body FastAPI has already parsed into a dict, raise `TypeError`, swallow it in a bare `except:`, and return `{\"message\": \"error parsing request\"}` with HTTP **200**. Verified against this container on 2026-08-21.\n\nThe project docs flag only `set-input`/`set-inputs`; the output setters fail identically. Configure the engine before starting the container.\n\nThe getters are fine and read-only. `restart-transcoder` works and **interrupts the live output**."
+  },
+  {
+   "name": "08 Licence",
+   "description": "The engine license on this appliance \u2014 the channel UI's **Licence** tab.\n\nThe engine reads its license once, at start, so **upload restarts the engine and delete stops it**; both take the channel off air. Every check is done by the engine binary itself (`--license-info`), because the keys that decrypt a license exist only inside it.\n\nIssuing licenses (generate, sign, list) is not here: it needs the signing private key, which stays on the vendor side. Use `transcoder/license/make-license.sh`.",
+   "item": [
+    {
+     "name": "Get licence",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const l = pm.response.json();",
+         "pm.test(\"engine reports a status\", () => pm.expect([\"valid\",\"expired\",\"notYetValid\",\"invalid\"]).to.include(l.status));",
+         "if (l.validUntil) console.log(`${l.name} | ${l.status} | ${l.offline ? \"offline\" : \"online\"} | until ${new Date(l.validUntil).toISOString()}`);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "e6b34c72-34c2-47ca-8498-7d857bb83d5f",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/license",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "license"
+       ]
+      },
+      "description": "The installed engine license as the engine binary reads it (`transcoder -l <file> --license-info`): `status` (`valid`, `expired`, `notYetValid`, or `invalid` with `error`), `name`, `id`, `validSince`/`validUntil` (ms since epoch), `ttl` (ms), `offline`, `maxSessions`, `createdAt`, `checkedAt`, and `path` (`TRANSCODER_LICENSE_PATH`).\n\nRead-only and safe. An installed file the engine would refuse is still described with **200** so you can see why. **404** means no license is installed; **503** means the engine binary could not be asked."
+     },
+     "response": []
+    },
+    {
+     "name": "Validate licence (dry run)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "pm.test(\"validated, not installed\", () => pm.expect(pm.response.json().state).to.eql(\"validated\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "ecb40ac3-bef2-4c66-8345-6f312589ec15",
+     "request": {
+      "method": "PUT",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/license?dryRun=true",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "license"
+       ],
+       "query": [
+        {
+         "key": "dryRun",
+         "value": "true"
+        }
+       ]
+      },
+      "description": "Checks an uploaded license with the engine binary **without installing it or touching the engine**. Returns `state: \"validated\"` and the engine's report as `license`.\n\n**422** with `license refused: \u2026` when the engine would not start on it: corrupted or not a license, signed with the other key set (a development license on a production build), expired, not yet valid, or an online license while the engine config has no `application.licenseServer.uri` beginning `http://`/`https://`. Also 422 for an empty file or one over 64 KiB.\n\n**The form field must be named exactly `file`, and its type must be `File`, not `Text`.** Postman stores a local path, not the file; re-select it on another machine.",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "type": "file",
+         "key": "file",
+         "description": "Select a .lic file. Field name must stay 'file' and type must be File, not Text."
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Upload licence \u26a0\ufe0f restarts engine",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const r = pm.response.json();",
+         "pm.test(\"installed\", () => pm.expect(r.state).to.eql(\"installed\"));",
+         "pm.test(\"engine came back\", () => pm.expect([\"RUNNING\",\"STARTING\"]).to.include(r.engine));",
+         "console.log(`${r.license.name} installed | engine ${r.engine}`);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "c93dc561-d84a-4e10-8821-21a62c954b33",
+     "request": {
+      "method": "PUT",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/license",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "license"
+       ]
+      },
+      "description": "**Takes the channel off air.** Validates the upload exactly as the dry run does; a refused file (422) leaves the installed license and the engine untouched. An accepted file replaces the installed license atomically, then the engine is **restarted** on it \u2014 off air for `TRANSCODER_RESTART_GRACE_SECONDS` (default 10 s) plus engine start-up.\n\nReturns `state: \"installed\"`, the report as `license`, and the Supervisor state as `engine`. If the restart itself fails the license stays installed and the error says so; retry with `POST /config/restart-transcoder`.\n\n**409** when the license directory is missing or not writable, or the license is bind-mounted as a single file \u2014 it must sit inside a read-write mounted directory.\n\n**The form field must be named exactly `file`, and its type must be `File`, not `Text`.** Postman stores a local path, not the file; re-select it on another machine.",
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "type": "file",
+         "key": "file",
+         "description": "Select a .lic file. Field name must stay 'file' and type must be File, not Text."
+        }
+       ]
+      }
+     },
+     "response": []
+    },
+    {
+     "name": "Delete licence \u26a0\ufe0f stops engine",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const r = pm.response.json();",
+         "pm.test(\"removed and stopped\", () => { pm.expect(r.state).to.eql(\"removed\"); pm.expect(r.engine).to.eql(\"STOPPED\"); });"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "7246484c-bef8-4a55-802f-f1c6e4ecbbe7",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/license",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "license"
+       ]
+      },
+      "description": "**Takes the channel off air until a new license is uploaded.** Stops the engine, then removes the installed license, and returns `state: \"removed\"` with `engine: \"STOPPED\"`. The engine cannot start without a license: `POST /config/start-transcoder` will report `STARTING` and the engine then exits, leaving Supervisor in `BACKOFF`/`FATAL`. Recover with **Upload licence**.\n\n**404** with no license installed, and the engine is not stopped. If the stop fails (500) the license stays in place. In the Compose profile a deleted license stays deleted across container restarts."
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "09 Stats",
+   "description": "Resource utilization of the appliance \u2014 the channel UI's **Stats** tab. One read-only route.",
+   "item": [
+    {
+     "name": "Get stats",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.test(\"has every section\", () => [\"cpu\",\"memory\",\"storage\",\"storageWrite\",\"network\"].forEach(k => pm.expect(s).to.have.property(k)));",
+         "const mb = b => b == null ? \"-\" : (b / 1e6).toFixed(0) + \" MB\";",
+         "console.log(`cpu ${s.cpu.container.percent}% (${s.cpu.container.coresUsed} cores) | engine ${s.cpu.engine.coresUsed} cores | mem ${mb(s.memory.container.usedBytes)} | disk write avg ${s.storageWrite.container.averageBytesPerSecond} B/s | net rx ${s.network.receiveBitsPerSecond} tx ${s.network.transmitBitsPerSecond} bps`);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "id": "e927fbcd-2403-4841-9ec1-4791744dd825",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/stats",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "stats"
+       ]
+      },
+      "description": "CPU, memory, storage, storage writes and network, for the container (API + engine), the engine process alone, and the host. Read-only and safe to poll.\n\nThe figures come from a background sampler (every `STATS_SAMPLE_INTERVAL_SECONDS`, default 2 s), so the response is immediate and rates are over `windowSeconds`. Right after the API starts, rates are null until the second sample.\n\n**Units:** CPU in cores and percent of the container's CPU capacity; memory and storage in bytes; storage writes in bytes per second; network in **bits** per second.\n\n**Storage writes** are given twice: `engine` is what the transcoder writes, `container` is what reaches the disk. The kernel flushes to disk in bursts up to ~30 s later, so use `averageBytesPerSecond` (last 60 s) rather than the 2 s `bytesPerSecond` for a steady figure."
+     },
+     "response": []
+    }
+   ]
+  },
+  {
+   "name": "W0 Smoke test",
+   "item": [
+    {
+     "name": "1 \u00b7 Scheduling is enabled",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"API answers\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.test(\"rundown service enabled\", () => pm.expect(s.enabled).to.be.true);",
+         "pm.test(\"channel file is healthy\", () => pm.expect(s.bootstrapError).to.be.null);",
+         "console.log(`OK  scheduling on | channel file ${s.bootstrapState}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "6b746617-29ba-5eed-9703-c7551206758b",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/status",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "status"
+       ]
+      },
+      "description": "Health check 1 of 5. Confirms the control plane answers and the rundown service is on.\n\nIf this fails, nothing else in W0 will pass \u2014 check the container is up and `ENABLE_RUNDOWN_SERVICE=true`."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Engine has a live input",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"engine reachable\", () => pm.response.to.have.status(200));",
+         "const inputs = pm.response.json();",
+         "pm.test(\"at least one input\", () => pm.expect(inputs.length).to.be.at.least(1));",
+         "pm.test(\"input has switchable streams\", () => pm.expect(inputs[0].streams.length).to.be.at.least(1));",
+         "console.log(`OK  ${inputs.length} input(s), ${inputs[0].streams.length} streams`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "a6405ed8-8d6b-43ae-5ed4-b5bd8e72d4b1",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/inputs",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "inputs"
+       ]
+      },
+      "description": "Health check 2 of 5. Confirms the API can reach the **engine**, not just its own database \u2014 `GET /inputs` proxies to the transcoder over gRPC.\n\nA failure here with check 1 passing means the control plane is up but the engine is not."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Queue is settled",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.test(\"reconciliation is settled\", () =>",
+         "  pm.expect(s.desiredRevision, `desired ${s.desiredRevision} vs applied ${s.appliedRevision}`).to.eql(s.appliedRevision));",
+         "pm.test(\"no reconciliation error\", () => pm.expect(s.applyError).to.be.null);",
+         "pm.test(\"something is on air\", () => pm.expect(s.currentItemId).to.be.a(\"string\"));",
+         "pm.environment.set(\"baselineItemCount\", s.items.length);",
+         "console.log(`OK  rev ${s.appliedRevision} | ${s.items.length} items | on air ${s.items.find(i => i.id === s.currentItemId).media.name}`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "3b6b4495-004d-6dc3-a9f8-99e7ae3a4eb3",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Health check 3 of 5. The most informative single request in the collection.\n\nAsserts the two revisions agree (nothing stuck mid-reconciliation), no `applyError`, and that something is actually on air. Also records the queue as a **baseline** the mutating workflows compare against."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Loop is turning",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const c = pm.response.json();",
+         "pm.test(\"at least one loop observed\", () => pm.expect(c.cycle).to.be.at.least(1));",
+         "pm.test(\"loop has a known length\", () => pm.expect(c.loopDurationMs).to.be.above(0));",
+         "const skew = Date.parse(c.serverNow) - Date.now();",
+         "if (Math.abs(skew) > 5000) console.log(`WARNING large clock skew: ${skew}ms`);",
+         "console.log(`OK  cycle ${c.cycle} | loop ${(c.loopDurationMs/1000).toFixed(2)}s | skew ${skew}ms`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "afd5dbce-0af0-e5d0-8b27-1982770b84d7",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/clock",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "clock"
+       ]
+      },
+      "description": "Health check 4 of 5. Confirms the schedule is not merely configured but **running** \u2014 the 250 ms poller has observed transitions and counted at least one cycle.\n\nAlso reports clock skew between this machine and the container. A large skew makes every projected time in the operator grid wrong by that amount."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Graphics catalog loads",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const assets = pm.response.json().assets || [];",
+         "pm.test(\"catalog is not empty\", () => pm.expect(assets.length).to.be.at.least(1));",
+         "const off = assets.filter(a => a.enabled === false);",
+         "console.log(`OK  ${assets.length} assets | ${off.length} disabled (video graphics flag)`);",
+         "console.log(\"--- W0 complete: the channel is healthy ---\");"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "36555f49-d144-eaa4-449c-0fba8f4cbc1a",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/catalog",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "catalog"
+       ]
+      },
+      "description": "Health check 5 of 5. Confirms the graphics catalog parses and its assets are present.\n\nLogs how many video assets are gated off by `ENABLE_VIDEO_GRAPHICS=false` \u2014 expected on the supplied Compose file, not a fault."
+     },
+     "response": []
+    }
+   ],
+   "id": "8ef90742-dc2b-727a-dff2-f4fa87ca27ac",
+   "description": "**Start here.** Five read-only requests that prove the channel is healthy: control plane up, engine reachable, queue settled, loop turning, catalog parsing.\n\nMutates nothing, so it is safe at any time and is the right target for Newman in CI.\n\n**How to run:** Runner \u2192 select this folder \u2192 Delay `1000` ms \u2192 Run. Expect all green.\n\n\u26a0\ufe0f Run **folders**, never the whole collection \u2014 folder 07 contains a request that restarts the engine."
+  },
+  {
+   "name": "W1 Air an existing clip",
+   "item": [
+    {
+     "name": "1 \u00b7 Pick a registered clip",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const media = pm.response.json();",
+         "pm.test(\"library is not empty\", () => pm.expect(media.length).to.be.at.least(1));",
+         "const pick = media[0];",
+         "pm.environment.set(\"mediaId\", pick.id);",
+         "console.log(`will add ${pick.name} (${pick.id}) as a program`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "a909d8d3-abb2-7391-27f1-76083dbe8f70",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/media",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media"
+       ]
+      },
+      "description": "Step 1 of 8. Chooses an **already-registered** asset.\n\nThis workflow deliberately creates no media. `DELETE /media` unlinks the file from disk and `POST /media/import` returns the *existing* asset for a known path, so a create-then-delete chain could destroy a live channel clip. Reusing an asset sidesteps that and makes the run repeatable.\n\nUse **W2** to exercise upload."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Read the queue baseline",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.test(\"queue is settled before mutating\", () =>",
+         "  pm.expect(s.desiredRevision, `desired ${s.desiredRevision} vs applied ${s.appliedRevision}`).to.eql(s.appliedRevision));",
+         "pm.test(\"no reconciliation error\", () => pm.expect(s.applyError).to.be.null);",
+         "pm.environment.set(\"itemCountBefore\", s.items.length);",
+         "pm.environment.set(\"pollAttempts\", 0);",
+         "console.log(`baseline ${s.items.length} items at rev ${s.appliedRevision}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "97191ed1-31ef-94f7-e963-15de656b8f9d",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 2 of 8. Records how long the queue is now, so the final step can prove it ended the same length.\n\nAsserts the queue is settled first \u2014 mutating mid-reconciliation is how you get a confusing failure two requests later."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Read the live version",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const d = pm.response.json();",
+         "pm.test(\"a version is live\", () => pm.expect(d.activeVersionId).to.be.a(\"string\"));",
+         "pm.environment.set(\"versionId\", d.activeVersionId);",
+         "console.log(`live version ${d.versions[0].number}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "e5492320-9e80-8bb4-fee5-088345dcd13b",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "body": {
+       "mode": "raw",
+       "raw": ""
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}"
+       ]
+      },
+      "description": "Step 3 of 8. Captures `versionId`.\n\n**Why the rundown and not `POST /playlists/{id}/items`?** While `ENABLE_RUNDOWN_SERVICE=true`, the rundown version is the source of truth for the queue. A direct queue insert is accepted with `202` and then **silently reverted about a second later** by the reconciler, which deletes any playlist item not present in the active version \u2014 it shows up as `on_air_bridge_removed` in the audit log.\n\nSo on a rundown-managed channel, adding a program means publishing a new version. That is what steps 4\u20135 do."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Dry run the insert",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"nothing was published\", () => pm.expect(r.version).to.be.null);",
+         "pm.test(\"one program would be inserted\", () => pm.expect(r.applied.insertItems).to.eql(1));",
+         "console.log(\"dry run OK - safe to commit\");"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "14528ca0-892a-d8d1-1be0-6cffc9a5a523",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"insertItems\",\n      \"items\": [\n        {\n          \"key\": \"postman-w1-probe\",\n          \"mediaId\": \"{{mediaId}}\"\n        }\n      ]\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\",\n  \"dryRun\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 4 of 8. Validates the new program list and rolls back \u2014 `version` comes back `null`.\n\n`insertItems` appends when `position` is omitted. An item needs a unique `key` and a registered `mediaId`; an unregistered id gives `422 items[].mediaId is not registered media`.\n\nThe fixed key `postman-w1-probe` is what step 7 removes."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Insert the program",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"a new version went live\", () => pm.expect(r.version.id).to.be.a(\"string\"));",
+         "pm.test(\"our program is in it\", () =>",
+         "  pm.expect(r.version.items.map(i => i.key)).to.include(\"postman-w1-probe\"));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "pm.environment.set(\"pollAttempts\", 0);",
+         "console.log(`version ${r.version.number} live | programs: ${r.version.items.map(i => i.key).join(\", \")}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "cfd9bc70-a351-3ec9-6e70-83310a8ddf53",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"insertItems\",\n      \"items\": [\n        {\n          \"key\": \"postman-w1-probe\",\n          \"mediaId\": \"{{mediaId}}\"\n        }\n      ]\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 5 of 8. Publishes the new version. The clip is now part of the loop and will air.\n\nThe published version projects onto the managed queue, which is what step 6 watches for."
+     },
+     "response": []
+    },
+    {
+     "name": "6 \u00b7 Poll until the queue grows",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "const s = pm.response.json();",
+         "const want = Number(pm.environment.get(\"itemCountBefore\")) + 1;",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "",
+         "if (s.applyError) {",
+         "  pm.test(`engine rejected the queue: ${s.applyError}`, () => { throw new Error(s.applyError); });",
+         "} else if (s.desiredRevision === s.appliedRevision && s.items.length === want) {",
+         "  pm.test(\"queue grew by exactly one\", () => pm.expect(s.items.length).to.eql(want));",
+         "  pm.test(\"reconciliation settled\", () => pm.expect(s.desiredRevision).to.eql(s.appliedRevision));",
+         "  console.log(`projected to the queue after ${n} poll(s) | rev ${s.appliedRevision} | ${s.items.length} items`);",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"6 \u00b7 Poll until the queue grows\");",
+         "} else {",
+         "  pm.test(\"timed out waiting for the projection\", () => {",
+         "    throw new Error(`items ${s.items.length}, wanted ${want}; rev ${s.desiredRevision}/${s.appliedRevision}`);",
+         "  });",
+         "}"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "43ea981b-6f39-913f-4531-39a2c1688833",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 6 of 8. Publishing a version is not the same as the engine running it. This waits for the projection to reach the managed queue and settle.\n\n**Loops back to itself** via `setNextRequest`, up to 20 attempts. Set the Runner's **Delay to 1000 ms**; in practice it settles on the first poll.\n\n`setNextRequest` only works in the Collection Runner, not on a single Send."
+     },
+     "response": []
+    },
+    {
+     "name": "7 \u00b7 Cleanup: remove the program",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"one program removed\", () => pm.expect(r.applied.removeItem).to.eql(1));",
+         "pm.test(\"our program is gone from the version\", () =>",
+         "  pm.expect(r.version.items.map(i => i.key)).to.not.include(\"postman-w1-probe\"));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "pm.environment.set(\"pollAttempts\", 0);",
+         "console.log(`reverted in version ${r.version.number}`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "96be0771-4a12-27a4-7f51-f920524d3580",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"removeItem\",\n      \"key\": \"postman-w1-probe\"\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 7 of 8. Removes the program by its key \u2014 the inverse of `insertItems`.\n\nNo `409` handling is needed here, unlike a direct queue delete: the rundown has no \"cannot touch the item on air\" rule. The projection handles the transition itself."
+     },
+     "response": []
+    },
+    {
+     "name": "8 \u00b7 Cleanup: poll until restored",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "const s = pm.response.json();",
+         "const want = Number(pm.environment.get(\"itemCountBefore\"));",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "",
+         "if (s.desiredRevision === s.appliedRevision && s.items.length === want) {",
+         "  pm.test(\"queue is back to its original length\", () => pm.expect(s.items.length).to.eql(want));",
+         "  pm.test(\"no reconciliation error\", () => pm.expect(s.applyError).to.be.null);",
+         "  console.log(`--- W1 complete: queue restored to ${s.items.length} items at rev ${s.appliedRevision} ---`);",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"8 \u00b7 Cleanup: poll until restored\");",
+         "} else {",
+         "  pm.test(\"cleanup timed out - the schedule may still hold the test program\", () => {",
+         "    throw new Error(`items ${s.items.length}, wanted ${want}; rev ${s.desiredRevision}/${s.appliedRevision}`);",
+         "  });",
+         "}"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "027ac3e9-c9f1-2039-82b5-2e5a38cba7d8",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 8 of 8. Waits for the revert to project, then asserts the queue is **exactly** as long as it was at step 2.\n\nThat final assertion is what makes W1 safe to run repeatedly, and what would catch a cleanup that silently failed. Run the folder twice \u2014 the second pass should be as green as the first."
+     },
+     "response": []
+    }
+   ],
+   "id": "1f4f2744-433a-2a54-a941-bff820eebd8f",
+   "description": "Adds a clip to the schedule, waits for it to reach the on-air queue, then takes it back out \u2014 asserting the queue ends exactly as long as it started.\n\n**It goes through `POST /rundowns/apply`, not `POST /playlists/items`.** A direct queue insert is accepted and then silently reverted while the rundown service owns the playlist; step 3 explains why.\n\n**Safe to re-run.** Creates no media, so it avoids the `DELETE /media` unlink hazard entirely. No local files, so it works in CI.\n\n**\u26a0\ufe0f This airs on `udp://@:5555`** \u2014 a real change to the live channel, reverted at the end.\n\n**Runner Delay: 1000 ms** \u2014 the polls in steps 6 and 8 loop via `setNextRequest` and take their pacing from that setting. `setNextRequest` does nothing on a single Send.\n\nRun it twice: the second pass proves cleanup really reverses the first."
+  },
+  {
+   "name": "W2 Upload and air a new clip",
+   "item": [
+    {
+     "name": "1 \u00b7 Upload a clip",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"201 created\", () => pm.response.to.have.status(201));",
+         "const a = pm.response.json();",
+         "pm.environment.set(\"mediaId\", a.id);",
+         "pm.environment.set(\"uploadedRelativePath\", a.relativePath);",
+         "const dur = ((a.probe || {}).format || {}).duration;",
+         "pm.test(\"ffprobe found a duration\", () => pm.expect(Number(dur)).to.be.above(0));",
+         "console.log(`uploaded ${a.name} -> ${a.relativePath} | ${dur}s | ${a.sizeBytes} bytes`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "8ccbdd38-d22c-2592-f411-ecc8ae2c0908",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "description": "Select a video file. The field name must stay 'file' and its type must be File.",
+         "value": null
+        }
+       ]
+      },
+      "url": {
+       "raw": "{{baseUrl}}/media",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media"
+       ]
+      },
+      "description": "Step 1 of 8. **Select a file before running this folder** \u2014 Postman stores a path, not the file, so this cannot run unattended.\n\nUpload writes a **fresh UUID-named copy** into `MEDIA_DIR`. That is what makes step 8 safe: the file this deletes is one only this run created.\n\n`400 Field required` means no file arrived \u2014 wrong field name, wrong type, or a path Postman cannot read. `422` means the file arrived but its extension is not a video one."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Read the queue baseline",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const s = pm.response.json();",
+         "pm.test(\"queue is settled before mutating\", () => pm.expect(s.desiredRevision).to.eql(s.appliedRevision));",
+         "pm.environment.set(\"itemCountBefore\", s.items.length);",
+         "pm.environment.set(\"pollAttempts\", 0);",
+         "console.log(`baseline ${s.items.length} items`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "150a97b5-fa8b-366e-dbe0-4d49f2609fcf",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 2 of 8. Records the queue length so step 7 can prove it ended where it started."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Read the live version",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "pm.environment.set(\"versionId\", pm.response.json().activeVersionId);"
+        ]
+       }
+      }
+     ],
+     "id": "691b231b-6858-4c7a-e08c-70a7ea704dd7",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "body": {
+       "mode": "raw",
+       "raw": ""
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}"
+       ]
+      },
+      "description": "Step 3 of 8. Captures `versionId`.\n\nThe clip goes on air by publishing a **rundown version**, not by inserting into the queue directly \u2014 a direct queue insert is reverted within about a second while the rundown service owns the playlist. See W1 step 3 for the detail."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Insert the program",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"our program is in the new version\", () =>",
+         "  pm.expect(r.version.items.map(i => i.key)).to.include(\"postman-w2-probe\"));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "pm.environment.set(\"pollAttempts\", 0);",
+         "console.log(`version ${r.version.number} live`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "0710d1d8-d3ac-eb04-a957-a82170abbfc1",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"insertItems\",\n      \"items\": [\n        {\n          \"key\": \"postman-w2-probe\",\n          \"mediaId\": \"{{mediaId}}\"\n        }\n      ]\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 4 of 8. Publishes a version containing the uploaded clip.\n\nW1 demonstrates the `dryRun` pass; this folder commits directly to stay short."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Poll until the queue grows",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "const s = pm.response.json();",
+         "const want = Number(pm.environment.get(\"itemCountBefore\")) + 1;",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "if (s.applyError) {",
+         "  pm.test(`engine rejected the queue: ${s.applyError}`, () => { throw new Error(s.applyError); });",
+         "} else if (s.desiredRevision === s.appliedRevision && s.items.length === want) {",
+         "  pm.test(\"queue grew by exactly one\", () => pm.expect(s.items.length).to.eql(want));",
+         "  console.log(`the upload is on air after ${n} poll(s)`);",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"5 \u00b7 Poll until the queue grows\");",
+         "} else {",
+         "  pm.test(\"timed out waiting for the projection\", () => { throw new Error(`items ${s.items.length}, wanted ${want}`); });",
+         "}"
+        ]
+       }
+      }
+     ],
+     "id": "75a7ef56-893a-d2ee-0750-6361f4151405",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 5 of 8. Waits for the projection to reach the managed queue. When this passes, your uploaded clip is genuinely in the loop \u2014 watch it on `udp://@:5555`.\n\n**Runner Delay 1000 ms.**"
+     },
+     "response": []
+    },
+    {
+     "name": "6 \u00b7 Cleanup: remove the program",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"one program removed\", () => pm.expect(r.applied.removeItem).to.eql(1));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "pm.environment.set(\"pollAttempts\", 0);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "bade647c-eabc-f0bb-729f-c8063924ca0c",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"removeItem\",\n      \"key\": \"postman-w2-probe\"\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 6 of 8. Takes the program back out of the schedule.\n\nThis must land before step 8 can delete the asset \u2014 `DELETE /media` returns `409` while any playlist item still references it."
+     },
+     "response": []
+    },
+    {
+     "name": "7 \u00b7 Cleanup: poll until restored",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "const s = pm.response.json();",
+         "const want = Number(pm.environment.get(\"itemCountBefore\"));",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "if (s.desiredRevision === s.appliedRevision && s.items.length === want) {",
+         "  pm.test(\"queue is back to its original length\", () => pm.expect(s.items.length).to.eql(want));",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"7 \u00b7 Cleanup: poll until restored\");",
+         "} else {",
+         "  pm.test(\"cleanup timed out\", () => { throw new Error(`items ${s.items.length}, wanted ${want}`); });",
+         "}"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "6a1e8a77-7829-a68b-edab-4946b6d3cdf2",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 7 of 8. Waits for the revert to reconcile and for the asset to be unreferenced, so step 8 can delete it cleanly."
+     },
+     "response": []
+    },
+    {
+     "name": "8 \u00b7 Cleanup: delete the uploaded media",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"204 deleted\", () => pm.response.to.have.status(204));",
+         "console.log(`--- W2 complete: ${pm.environment.get(\"uploadedRelativePath\")} removed from queue and disk ---`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "baaaeba9-8b52-f61e-23b4-d0f049c31367",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/media/{{mediaId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "media",
+        "{{mediaId}}"
+       ]
+      },
+      "description": "Step 8 of 8. Deletes the asset **and its file**.\n\nThis is only safe because step 1 uploaded a fresh UUID-named copy. Never point this at an asset obtained from `POST /media/import`, which hands back an existing asset that the channel may depend on.\n\n`204` is success. A `409` here means step 6 or 7 did not finish \u2014 the asset is still referenced."
+     },
+     "response": []
+    }
+   ],
+   "id": "dcc832c6-cf92-b99c-bc47-183bdfecd1b1",
+   "description": "The same chain as W1, but exercising **upload** and the safe **media delete**.\n\n**Not unattended.** Step 1 needs a local video file selected by hand \u2014 Postman stores a path, not the file, so this does not survive sync and needs `--working-dir` under Newman.\n\nDeleting media in step 8 is only safe because the upload created a fresh UUID-named copy. Never do that with an asset from `POST /media/import`, which hands back an existing asset the channel may depend on.\n\n**Runner Delay: 1000 ms.**"
+  },
+  {
+   "name": "W3 Edit the schedule safely",
+   "item": [
+    {
+     "name": "1 \u00b7 Read the live version",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const d = pm.response.json();",
+         "pm.test(\"a version is live\", () => pm.expect(d.activeVersionId).to.be.a(\"string\"));",
+         "pm.environment.set(\"versionId\", d.activeVersionId);",
+         "pm.environment.set(\"versionCountBefore\", d.versions.length);",
+         "console.log(`live version ${d.versions[0].number} (${d.activeVersionId})`);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "30241d9b-265a-9379-00f7-686ebacc95aa",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}"
+       ]
+      },
+      "description": "Step 1 of 8. Captures `versionId`, the value every later step needs as `expectedVersionId`.\n\nWithout this handoff you get `409 rundown version is stale` \u2014 the most common error when driving this API by hand."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Choose a target program",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const doc = pm.response.json();",
+         "const target = doc.items.slice().sort((a, b) =>",
+         "  (a.graphics || []).length - (b.graphics || []).length || (b.durationMs || 0) - (a.durationMs || 0))[0];",
+         "pm.environment.set(\"itemKey\", target.key);",
+         "pm.environment.set(\"graphicsBefore\", (target.graphics || []).length);",
+         "pm.test(\"clip fits a 3s graphic plus 1.2s restore\", () =>",
+         "  pm.expect(target.durationMs).to.be.above(4200));",
+         "console.log(`target ${target.key} | ${target.durationMs}ms | ${(target.graphics||[]).length} existing graphics`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "e2c6183d-e4b2-06fd-19b1-7629c4196977",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/versions/{{versionId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "versions",
+        "{{versionId}}"
+       ]
+      },
+      "description": "Step 2 of 8. Picks the program with the **fewest existing graphics**, breaking ties by longest duration \u2014 least likely to collide with the squeeze lock or the clip-fit rule.\n\nAsserts the clip is long enough for a 3 s graphic plus the **1200 ms restoration** the validator silently adds. That hidden 1200 ms is why a graphic that looks like it fits can still be rejected."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Dry run the change",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"nothing was published\", () => pm.expect(r.version).to.be.null);",
+         "pm.test(\"one graphic would be added\", () => pm.expect(r.applied.addGraphic).to.eql(1));",
+         "console.log(`dry run OK - safe to commit | warnings ${(r.warnings||[]).length}`);"
+        ]
+       }
+      }
+     ],
+     "id": "213dc8d3-eae1-65fd-893b-bc367fc089af",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"addGraphic\",\n      \"itemKey\": \"{{itemKey}}\",\n      \"key\": \"postman-w3-probe\",\n      \"assetId\": \"logo-default\",\n      \"mode\": \"fade\",\n      \"offsetMs\": 0,\n      \"durationMs\": 3000,\n      \"fadeMs\": 500\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\",\n  \"dryRun\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 3 of 8. Validates the edit against the **merged result** and rolls back. `version` comes back `null` \u2014 nothing was published.\n\nAn explicit `key` is supplied so step 7 can remove exactly this graphic. The server uniquifies it if that key is taken, which is why step 6 reads back the key it actually used rather than assuming.\n\nIf this returns `422`, the commit in step 4 would have failed too \u2014 that is the point."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Apply it for real",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"a new version went live\", () => pm.expect(r.version.id).to.be.a(\"string\"));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "const f = r.channelFile || {};",
+         "pm.test(\"channel file was rewritten (change survives restart)\", () =>",
+         "  pm.expect(f.state, f.error || \"\").to.not.eql(\"failed\"));",
+         "console.log(`version ${r.version.number} live | channel file ${f.state}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "55653a7b-c4ff-af1a-3c5c-484c4706224a",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"addGraphic\",\n      \"itemKey\": \"{{itemKey}}\",\n      \"key\": \"postman-w3-probe\",\n      \"assetId\": \"logo-default\",\n      \"mode\": \"fade\",\n      \"offsetMs\": 0,\n      \"durationMs\": 3000,\n      \"fadeMs\": 500\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 4 of 8. The same body without `dryRun`. Publishes a new immutable version and projects it to the managed queue.\n\nAlso rewrites the declarative channel file \u2014 the test fails if that part failed, because the change would then be **live now but lost on the next restart**.\n\nCaptures the new `versionId`; the old one is stale from this moment."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Wait for the queue to settle",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "const s = pm.response.json();",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "",
+         "if (s.applyError) {",
+         "  pm.test(`engine rejected the queue: ${s.applyError}`, () => { throw new Error(s.applyError); });",
+         "} else if (s.desiredRevision === s.appliedRevision) {",
+         "  pm.test(\"queue settled - safe to apply again\", () => pm.expect(s.desiredRevision).to.eql(s.appliedRevision));",
+         "  console.log(`settled at rev ${s.appliedRevision} after ${n} poll(s)`);",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"5 \u00b7 Wait for the queue to settle\");",
+         "} else {",
+         "  pm.test(\"queue never settled\", () => {",
+         "    throw new Error(`stuck at ${s.appliedRevision} of ${s.desiredRevision}`);",
+         "  });",
+         "}"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "109dd15a-664f-7de9-d1cc-06b4de7b67ee",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 5 of 8. **The step that makes back-to-back applies work.**\n\n`POST /rundowns/{id}/apply` returns **`409 the managed playlist is still applying a prior revision`** if the queue is mid-reconciliation from the previous publish. Without this wait, step 7's revert fails on a fast machine \u2014 found exactly that way while building this collection.\n\nLoops back to itself until `desiredRevision == appliedRevision`, up to 20 attempts. **Runner Delay 1000 ms.**"
+     },
+     "response": []
+    },
+    {
+     "name": "6 \u00b7 Confirm it is in the schedule",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const doc = pm.response.json();",
+         "const item = doc.items.find(i => i.key === pm.environment.get(\"itemKey\"));",
+         "const probe = (item.graphics || []).find(g => g.key.indexOf(\"postman-w3-probe\") === 0);",
+         "pm.test(\"our graphic is attached to the target program\", () => pm.expect(probe).to.not.be.undefined);",
+         "pm.test(\"the program gained exactly one graphic\", () =>",
+         "  pm.expect(item.graphics.length).to.eql(Number(pm.environment.get(\"graphicsBefore\")) + 1));",
+         "if (probe) {",
+         "  pm.environment.set(\"probeGraphicKey\", probe.key);",
+         "  console.log(`scheduled as '${probe.key}' | ${probe.assetId} ${probe.mode} ${probe.durationMs}ms at +${probe.trigger.offsetMs}ms`);",
+         "}"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "7bc85dbe-b962-aa64-c82b-fbefeafc9bad",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "body": {
+       "mode": "raw",
+       "raw": ""
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/versions/{{versionId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "versions",
+        "{{versionId}}"
+       ]
+      },
+      "description": "Step 6 of 8. Reads the new version back and confirms the graphic really is attached to the target program \u2014 and captures **the key the server actually assigned**, which cleanup needs.\n\nReading back matters: `apply` may uniquify a key, and the stored version is authoritative over what you sent."
+     },
+     "response": []
+    },
+    {
+     "name": "7 \u00b7 Cleanup: remove the graphic",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "if (pm.response.code === 409) {",
+         "  const r = Number(pm.environment.get(\"removeRetries\") || 0) + 1;",
+         "  pm.environment.set(\"removeRetries\", r);",
+         "  pm.environment.set(\"pollAttempts\", 0);",
+         "  if (r < 10) {",
+         "    console.log(`409 ${pm.response.text().slice(0, 80)} - waiting for the queue, then retrying`);",
+         "    postman.setNextRequest(\"5 \u00b7 Wait for the queue to settle\");",
+         "  } else {",
+         "    pm.test(\"could not revert after 10 tries\", () => { throw new Error(pm.response.text()); });",
+         "  }",
+         "} else {",
+         "  pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "  const r = pm.response.json();",
+         "  pm.test(\"one graphic removed\", () => pm.expect(r.applied.removeGraphic).to.eql(1));",
+         "  const item = r.version.items.find(i => i.key === pm.environment.get(\"itemKey\"));",
+         "  pm.test(\"graphic count is back to the baseline\", () =>",
+         "    pm.expect((item.graphics || []).length).to.eql(Number(pm.environment.get(\"graphicsBefore\"))));",
+         "  pm.environment.set(\"versionId\", r.version.id);",
+         "  pm.environment.set(\"pollAttempts\", 0);",
+         "  console.log(`reverted in version ${r.version.number}`);",
+         "}"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "8366b21e-f5d2-5b82-9253-3cf135e064a9",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"ops\": [\n    {\n      \"op\": \"removeGraphic\",\n      \"key\": \"{{probeGraphicKey}}\"\n    }\n  ],\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 7 of 8. Reverts the edit with `removeGraphic`, and asserts the graphic is gone from the published version \u2014 no extra read needed, because the apply response carries the new document.\n\nA `409` sends the run back to step 5 to wait for the queue, then retries.\n\nNote this **publishes another version** rather than rolling back: versions are immutable, so history grows by two per run while the content returns to where it started."
+     },
+     "response": []
+    },
+    {
+     "name": "8 \u00b7 Cleanup: wait for the queue to settle",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "const s = pm.response.json();",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "",
+         "if (s.desiredRevision === s.appliedRevision) {",
+         "  pm.test(\"queue settled\", () => pm.expect(s.desiredRevision).to.eql(s.appliedRevision));",
+         "  pm.test(\"no reconciliation error\", () => pm.expect(s.applyError).to.be.null);",
+         "  console.log(`--- W3 complete: schedule restored, queue settled at rev ${s.appliedRevision} ---`);",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"8 \u00b7 Cleanup: wait for the queue to settle\");",
+         "} else {",
+         "  pm.test(\"queue never settled after the revert\", () => {",
+         "    throw new Error(`stuck at ${s.appliedRevision} of ${s.desiredRevision}`);",
+         "  });",
+         "}"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "bf684178-5987-dc6e-2e02-7b93d57dbc3b",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 8 of 8. Waits for the revert to finish reconciling.\n\nThis is not tidiness \u2014 it is what leaves the channel in a state where the **next** run's apply will not hit `409`. Without it, running this folder twice in a row fails on the second pass."
+     },
+     "response": []
+    }
+   ],
+   "id": "c23edbdf-5464-70f3-5f76-409ba0e43f64",
+   "description": "Adds a graphic to a program, verifies it reached the live schedule, then removes it.\n\nDemonstrates the four habits that make rundown edits safe: **capture the version id**, **dry run before committing**, **wait for the queue to settle between applies**, and **read back what the server actually stored**.\n\nThat third one is not optional. `apply` returns `409 the managed playlist is still applying a prior revision` if the queue is mid-reconciliation, so two applies in quick succession fail without a wait \u2014 steps 5 and 8 exist for that reason.\n\n**Safe to re-run**, and needs no local files, so it works in CI.\n\nVersion history grows by two per run: versions are immutable, so a revert publishes a new version rather than deleting one. The *content* returns to baseline, which is what step 7 asserts.\n\n**Runner Delay: 1000 ms.**"
+  },
+  {
+   "name": "W4 Import a program list",
+   "item": [
+    {
+     "name": "1 \u00b7 Read the live version",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "pm.environment.set(\"versionId\", pm.response.json().activeVersionId);"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "74adb8a9-325b-510a-fc9e-241163afcb18",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}"
+       ]
+      },
+      "description": "Step 1 of 6. Captures `versionId` for the import's `expectedVersionId`.\n\n**This folder needs a local YAML file** in steps 3 and 4 \u2014 select it before running. It cannot run unattended."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Capture the document for restore",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const doc = pm.response.json();",
+         "pm.environment.set(\"restoreDoc\", JSON.stringify(doc));",
+         "pm.environment.set(\"itemCountBefore\", doc.items.length);",
+         "console.log(`captured ${doc.items.length} programs for restore (${JSON.stringify(doc).length} bytes)`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "db516eae-8f7d-41d3-90fb-de5e07759147",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/versions/{{versionId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "versions",
+        "{{versionId}}"
+       ]
+      },
+      "description": "Step 2 of 6. Stores the entire current schedule in `restoreDoc`.\n\nAn import has no inverse operation \u2014 the only way back is to re-apply the previous document wholesale, which is what step 6 does. Capturing it **before** the import is the whole trick."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Preview the import (dry run)",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202 - file is valid\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"dry run published nothing\", () => pm.expect(r.version).to.be.null);",
+         "console.log(`would apply ${JSON.stringify(r.applied)}`);",
+         "(r.warnings || []).forEach(w => console.log(`warning: ${w}`));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "2e03e78e-a710-5122-7074-07a0b4dc029e",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "key": "file",
+         "type": "file",
+         "description": "Select a channel YAML.",
+         "value": null
+        },
+        {
+         "type": "text",
+         "value": "1",
+         "key": "position",
+         "description": "0-based insert point. Disabled = append.",
+         "disabled": true
+        },
+        {
+         "type": "text",
+         "key": "expectedVersionId",
+         "value": "{{versionId}}"
+        },
+        {
+         "type": "text",
+         "key": "dryRun",
+         "value": "true"
+        }
+       ]
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/programs/import",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "programs",
+        "import"
+       ]
+      },
+      "description": "Step 3 of 6. Merges the file onto the live schedule, validates the result and rolls back \u2014 so a bad file is caught **before** it reaches air rather than after.\n\nCommon `422`s, all about the file you just picked: media not registered (upload the clips first), wrong `channel:` name, durations without units, over 1 MiB, not UTF-8.\n\nThe resulting program order is in `version.items` even though nothing was published."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Commit the import",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "const r = pm.response.json();",
+         "pm.test(\"a new version went live\", () => pm.expect(r.version.id).to.be.a(\"string\"));",
+         "pm.environment.set(\"versionId\", r.version.id);",
+         "console.log(`imported into version ${r.version.number} | ${r.version.items.length} programs now`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "5cf98e06-8111-3336-d436-868bf05bc5a0",
+     "request": {
+      "method": "POST",
+      "header": [],
+      "body": {
+       "mode": "formdata",
+       "formdata": [
+        {
+         "description": "Select the same YAML as step 3.",
+         "key": "file",
+         "type": "file",
+         "value": null
+        },
+        {
+         "type": "text",
+         "value": "1",
+         "key": "position",
+         "disabled": true
+        },
+        {
+         "type": "text",
+         "value": "{{versionId}}",
+         "key": "expectedVersionId"
+        },
+        {
+         "type": "text",
+         "value": "false",
+         "key": "dryRun"
+        }
+       ]
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/programs/import",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "programs",
+        "import"
+       ]
+      },
+      "description": "Step 4 of 6. The same request with `dryRun=false`. The programs are spliced into the live schedule and go to air.\n\nSelect the **same file** as step 3 \u2014 Postman does not share a file selection between requests.\n\nFrom here until step 6 succeeds, the import is on air. If the run stops in between, finish it by hand."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Wait for the queue to settle",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "const s = pm.response.json();",
+         "const n = Number(pm.environment.get(\"pollAttempts\")) + 1;",
+         "pm.environment.set(\"pollAttempts\", n);",
+         "",
+         "if (s.applyError) {",
+         "  pm.test(`engine rejected the queue: ${s.applyError}`, () => { throw new Error(s.applyError); });",
+         "} else if (s.desiredRevision === s.appliedRevision) {",
+         "  pm.test(\"queue settled - safe to restore\", () => pm.expect(s.desiredRevision).to.eql(s.appliedRevision));",
+         "  console.log(`settled at rev ${s.appliedRevision} | ${s.items.length} items after the import`);",
+         "} else if (n < 20) {",
+         "  postman.setNextRequest(\"5 \u00b7 Wait for the queue to settle\");",
+         "} else {",
+         "  pm.test(\"queue never settled\", () => { throw new Error(`stuck at ${s.appliedRevision} of ${s.desiredRevision}`); });",
+         "}"
+        ]
+       }
+      }
+     ],
+     "id": "8d5ab2fa-1d17-f659-4402-cb5ffd3273cb",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "body": {
+       "mode": "raw",
+       "raw": ""
+      },
+      "url": {
+       "raw": "{{baseUrl}}/playlists/{{playlistId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "playlists",
+        "{{playlistId}}"
+       ]
+      },
+      "description": "Step 5 of 6. The import published a version, which is still projecting onto the queue.\n\n`POST /rundowns/{id}/apply` returns **`409 the managed playlist is still applying a prior revision`** while that is in flight, so the restore in step 6 would fail without this wait.\n\n**Runner Delay 1000 ms.**"
+     },
+     "response": []
+    },
+    {
+     "name": "6 \u00b7 Cleanup: restore the previous schedule",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "if (pm.response.code === 409) {",
+         "  const r = Number(pm.environment.get(\"removeRetries\") || 0) + 1;",
+         "  pm.environment.set(\"removeRetries\", r);",
+         "  pm.environment.set(\"pollAttempts\", 0);",
+         "  if (r < 10) {",
+         "    console.log(`409 - waiting for the queue, then retrying the restore`);",
+         "    postman.setNextRequest(\"5 \u00b7 Wait for the queue to settle\");",
+         "  } else {",
+         "    pm.test(\"could not restore after 10 tries - THE IMPORT IS STILL ON AIR\", () => { throw new Error(pm.response.text()); });",
+         "  }",
+         "} else {",
+         "  pm.test(\"202\", () => pm.response.to.have.status(202));",
+         "  const r = pm.response.json();",
+         "  pm.test(\"program count is back to the baseline\", () =>",
+         "    pm.expect(r.version.items.length).to.eql(Number(pm.environment.get(\"itemCountBefore\"))));",
+         "  pm.environment.set(\"versionId\", r.version.id);",
+         "  console.log(`--- W4 complete: restored in version ${r.version.number} ---`);",
+         "}"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "cd5c9281-0db4-e5ed-8335-d92ceabad74a",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"document\": {{restoreDoc}},\n  \"expectedVersionId\": \"{{versionId}}\"\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/rundowns/{{rundownId}}/apply",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "rundowns",
+        "{{rundownId}}",
+        "apply"
+       ]
+      },
+      "description": "Step 6 of 6. Re-applies the document captured in step 2, undoing the import.\n\nThis is the `document` path rather than `ops` \u2014 the client already holds the complete end state, so there is no reason to synthesise operations that would reproduce it.\n\n`{{restoreDoc}}` is interpolated **unquoted** on purpose: it is already a JSON object serialised to a string, so it must land as an object, not a string literal.\n\nA `409` sends the run back to step 5 to wait, then retries."
+     },
+     "response": []
+    }
+   ],
+   "id": "6410af21-f11c-d319-9323-e99636601c1e",
+   "description": "Previews a channel YAML, commits it, then restores the schedule that was there before.\n\n**Not unattended** \u2014 steps 3 and 4 each need the same YAML file selected by hand.\n\nIt imports a program **list, not the media**: upload the clips with `POST /media` first, or the preview returns `422` naming the unregistered path.\n\nThe undo works by capturing the whole document up front and re-applying it, because import has no inverse operation. Step 5 waits for the queue to settle first, or the restore hits `409`.\n\n\u26a0\ufe0f If the run is interrupted between steps 4 and 6, **the import stays on air**. Recover by sending step 6 by hand \u2014 `restoreDoc` is still in the environment.\n\n**Runner Delay: 1000 ms.**"
+  },
+  {
+   "name": "W5 Graphic cue lifecycle",
+   "item": [
+    {
+     "name": "1 \u00b7 Read the catalog",
+     "event": [
+      {
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const assets = pm.response.json().assets || [];",
+         "const pick = assets.find(a => (a.kind === \"logo\" || a.kind === \"bug\") && a.mediaType === \"image\" && a.enabled !== false);",
+         "pm.test(\"a safe non-squeeze asset exists\", () => pm.expect(pick).to.not.be.undefined);",
+         "if (pick) {",
+         "  pm.environment.set(\"graphicAssetId\", pick.id);",
+         "  pm.environment.set(\"graphicMode\", pick.defaultMode || \"fade\");",
+         "  console.log(`will cue ${pick.id} (${pick.kind}, mode ${pick.defaultMode || \"fade\"})`);",
+         "}"
+        ]
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "73f3e8a9-5a8a-e5f9-14be-46ef33336635",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/catalog",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "catalog"
+       ]
+      },
+      "description": "Step 1 of 5. Picks a **logo or bug** image asset \u2014 deliberately not L-band or Aston, which share a squeeze lock and would make the workflow fail whenever another squeeze cue happened to be live.\n\nAlso skips anything with `enabled: false`, which is how video assets appear while `ENABLE_VIDEO_GRAPHICS=false`."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Start the cue",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"201 created\", () => pm.response.to.have.status(201));",
+         "const cue = pm.response.json();",
+         "pm.environment.set(\"cueId\", cue.id);",
+         "pm.test(\"cue has a start time\", () => pm.expect(cue.startsAt).to.be.a(\"string\"));",
+         "console.log(`cue ${cue.id} | ${cue.kind} | phase ${cue.phase} | ends ${cue.endsAt}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "86635c8c-33a4-1d72-0e01-65f3a17cd253",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"assetId\": \"{{graphicAssetId}}\",\n  \"mode\": \"{{graphicMode}}\",\n  \"durationMs\": 8000,\n  \"startInMs\": 0,\n  \"fadeMs\": 600\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues"
+       ]
+      },
+      "description": "Step 2 of 5. Fires the graphic immediately for 8 seconds \u2014 long enough that step 3 can still observe it, short enough that it self-clears if the run is interrupted.\n\n`durationMs` covers the **whole visible interval**, fades included. `startInMs: 0` means now.\n\nWatch it on `udp://@:5555`."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Confirm it is live",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const cues = pm.response.json();",
+         "const ours = cues.find(c => c.id === pm.environment.get(\"cueId\"));",
+         "pm.test(\"our cue is active\", () => pm.expect(ours).to.not.be.undefined);",
+         "if (ours) console.log(`phase ${ours.phase} | cancelable ${ours.cancelable}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "e3ff72bf-3186-442f-8d79-bb641ff641fe",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues"
+       ]
+      },
+      "description": "Step 3 of 5. Confirms the cue is in the active list and reports its `phase` \u2014 `scheduled`, `on_air`, or `restoring`.\n\nA cue that has already finished disappears from this list entirely, which is why step 2 asks for 8 seconds."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Stop the cue",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test(\"stopped (204) or already finished (404)\", () =>",
+         "  pm.expect(pm.response.code).to.be.oneOf([204, 404]));",
+         "console.log(pm.response.code === 204 ? \"cancelled early\" : \"already finished on its own\");"
+        ]
+       }
+      }
+     ],
+     "id": "ba654561-9ec7-b657-167f-ff1b4dcb0b54",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues/{{cueId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues",
+        "{{cueId}}"
+       ]
+      },
+      "description": "Step 4 of 5. Cancels the cue early and runs its restoration. `204`, no body.\n\nAccepts `404` too: if the run was slow enough that the 8 seconds elapsed, the cue is already gone and there is nothing to cancel \u2014 not a failure."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Confirm it is gone",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const cues = pm.response.json();",
+         "const still = cues.some(c => c.id === pm.environment.get(\"cueId\"));",
+         "pm.test(\"our cue is no longer active\", () => pm.expect(still).to.be.false);",
+         "console.log(`--- W5 complete: ${cues.length} cue(s) still active ---`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "697125d4-5ff3-4bc4-fe28-6278dbceb579",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/graphics/cues",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "graphics",
+        "cues"
+       ]
+      },
+      "description": "Step 5 of 5. Asserts nothing is left behind.\n\nA cue that lingered here would block the L-band/Aston lock for everyone else, so this assertion is worth more than it looks."
+     },
+     "response": []
+    }
+   ],
+   "id": "b2a7eedc-3928-273b-8808-e1dbbd61425e",
+   "description": "Fires a manual graphic, confirms it is on air, stops it, and confirms it is gone.\n\nDeliberately picks a **logo or bug**, never L-band or Aston: those two share a backend squeeze lock, so a workflow using them would fail whenever another squeeze cue happened to be live.\n\n**Safe to re-run**, no local files. The cue is 8 seconds, so it self-clears even if the run is interrupted.\n\n**\u26a0\ufe0f Visible on `udp://@:5555`** while it runs."
+  },
+  {
+   "name": "W6 Insert an ad break",
+   "item": [
+    {
+     "name": "1 \u00b7 Cue out (break start)",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "// A break is two independent events tied together only by this id.",
+         "pm.environment.set(\"ssaiEventId\", Math.floor(Date.now() / 1000) % 2147483647);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "prerequest"
+      },
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"accepted\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+         "console.log(`cue OUT sent | segmentation_event_id ${pm.environment.get(\"ssaiEventId\")} | 30s break`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "c6bfc8a2-7c2f-3704-772d-edc9c66d05fb",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "value": "application/json",
+        "key": "Content-Type"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "[\n  {\n    \"type\": \"scte35_spliceinsert\",\n    \"time\": null,\n    \"details\": {\n      \"scte35_spliceinsert\": {\n        \"duration\": 30000,\n        \"splice_event_id\": {{ssaiEventId}},\n        \"auto_return\": false\n      }\n    }\n  }\n]",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events"
+       ]
+      },
+      "description": "Opens the break with auto_return false, so it stays open until step 2 closes it. With auto_return true (the default) the break closes on its own duration and a manual cue-in is rejected with 400."
+     },
+     "response": []
+    },
+    {
+     "name": "2 \u00b7 Cue in (break end)",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"accepted\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+         "console.log(`cue IN sent | segmentation_event_id ${pm.environment.get(\"ssaiEventId\")}`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "ed12a41f-9c47-271f-50fe-f243f4469b88",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "[\n  {\n    \"type\": \"scte35_returntonetwork\",\n    \"time\": null,\n    \"details\": {\n      \"scte35_returntonetwork\": {\n        \"splice_event_id\": {{ssaiEventId}}\n      }\n    }\n  }\n]",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      },
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events"
+       ]
+      },
+      "description": "Closes the break opened in step 1. Only valid because that break set auto_return false; against an auto-returning break this returns 400. time_signal has no manual cue-in at all - it closes on its duration."
+     },
+     "response": []
+    },
+    {
+     "name": "3 \u00b7 Confirm both are scheduled",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"200\", () => pm.response.to.have.status(200));",
+         "const wanted = Number(pm.environment.get(\"ssaiEventId\"));",
+         "const events = pm.response.json();",
+         "const descId = e => {",
+         "  const ts = ((e.details || {}).scte35_timesignal) || {};",
+         "  const d = (ts.scte35_descriptors || [])[0] || {};",
+         "  return { id: d.segmentation_event_id, type: d.segmentation_type_id };",
+         "};",
+         "const ours = events.filter(e => descId(e).id === wanted);",
+         "const out = ours.find(e => descId(e).type === 52);",
+         "const cin = ours.find(e => descId(e).type === 53);",
+         "pm.test(\"cue out is scheduled\", () => pm.expect(out).to.not.be.undefined);",
+         "pm.test(\"cue in is scheduled\", () => pm.expect(cin).to.not.be.undefined);",
+         "pm.environment.set(\"cueOutEventId\", out ? out.id : \"\");",
+         "pm.environment.set(\"cueInEventId\", cin ? cin.id : \"\");",
+         "console.log(`break ${wanted}: out=${out && out.id} in=${cin && cin.id} | ${events.length} events total`);"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "41fc5023-1ae0-c0ea-ef8d-9738a486fdf3",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events"
+       ]
+      },
+      "description": "Step 3 of 5. Finds both halves of the break by their shared `segmentation_event_id` and captures their integer ids for cleanup.\n\nThe POST responses do not reliably hand back the ids, so this read is how the chain learns what it created."
+     },
+     "response": []
+    },
+    {
+     "name": "4 \u00b7 Cleanup: delete cue out",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"deleted or already gone\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204, 404]));"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "a90a7fc1-c1fe-f5db-5335-c599566f0fe0",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events/{{cueOutEventId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events",
+        "{{cueOutEventId}}"
+       ]
+      },
+      "description": "Step 4 of 5. Removes the break-start event by its integer id."
+     },
+     "response": []
+    },
+    {
+     "name": "5 \u00b7 Cleanup: delete cue in",
+     "event": [
+      {
+       "script": {
+        "exec": [
+         "pm.test(\"deleted or already gone\", () => pm.expect(pm.response.code).to.be.oneOf([200, 204, 404]));",
+         "console.log(\"--- W6 complete: both halves of the break removed ---\");"
+        ],
+        "type": "text/javascript"
+       },
+       "listen": "test"
+      }
+     ],
+     "id": "fbacb789-4f34-12ee-33ed-2840fc24e6d8",
+     "request": {
+      "method": "DELETE",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/scheduled_events/{{cueInEventId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "scheduled_events",
+        "{{cueInEventId}}"
+       ]
+      },
+      "description": "Step 5 of 5. Removes the break-end event, leaving the event list as it was found."
+     },
+     "response": []
+    }
+   ],
+   "id": "0fe2d192-0090-2db8-20a6-11b19ec50e4b",
+   "description": "Sends a matched SCTE-35 cue out / cue in pair, confirms both landed, then deletes them.\n\n**A break is two independent events.** Nothing server-side pairs them or notices a missing cue in \u2014 the shared `segmentation_event_id` is the only link, and tracking it is the caller's job. A pre-request script generates one per run.\n\nWatch the units: `segmentation_duration` is in **90 kHz ticks**, not milliseconds, unlike everything else on this API.\n\n**Safe to re-run**, no local files."
+  }
+ ],
+ "event": [
+  {
+   "listen": "prerequest",
+   "script": {
+    "type": "text/javascript",
+    "exec": [
+     "// Fail loudly rather than send requests to an unresolved host.",
+     "if (!pm.environment.get(\"baseUrl\") && !pm.collectionVariables.get(\"baseUrl\")) {",
+     "  throw new Error(\"No baseUrl. Select the 'skandha-local' environment before sending.\");",
+     "}"
+    ]
+   }
+  }
+ ],
+ "variable": [
+  {
+   "key": "playlistId",
+   "value": "main"
+  },
+  {
+   "key": "rundownId",
+   "value": "main"
+  },
+  {
+   "key": "sampleClip",
+   "value": "one-cent-call-1080p.mp4"
+  },
+  {
+   "key": "graphicAssetId",
+   "value": "logo-default"
+  },
+  {
+   "key": "configDocument",
+   "value": ""
+  }
+ ]
+}

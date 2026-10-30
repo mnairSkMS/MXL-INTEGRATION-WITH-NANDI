@@ -1,0 +1,18 @@
+# Managed by the transcoder rundown service.
+# Rewritten in full on every publish: comments and terse shorthand are not
+# preserved, and every field is emitted explicitly so that the meaning of
+# this file cannot drift when the graphics catalog changes.
+# Hand edits are honoured on the next container start.
+channel: main
+name: Main rundown
+timezone: UTC
+playlist:
+- media: one-cent-call-1080p.mp4
+  graphics:
+  - use: lband-playboxtv
+    mode: reveal
+    at: 0
+    duration: 6s
+    fade: 0.6s
+- media: toyota-etios.mp4
+- media: coke-commercial-1080p-h264.mp4

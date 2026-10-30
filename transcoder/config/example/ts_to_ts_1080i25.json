@@ -1,0 +1,44 @@
+{
+    "version": "1.0.7",
+
+    "transcoder": {
+        "inputs": [
+            {
+                "uri": "file:///media/src/source.ts"
+            }
+        ],
+
+        "outputs": [
+            {
+                "uri": "file:///media/dst/output_1080i25.ts",
+
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25,
+                            "interlace": "interleaved",
+                            "fieldOrder": "tff"
+                        },
+
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "speed-preset": "veryfast",
+                                "bitrate": "8000",
+                                "key-int-max": "25"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

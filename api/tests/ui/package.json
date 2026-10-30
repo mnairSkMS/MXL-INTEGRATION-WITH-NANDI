@@ -1,0 +1,11 @@
+{
+  "name": "operator-ui-smoke-test",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "jsdom": "^24.1.3"
+  },
+  "dependencies": {
+    "playwright": "^1.46.1"
+  }
+}

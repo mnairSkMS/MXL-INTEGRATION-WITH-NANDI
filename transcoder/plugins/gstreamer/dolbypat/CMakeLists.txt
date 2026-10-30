@@ -1,0 +1,5 @@
+add_subdirectory(common)
+add_subdirectory(dlbpatdec)
+add_subdirectory(dlbpatmx)
+add_subdirectory(dlbpatloud)
+add_subdirectory(dlbpatenc)

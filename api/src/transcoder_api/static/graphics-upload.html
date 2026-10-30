@@ -1,0 +1,326 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Graphics upload — demo</title>
+<link rel="stylesheet" href="/operator/static/operator.css">
+<style>
+  body{max-width:1100px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--dim);margin:0 0 18px}
+  .step{border:1px solid var(--line);background:var(--panel);padding:14px;margin-bottom:16px}
+  .step[hidden]{display:none}
+  .step h2{font-size:17px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .num{width:22px;height:22px;border-radius:50%;background:var(--line);color:#fff;
+       display:grid;place-items:center;font-size:13px;flex:none}
+  #drop{border:2px dashed var(--dim);background:#fff;padding:38px;text-align:center;cursor:pointer}
+  #drop.over{border-color:var(--blue);background:#eef4ff}
+  .stage{position:relative;display:inline-block;max-width:min(100%,620px);line-height:0;
+         background:repeating-conic-gradient(#e2e2e2 0 25%,#f4f4f4 0 50%) 0 0/16px 16px;
+         user-select:none;touch-action:none}
+  .stage img{max-width:100%;display:block;pointer-events:none}
+  .box{position:absolute;border:2px solid var(--blue);background:rgba(74,144,255,.18);cursor:move}
+  .box::after{content:"";position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;
+              background:var(--blue);cursor:nwse-resize}
+  .hint{color:var(--dim);font-size:13px;margin:8px 0 0}
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  /* Without an explicit basis the hint paragraph stretches this column to the full
+     row width and pushes the readout onto its own line. */
+  .canvas-col{flex:0 1 620px;min-width:0}
+  .readout{flex:1 1 290px;min-width:0}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{border:1px solid var(--grey);padding:5px 8px;text-align:left}
+  th{background:#e6e6e6;font-weight:700}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace}
+  pre{background:#1e1e1e;color:#e8e8e8;padding:11px;font-size:13px;margin:8px 0 0;
+      white-space:pre-wrap;word-break:break-all}
+  label{font-weight:700;margin-right:6px}
+  input[type=text]{padding:5px 8px;border:1px solid var(--line);font-size:14px;width:16em}
+  .names{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+  button{padding:7px 15px;border:1px solid var(--line);background:var(--grey);
+         font-size:14px;font-weight:700;cursor:pointer}
+  button.primary{background:var(--blue);color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .kinds{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .kinds button{background:#fff;font-weight:400}
+  .kinds button[aria-pressed=true]{background:var(--line);color:#fff;font-weight:700}
+  .msg{padding:9px 11px;margin-top:10px;border:1px solid var(--line);display:none}
+  .msg.err{background:#fdecea;border-color:var(--red);color:var(--red);display:block}
+  .msg.ok{background:#e8f5ec;border-color:var(--green);color:var(--green);display:block}
+</style>
+
+<h1>Graphics upload</h1>
+<p class="sub">Demo of the two-phase upload: stage the artwork, draw its geometry, commit the catalog entry.</p>
+
+<section class="step" id="step1">
+  <h2><span class="num">1</span> Choose artwork</h2>
+  <div id="drop">
+    <b>Drop artwork here</b><br>
+    <span class="hint">or click to browse — any still or animation the engine can decode
+    (PNG, WebP, TIFF, TGA, GIF, MOV, WebM, MP4 &hellip;). Alpha is preserved.</span>
+  </div>
+  <input type="file" id="file" accept="image/*,video/*,.tga,.apng" hidden>
+  <div class="msg" id="msg1"></div>
+</section>
+
+<section class="step" id="step2" hidden>
+  <h2><span class="num">2</span> Draw the geometry</h2>
+  <div class="kinds" id="kinds">
+    <button data-kind="lband" aria-pressed="true">L-band</button>
+    <button data-kind="aston" aria-pressed="false">Aston</button>
+    <button data-kind="logo" aria-pressed="false">Logo</button>
+    <button data-kind="bug" aria-pressed="false">Bug</button>
+  </div>
+  <div class="row">
+    <div class="canvas-col">
+      <div class="stage" id="stage"><img id="preview" alt=""><div class="box" id="box" hidden></div></div>
+      <p class="hint" id="hint"></p>
+    </div>
+    <div class="readout">
+      <table>
+        <tr><th>Field</th><td><code id="field">squeezeWindow</code></td></tr>
+        <tr><th>Source</th><td><span id="natural">—</span></td></tr>
+        <tr><th>At 1920×1080</th><td><span id="hd">—</span></td></tr>
+        <tr><th>At 3840×2160</th><td><span id="uhd">—</span></td></tr>
+      </table>
+      <pre id="payload">—</pre>
+    </div>
+  </div>
+</section>
+
+<section class="step" id="step3" hidden>
+  <h2><span class="num">3</span> Name and commit</h2>
+  <div class="names">
+    <span><label for="id">id</label><input type="text" id="id" placeholder="lband-acme"></span>
+    <span><label for="label">label</label><input type="text" id="label" placeholder="ACME"></span>
+  </div>
+  <button class="primary" id="commit" disabled>Create asset</button>
+  <button id="cancel">Cancel</button>
+</section>
+
+<div class="msg" id="msg3"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+addEventListener("unhandledrejection", event => {
+  const box = document.querySelector("#msg1");
+  if (box) show(box, `Unexpected error — ${event.reason}`, "err");
+});
+const SQUEEZE = new Set(["lband", "aston"]);
+const HINTS = {
+  lband: "Drag over the transparent hole — that box is where the programme shrinks to.",
+  aston: "Drag over the transparent area left for the programme above the strap.",
+  logo:  "Drag to place the logo, then pull the corner handle to size it.",
+  bug:   "Drag to place the bug, then pull the corner handle to size it.",
+};
+
+let upload = null;            // { uploadId, width, height, previewUrl }
+let kind = "lband";
+let box = null;               // fractions of the frame: { x, y, w, h }
+
+const r6 = v => Math.round(v * 1e6) / 1e6;
+const px = (b, W, H) =>
+  `${Math.round(b.x * W)}, ${Math.round(b.y * H)} &nbsp; ${Math.round(b.w * W)}×${Math.round(b.h * H)}`;
+
+/* A failed upload used to render nothing at all: the server answers a read-only mount
+   with a text/plain 500, and calling response.json() on that throws before the error
+   branch is reached. Read the body as text and parse it defensively instead. */
+async function request(url, options) {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (cause) {
+    return { ok: false, message: `Could not reach the API — ${cause.message}` };
+  }
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { /* not JSON; keep the text */ }
+  if (!response.ok) {
+    const detail = (data && data.message) || text.trim() || response.statusText;
+    return { ok: false, message: `${response.status} — ${detail}` };
+  }
+  return { ok: true, data };
+}
+
+function show(el, text, kindClass) {
+  el.className = "msg " + kindClass;
+  el.textContent = text;
+}
+function clear(el) { el.className = "msg"; el.textContent = ""; }
+
+/* ---------- step 1: stage the file ---------- */
+
+const drop = $("#drop"), fileInput = $("#file");
+drop.onclick = () => fileInput.click();
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  if (e.dataTransfer.files[0]) stage(e.dataTransfer.files[0]);
+};
+fileInput.onchange = () => fileInput.files[0] && stage(fileInput.files[0]);
+
+async function stage(file) {
+  clear($("#msg1"));
+  clear($("#msg3"));
+  show($("#msg1"), `Uploading ${file.name}…`, "ok");
+  const body = new FormData();
+  body.append("file", file);
+  const result = await request("/graphics/uploads", { method: "POST", body });
+  if (!result.ok) {
+    show($("#msg1"), result.message, "err");
+    return;
+  }
+  clear($("#msg1"));
+  const data = result.data;
+  upload = data;
+  $("#preview").src = data.previewUrl;
+  $("#natural").textContent = `${data.width}×${data.height}`;
+  $("#step2").hidden = false;
+  $("#step3").hidden = false;
+  setKind(kind);
+}
+
+/* ---------- step 2: draw the box ---------- */
+
+$("#kinds").onclick = e => {
+  const button = e.target.closest("button[data-kind]");
+  if (button) setKind(button.dataset.kind);
+};
+
+function setKind(next) {
+  kind = next;
+  for (const button of $("#kinds").children) {
+    button.setAttribute("aria-pressed", String(button.dataset.kind === kind));
+  }
+  $("#field").textContent = SQUEEZE.has(kind) ? "squeezeWindow" : "geometry";
+  const derived = upload && upload.contentBox;
+  if (SQUEEZE.has(kind) && derived) {
+    // Snap to the artwork's transparent hole. Hand-dragging cannot hit it exactly, and
+    // being a few pixels out paints programme over the sponsor artwork's inner edge.
+    box = { x: derived.x, y: derived.y, w: derived.width, h: derived.height };
+    $("#hint").textContent =
+      "Snapped to the transparent area in the artwork. Drag to adjust if needed.";
+  } else {
+    box = SQUEEZE.has(kind) ? null : { x: 0.03, y: 0.055, w: 0.17, h: 0.125 };
+    $("#hint").textContent = HINTS[kind];
+  }
+  render();
+}
+
+const stageEl = $("#stage"), boxEl = $("#box");
+
+// A programme window almost always meets at least one frame edge, and a stray pixel of
+// gap there airs as a black seam. Hand-dragging cannot land on an exact edge, so snap to it.
+const SNAP = 0.012;
+const snap = v => (v < SNAP ? 0 : v > 1 - SNAP ? 1 : v);
+
+function fraction(event) {
+  const rect = stageEl.getBoundingClientRect();
+  return {
+    x: snap(Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1)),
+    y: snap(Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1)),
+  };
+}
+
+let drag = null;
+stageEl.addEventListener("pointerdown", event => {
+  if (!upload) return;
+  const point = fraction(event);
+  stageEl.setPointerCapture(event.pointerId);
+  const onHandle = box && event.target === boxEl &&
+    (event.offsetX > boxEl.clientWidth - 14 && event.offsetY > boxEl.clientHeight - 14);
+  if (onHandle)               drag = { mode: "resize" };
+  else if (event.target === boxEl) drag = { mode: "move", ox: point.x - box.x, oy: point.y - box.y };
+  else                        drag = { mode: "draw", ax: point.x, ay: point.y };
+  event.preventDefault();
+});
+
+stageEl.addEventListener("pointermove", event => {
+  if (!drag) return;
+  const point = fraction(event);
+  if (drag.mode === "draw") {
+    box = {
+      x: Math.min(drag.ax, point.x), y: Math.min(drag.ay, point.y),
+      w: Math.abs(point.x - drag.ax), h: Math.abs(point.y - drag.ay),
+    };
+  } else if (drag.mode === "move") {
+    box.x = Math.min(Math.max(point.x - drag.ox, 0), 1 - box.w);
+    box.y = Math.min(Math.max(point.y - drag.oy, 0), 1 - box.h);
+  } else {
+    box.w = Math.max(point.x - box.x, 0.01);
+    box.h = Math.max(point.y - box.y, 0.01);
+  }
+  render();
+});
+
+stageEl.addEventListener("pointerup", () => { drag = null; });
+
+function render() {
+  if (!box || box.w <= 0 || box.h <= 0) {
+    boxEl.hidden = true;
+    $("#payload").textContent = "—";
+    $("#hd").textContent = $("#uhd").textContent = "—";
+    $("#commit").disabled = true;
+    return;
+  }
+  boxEl.hidden = false;
+  boxEl.style.left = box.x * 100 + "%";
+  boxEl.style.top = box.y * 100 + "%";
+  boxEl.style.width = box.w * 100 + "%";
+  boxEl.style.height = box.h * 100 + "%";
+
+  $("#hd").innerHTML = px(box, 1920, 1080);
+  $("#uhd").innerHTML = px(box, 3840, 2160);
+  $("#payload").textContent = JSON.stringify(payload(), null, 2);
+  $("#commit").disabled = !$("#id").value.trim();
+}
+
+function rect() {
+  return { x: r6(box.x), y: r6(box.y), width: r6(box.w), height: r6(box.h) };
+}
+
+function payload() {
+  const body = { uploadId: upload.uploadId, id: $("#id").value.trim() || "…", kind };
+  const label = $("#label").value.trim();
+  if (label) body.label = label;
+  body[SQUEEZE.has(kind) ? "squeezeWindow" : "geometry"] = rect();
+  return body;
+}
+
+/* ---------- step 3: commit ---------- */
+
+$("#id").oninput = render;
+$("#label").oninput = render;
+
+$("#commit").onclick = async () => {
+  clear($("#msg3"));
+  const result = await request("/graphics/assets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload()),
+  });
+  if (!result.ok) {
+    show($("#msg3"), result.message, "err");
+    return;
+  }
+  show($("#msg3"), `Created ${result.data.id}. It is in the catalog and ready to cue.`, "ok");
+  reset();
+};
+
+$("#cancel").onclick = async () => {
+  if (upload) await request(`/graphics/uploads/${upload.uploadId}`, { method: "DELETE" });
+  reset();
+  clear($("#msg3"));
+};
+
+function reset() {
+  upload = null;
+  box = null;
+  fileInput.value = "";
+  $("#preview").removeAttribute("src");
+  $("#id").value = $("#label").value = "";
+  $("#step2").hidden = $("#step3").hidden = true;
+  $("#natural").textContent = "—";
+}
+</script>

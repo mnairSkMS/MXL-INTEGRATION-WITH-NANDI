@@ -1,0 +1,108 @@
+{
+  "version": "1.0.7",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "trace",
+        "console": {
+          "enable": true,
+          "colors": true
+        }
+      },
+      "gstreamer": {
+        "level": "log",
+        "console": {
+          "enable": true,
+          "colors": true
+        }
+      }
+    },
+    "gstreamer": {
+      "plugins": [
+        {
+          "name": "mcencavcdemo",
+          "rank": "MARGINAL"
+        }
+      ]
+    }
+  },
+  "transcoder": {
+    "inputs": [
+      {
+        "uri": "srt://127.0.0.1:2222?mode=caller"
+      }
+    ],
+    "outputs": [
+      {
+        "uri": "srt://192.168.12.101:4444?mode=caller",
+        "container": "mpegts",
+        "scte": {
+          "pid": 600,
+          "mode": "passthrough"
+        },
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "ac3",
+            "audio": {
+              "rate": 48000,
+              "channels": 2
+            }
+          },
+          {
+            "type": "video",
+            "codec": "h264",
+            "video": {
+              "width": 1280,
+              "height": 720,
+              "rate": 24
+            },
+            "h264": {
+              "encoder": "mcencavcdemo",
+              "properties": {
+                "low-delay": "true"
+              },
+              "caps": {}
+            }
+          }
+        ]
+      }
+    ],
+    "squeeze": [
+      {
+        "name": "l_shape",
+        "windows": {
+          "input": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": -1
+          },
+          "output": {
+            "x": 0.078125,
+            "y": 0.0,
+            "width": -1,
+            "height": 0.588889
+          }
+        }
+      },
+      {
+        "name": "low_band",
+        "windows": {
+          "input": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": 0.527778
+          },
+          "output": {
+            "x": -1,
+            "y": -1,
+            "width": -1,
+            "height": 0.527778
+          }
+        }
+      }
+    ]
+  }
+}

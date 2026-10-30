@@ -1,0 +1,71 @@
+{
+  "version": "1.4.2",
+  "application": {
+    "logger": {
+      "transcoder": {
+        "level": "trace",
+        "console": {
+          "enable": true,
+          "colors": false,
+          "stderr": true
+        }
+      }
+    }
+  },
+  "transcoder": {
+    "inputs": [
+      {
+        "transport": {
+          "uri": [
+            "ndi://"
+          ],
+          "ndi": {
+            "ndiName": "SKANDHAVM-STANDARD-PC-Q35-ICH9-2009 (Test-AV-Source)",
+            "urlAddress": "192.168.122.65:5961"
+          }
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "transports": [
+            {
+                "uri": "srt://0.0.0.0:9233?mode=listener"
+            }
+        ],
+        "container": "mpegts",
+        "streams": [
+          {
+            "type": "audio",
+            "codec": "aac",
+            "audio": {
+              "channels": 2,
+              "rate": 48000
+            }
+          },
+          {
+              "type": "video",
+              "codec": "h264",
+              "video": {
+                  "width": 640,
+                  "height": 360,
+                  "rate": 25
+              },
+              "h264": {
+                "encoder": "x264enc",
+                "properties": {
+                    "key-int-max": "15",
+                    "tune": "zerolatency",
+                    "speed-preset": "ultrafast",
+                    "bitrate": "500"
+                },
+                "caps": {
+                    "profile": "high"
+                }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

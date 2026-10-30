@@ -1,0 +1,87 @@
+name: skandha-transcoder
+
+services:
+  transcoder:
+    # Rebuild from this checkout with: docker compose -f docker-compose.ad-insertion.yml build
+    build:
+      context: .
+      dockerfile: docker/utpl-transcoder/Dockerfile
+    image: skandha-transcoder:local
+    container_name: skandha-transcoder
+    restart: unless-stopped
+    ports:
+      # Keep the unauthenticated management API reachable only from this host.
+      - "127.0.0.1:8080:8080"
+    extra_hosts:
+      # Used by the UDP relay that shares this service's network namespace.
+      - "host.docker.internal:host-gateway"
+    environment:
+      API_PORT: "8080"
+      MEDIA_DIR: /media/queue
+      DB_PATH: /runtime/managed-playlist.sqlite
+      MANAGED_PLAYLIST_ID: main
+      PLAYLIST_SEED_FILE: /media/queue/playlist.m3u8
+      MANAGED_PLAYLIST_FILE: /runtime/main.m3u8
+      # Declarative source of truth for every playlist and its graphics. Applied
+      # on every start, before the managed M3U8s below are materialized, and
+      # rewritten by every Publish so operator edits survive a restart.
+      #
+      # One file per channel, in the order the transcoder configuration lists
+      # its inputs: channel.yml is the programme on the primary input, ads.yml
+      # is the break reel on the secondary. Drop ads.yml from this list and set
+      # adInsertion.enable to false to run a plain single-playlist channel - the
+      # runtime is the same either way.
+      PLAYLIST_BOOTSTRAP_FILES: /opt/utpl/channel/channel.yml,/opt/utpl/channel/ads.yml
+      # Set to "false" to make the file strictly one-way again: Publish then
+      # goes on air without persisting, and the next start reverts it.
+      PLAYLIST_BOOTSTRAP_WRITEBACK: "true"
+      # "true" exits preload_db non-zero when the file is rejected. Either way
+      # the channel still starts on its previously saved playlist: only the
+      # bootstrap is skipped, and the database is left untouched.
+      PLAYLIST_BOOTSTRAP_STRICT: "false"
+      # Animated MOV catalog entries stay hidden until the bounded-decoder
+      # alpha, timing, teardown, and repeated-playback acceptance gate passes.
+      ENABLE_VIDEO_GRAPHICS: "false"
+      # Required by the declarative bootstrap: it writes rundown versions.
+      ENABLE_RUNDOWN_SERVICE: "true"
+    volumes:
+      # Writable so the operator UI can accept uploaded media. New uploads are
+      # not added to the static M3U8 automatically; edit playlist.m3u8 first.
+      - ./media/queue:/media/queue
+      # Validated static graphics migrated from the old operator implementation.
+      - ./media/graphics:/media/graphics:ro
+      - ./runtime:/runtime
+      # Development checkout: makes the current FastAPI/operator source available
+      # even when reusing a previously built local image. A normal --build bakes
+      # the same package into the image.
+      - ./api/src/transcoder_api:/opt/venv/lib/python3.12/site-packages/transcoder_api:ro
+      # The directory, not the file: a single-file bind mount is bound to one
+      # inode, and the atomic rename Publish uses to replace the file would
+      # fail on it.  Writable, because Publish writes back through it.
+      - ./config:/opt/utpl/channel
+      - ./config/migrated-media-playlist.json:/opt/utpl/etc/config.json:ro
+      - ./transcoder/license/prod/licenses/offline.lic:/opt/utpl/etc/transcoder.lic:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        /usr/bin/supervisord &
+        trap 'supervisorctl stop transcoder transcoder_api || true; exit 0' INT TERM
+        # The dependentstartup listener automatically starts preload_db, then
+        # the API and transcoder. Give it time to attach before starting relay.
+        sleep 3
+        # VLC 3.0.x visibly corrupts the transcoder's multi-slice x264 stream.
+        # Decode/re-encode only the host-facing preview as single-slice H.264;
+        # preserve any SCTE/data PID while the engine keeps its zero-latency graph.
+        /usr/bin/ffmpeg -nostdin -hide_banner -loglevel warning -threads 4 \
+          -fflags nobuffer -flags low_delay -probesize 64k -analyzeduration 0 \
+          -i 'udp://127.0.0.1:5555?fifo_size=4096&overrun_nonfatal=1' \
+          -map 0:v:0 -map '0:a?' -map '0:d?' \
+          -c:v libx264 -threads 4 -preset veryfast -tune zerolatency \
+          -x264-params 'sliced-threads=0:bframes=0:sync-lookahead=0:rc-lookahead=0' \
+          -b:v 6000k -maxrate 6000k -bufsize 12000k \
+          -g 50 -keyint_min 50 -sc_threshold 0 -c:a copy -c:d copy \
+          -max_interleave_delta 100000 -muxdelay 0 -muxpreload 0 -flush_packets 1 \
+          -f tee \
+          '[f=mpegts:onfail=ignore:max_interleave_delta=100000:flush_packets=1]udp://host.docker.internal:5555?pkt_size=1316|[f=mpegts:onfail=ignore:max_interleave_delta=100000:flush_packets=1]udp://host.docker.internal:5556?pkt_size=1316' &
+        wait

@@ -1,0 +1,24 @@
+[
+  {
+    "timeOffsetMs": 10000,
+    "details": {
+      "image_overlay": {
+        "duration": 8000,
+        "image_urls": [
+          "http://localhost:8765/logo.png",
+          "http://localhost:8765/ticker.png"
+        ],
+        "opacity": 0.5,
+        "fade_in": 0,
+        "fade_out": 0,
+        "delay_between_images": 4000,
+        "geometry_norm": {
+          "x": 0.3125,
+          "y": 0.555556,
+          "width": 0.208333,
+          "height": 0.37037
+        }
+      }
+    }
+  }
+]

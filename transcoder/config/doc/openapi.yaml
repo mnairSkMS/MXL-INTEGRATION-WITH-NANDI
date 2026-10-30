@@ -1,0 +1,1029 @@
+openapi: 3.0.0
+info:
+  title: "UTPL transcoder configuration"
+  description: "UTPL transcoder application configuration file documentation"
+  version: "1.4.2"
+
+  contact:
+    name: Support
+    url: ""
+    email: "jaroslaw.bielski@7bulls.com"
+
+servers: []
+
+tags: []
+
+paths: {}
+
+components:
+  schemas:
+    ApplicationConfig:
+      type: object
+      properties:
+        version:
+          $ref: '#/components/schemas/Version'
+        transcoder:
+          $ref: '#/components/schemas/TranscoderParameters'
+        application:
+          $ref: '#/components/schemas/ApplicationParameters'
+      required:
+        - version
+        - transcoder
+        
+    ApplicationParameters:
+      type: object
+      properties:
+        logger:
+          type: object
+          description: Logger configuration
+          properties:
+            transcoder:
+              $ref: '#/components/schemas/LoggerParameters'
+            gstreamer:
+              $ref: '#/components/schemas/LoggerParameters'
+        gstreamer:
+          $ref: '#/components/schemas/GstParameters'
+          
+        licenseServer:
+          $ref: '#/components/schemas/LicenseServerParameters'
+
+    LicenseServerParameters:
+      type: object
+      properties:
+        uri:
+          $ref: '#/components/schemas/Uri'
+        
+      required:
+        - uri
+
+    LoggerParameters:
+      type: object
+      properties:
+        level:
+          type: string
+          description: |
+            Logging level.
+            * `trace`   - Trace level
+            * `debug`   - Debug level
+            * `log`     - Log level
+            * `warning` - Warning level
+            * `error`   - Error level
+            * `fatal`   - Fatal level
+          enum:
+            - trace
+            - debug
+            - log
+            - warning
+            - error
+            - fatal
+        console:
+          type: object
+          description: Console logger configuration
+          properties:
+            enable:
+              type: boolean
+              description: Determines if console logger is enabled or not.
+            colors:
+              type: boolean
+              description: Determines if console logger should use colors or not.
+            stderr:
+              type: boolean
+              description: If set to true, the logger will write to stderr instead of stdout.
+        file:
+          type: object
+          description: File logger configuration
+          properties:
+            enable:
+              type: boolean
+              description: Determines if file logger is enabled or not.
+            colors:
+              type: boolean
+              description: Determines if file logger should use colors or not.
+            path:
+              type: string
+              description: Path to the log file.
+    
+    TranscoderParameters:
+      type: object
+      properties:
+        inputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/InputProperties'
+            
+        outputs:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputProperties'
+            
+        squeeze:
+          type: array
+          items:
+            $ref: '#/components/schemas/PredefinedSqueezeConfig'
+
+        scte:
+          $ref: '#/components/schemas/Scte35Parameters'
+
+        blanking:
+          $ref: '#/components/schemas/BlankingParameters'
+
+        blackout:
+          $ref: '#/components/schemas/BlankingParameters'
+
+      required:
+        - inputs
+        - outputs
+      
+    SrtInputTransportParameters:
+      type: object
+      properties:
+        latency:
+          type: integer
+          description: Set minimum latency (SRTO_RCVLATENCY).
+        mode:
+          type: string
+          enum:
+            - listener
+            - caller
+        bufferSize:
+          type: integer
+          description: sets the SO_RCVBUF socket option
+    
+    SrtOutputTransportParameters:
+      type: object
+      properties:
+        latency:
+          type: integer
+          description: Set minimum latency (SRTO_PEERLATENCY).
+        mode:
+          type: string
+          enum:
+            - listener
+            - caller
+        bufferSize:
+          type: integer
+          description: sets the SO_SNDBUF socket option
+      
+    UdpInputTransportParameters:
+      type: object
+      properties:
+        multicast:
+          type: object
+          properties:
+            interfaces:
+              type: array
+              description: The network interface on which to join the multicast group.This allows multiple interfaces.
+              items:
+                type: string
+      
+    UdpOutputTransportParameters:
+      type: object
+      properties:
+        mulitcast:
+          type: object
+          properties:
+            interface:
+              type: string
+              description: The network interface on which to join the multicast group (e.g. eth0)
+            ttl:
+              type: integer
+              description: Used for setting the multicast TTL parameter
+              default: 1
+        unicast:
+          type: object
+          properties:
+            ttl:
+              type: integer
+              description: Used for setting the unicast TTL parameter
+              default: 64
+
+    HlsInputTransportParameters:
+      type: object
+      properties:
+        bandwidth:
+          type: integer
+          description: | 
+            When specified the HLS stream with the m3u8 BANDWIDTH that most closely matches this value will be chosen, 
+            otherwise the highest bandwidth stream in the m3u8 will be chosen. 
+            The bitrate is specified in bits per second, as in an HLS manifest.
+          minimum: 1000
+          maximum: 4294967000
+          default: 4294967000
+        credentials:
+          $ref: '#/components/schemas/Credentials'
+        scte:
+          type: object
+          properties:
+            source:
+              description: |
+                Identifies the source for the SCTE-35 messages that transcoder will ingest.
+                Messages can be ingested from the content segments (in the stream) or from tags in the playlist (the HLS manifest).
+                Transcoder ignores SCTE-35 information in the source that is not selected.
+              type: string
+              enum:
+                - segments
+                - manifest
+      
+    DashInputTransportParameters:
+      type: object
+      description: |
+        MPEG-DASH live or on-demand input (CMAF/fragmented MP4 or MPEG-TS segments) pulled over
+        HTTP(S) by dashdemux2. An http(s) input URI is treated as DASH when this block is present or
+        when its path ends in `.mpd`; otherwise it is HLS. One video and one audio track are ingested -
+        the MPD's main/default ones where marked. Encrypted (DRM) streams are not supported.
+      properties:
+        bandwidth:
+          type: integer
+          description: |
+            The highest video representation whose @bandwidth does not exceed this value is used for
+            the whole session; the representation is not switched on measured throughput.
+            Bits per second. When omitted the highest representation is used.
+          minimum: 1000
+          maximum: 4294967295
+          default: 4294967295
+        presentationDelay:
+          type: integer
+          description: |
+            How far behind the live edge playback starts, in milliseconds, for an MPD that does not
+            set suggestedPresentationDelay (an MPD value takes precedence). When omitted, 10 seconds.
+          minimum: 1
+        scte:
+          type: object
+          properties:
+            source:
+              description: |
+                Source of the SCTE-35 messages. Only `segments` is supported: SCTE 214-1 binary
+                `emsg` boxes (`urn:scte:scte35:2013:bin`) carried in the media segments. SCTE-35 in an
+                MPD EventStream is not ingested.
+              type: string
+              enum:
+                - segments
+              default: segments
+
+    HlsOutputTransportParameters:
+      type: object
+      properties:
+        credentials:
+          $ref: '#/components/schemas/Credentials'
+        numSegments:
+          description: Number of segments to keep in the manifest
+          type: integer
+          minimum: 1
+          default: 10
+        segmentLength:
+          description: Maximal length in seconds of a single HLS segment
+          type: integer
+          minimum: 1
+          default: 10
+        singleDirectory:
+          description: |
+            Specifies whether both HLS playlists and segments should be uploaded
+            to a single directory or whether subdirectories should be created 
+            for each playlist/variant (applicable only to file and WebDAV transfer protocols).
+          type: boolean
+          default: true
+        vodMode:
+          description: If checked, generates single output file that contains all segments.
+          type: boolean
+          default: false
+        transferMode:
+          $ref: '#/components/schemas/HlsTransferMode'
+        transferFraming:
+          $ref: '#/components/schemas/HlsTransferFraming'
+        timeout:
+          description: Upload timeout in ms
+          default: 2000
+        retry:
+          type: object
+          properties:
+            count:
+              type: integer
+              description: Number of retries (0 - none, -1 - unlimited)
+              default: 0
+            interval:
+              type: integer
+              description: Time interval for retries in milliseconds
+              default: 1000
+        adMarkers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Scte35AdMarker'
+        authentication:
+          $ref: '#/components/schemas/HttpAuthentication'
+        baseFileName:
+          description: |
+            Defines base file name for each file generated for HLS output.
+            Master playlist - if defined then <baseFileName>.m3u8 otherwise master.m3u8
+            Variant playlist - if defined then <baseFileName>_variant.m3u8 otherwise variant.m3u8
+            Segments - if defined then <baseFileName>_variant_section_0.ts otherwise variant_section_0.m3u8
+          type: string
+        
+    DashOutputTransportParameters:
+      type: object
+      description: |
+        CMAF DASH output, packaged by dashsink2 (gst-plugins-rs, patched in
+        transcoder/patches/gst-plugins-rs). Used with a `dash+file://`, `dash+http://` or
+        `dash+https://` URI; defaults apply when the URI is DASH and this block is omitted.
+        The output (or every member of a GROUP output) must use container `fmp4`, carry at most one
+        h264/h265 video stream, aac audio and no caption streams. Every stream is cut on one
+        running-time grid, so members of a GROUP line up for bitrate switching. The MPD uses
+        SegmentTemplate addressing (`$Number$`, fixed duration); SCTE-35 passthrough is published as
+        an MPD EventStream (`urn:scte:scte35:2014:xml+bin`).
+      properties:
+        segmentDuration:
+          description: |
+            Target segment duration in milliseconds. A duration that is a whole number of both video
+            frames and AAC frames (for 25 fps and 48 kHz: a multiple of 640 ms, e.g. 3200) gives
+            audio segments of exactly that length; otherwise they vary by up to one AAC frame.
+          type: integer
+          minimum: 500
+          default: 2000
+        numSegments:
+          description: |
+            Live window in segments, advertised as timeShiftBufferDepth. Two more segments than this
+            are kept on the origin; older ones are deleted.
+          type: integer
+          minimum: 2
+          default: 30
+        vodMode:
+          description: |
+            Keep every segment and publish a static MPD when the output stops. A live output keeps
+            its last dynamic MPD on stop.
+          type: boolean
+          default: false
+        presentationDelay:
+          description: suggestedPresentationDelay in milliseconds; 0 means three segment durations.
+          type: integer
+          minimum: 0
+          default: 0
+        minBufferTime:
+          description: MPD minBufferTime in milliseconds; 0 means two segment durations.
+          type: integer
+          minimum: 0
+          default: 0
+        minimumUpdatePeriod:
+          description: MPD minimumUpdatePeriod in milliseconds; 0 means one segment duration.
+          type: integer
+          minimum: 0
+          default: 0
+        utcTimingUrl:
+          description: |
+            Clock source written as UTCTiming (urn:mpeg:dash:utc:http-xsdate:2014). Omit to leave
+            UTCTiming out; players then use the device clock.
+          type: string
+        baseFileName:
+          description: |
+            The MPD is <baseFileName>.mpd (manifest.mpd when empty), and every init/segment object is
+            prefixed with it. GROUP members are additionally prefixed with variant<modifier> or
+            variant_<n>, like HLS variants.
+          type: string
+        credentials:
+          $ref: '#/components/schemas/Credentials'
+        authentication:
+          $ref: '#/components/schemas/HttpAuthentication'
+        transferMode:
+          $ref: '#/components/schemas/HlsTransferMode'
+        transferFraming:
+          $ref: '#/components/schemas/HlsTransferFraming'
+        timeout:
+          description: Upload timeout in ms
+          type: integer
+          default: 2000
+        retry:
+          type: object
+          properties:
+            count:
+              type: integer
+              description: Number of retries (0 - none, -1 - unlimited)
+              default: 0
+            interval:
+              type: integer
+              description: Time interval for retries in milliseconds
+              default: 1000
+
+    FileInputTransportParameters:
+      type: object
+      
+    FileOutputTransportParameters:
+      type: object
+      
+    InputTransportParameters:
+      type: object
+      properties:
+        uri:
+          oneOf:
+            - $ref: '#/components/schemas/Uri'
+            - $ref: '#/components/schemas/UriArray'
+        srt:
+          $ref: '#/components/schemas/SrtInputTransportParameters'
+        udp:
+          $ref: '#/components/schemas/UdpInputTransportParameters'
+        hls:
+          $ref: '#/components/schemas/HlsInputTransportParameters'
+        dash:
+          $ref: '#/components/schemas/DashInputTransportParameters'
+        file:
+          $ref: '#/components/schemas/FileInputTransportParameters'
+        
+      required:
+        - uri    
+      
+    OutputTransportParameters:
+      type: object
+      properties:
+        uri:
+          $ref: '#/components/schemas/Uri'
+        srt:
+          $ref: '#/components/schemas/SrtOutputTransportParameters'
+        udp:
+          $ref: '#/components/schemas/UdpOutputTransportParameters'
+        hls:
+          $ref: '#/components/schemas/HlsOutputTransportParameters'
+        dash:
+          $ref: '#/components/schemas/DashOutputTransportParameters'
+        file:
+          $ref: '#/components/schemas/FileOutputTransportParameters'
+        
+      required:
+        - uri
+      
+    InputProperties:
+      type: object
+      properties:
+        transport:
+          $ref: '#/components/schemas/InputTransportParameters'
+          
+        selector:
+          $ref: '#/components/schemas/StreamSelector'
+
+      required:
+        - transport
+          
+    OutputProperties:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/OutputType'
+        name:
+          type: string
+          description: Unique name for this output. Serves as a logical identifier to define the relationship between a SINGLE output type and an GROUP output type.
+        transports:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutputTransportParameters'
+        container:
+          $ref: '#/components/schemas/Container'
+        streams:
+          type: array
+          description: Definition of ouput streams. There has to be at least 1 stream defined
+          items:
+            $ref: '#/components/schemas/StreamDefinition'
+        scte:
+          $ref: '#/components/schemas/Scte35OutputParameters'
+      required:
+        - streams
+
+    StreamDefinition:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/MediaType'
+        codec:
+          $ref: '#/components/schemas/Codec'
+        audio:
+          $ref: '#/components/schemas/AudioParameters'
+        video:
+          $ref: '#/components/schemas/VideoParameters'
+        mp1:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        mp2:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        mp3:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        aac:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        ac3:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        eac3:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        h264:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        h265:
+          $ref: '#/components/schemas/GstEncoderParameters'
+        link:
+          $ref: '#/components/schemas/LinkParameters'
+        pid:
+          type: integer
+          minimum: 16
+          maximum: 8190
+          description: |
+            MPEG-TS PID for this audio or video stream (mpegts container only, also inside HLS
+            segments). Omit to let the muxer number the stream (0x41 upward). Must be unique within
+            the output and differ from `scte.pid`. Not allowed on `link` streams.
+      required:
+        - type
+    
+    StreamSelector:
+      type: object
+      properties:
+        program:
+          type: integer
+          description: Program number in mpegts stream
+    
+    LinkType:
+      type: string
+      enum:
+        - OUTPUT
+      default: OUTPUT
+
+    OutputLink:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of related output
+        modifier:
+          type: string
+          description: Name modifier used by grouping mechanism (eg HLS)
+          example: 
+            - '_1'
+            - '_sd'
+            - '_hd'
+      required: 
+        - name
+      
+    LinkParameters:
+      type: object
+      properties:
+        type: 
+          $ref: '#/components/schemas/LinkType'
+        output:
+          $ref: '#/components/schemas/OutputLink'
+      required:
+        - type
+
+    OutputType:
+      type: string
+      description: |
+        Enum describing the possible output types.
+        
+          - **SINGLE** – A standalone output that operates independently or as part of a group.
+        
+            Depending on the context, different fields are required:
+        
+            **If the output is standalone (not part of a group):**
+              - `container`
+              - `streams`
+              - `transports`
+        
+            **If the output is part of a GROUP:**
+              - `streams`
+        
+            Fields such as `container` and `scte` will be inherited from the group-level configuration, but can be overridden within the individual SINGLE output if needed. The `transports` field is ignored when the output is part of a group.
+        
+          - **GROUP** – A logical grouping of one or more outputs, typically used for multivariant HLS streaming. Other transport protocols are not supported in this mode.
+        
+            Required fields for GROUP type:
+              - `type`
+              - `outputs`
+              - `transports`
+      enum:
+        - SINGLE
+        - GROUP
+      default: SINGLE
+
+    VideoPixelFormat:
+      type: string
+      description: Enum value describing the most common video formats.
+      enum:
+        - I420
+        - YV12
+        - I422
+        - I444
+        - UYVY
+        - YUY2
+        - YVYU
+        - NV12
+        - NV21
+      default: I420
+
+    VideoParameters:
+      type: object
+      description: Basic video parameters. All parameters are optional; any undefined parameter values will be determined from the input stream.
+      properties:
+        width:
+          type: integer
+          description: Video frame width in px.
+        height:
+          type: integer
+          description: Video frame height in px.
+        rate:
+          type: integer
+          description: Video frame rate per second. For interleaved video this is the frame rate, so 25 means 1080i25 (50 fields per second).
+        format:
+          $ref: '#/components/schemas/VideoPixelFormat'
+        interlace:
+          type: string
+          enum:
+            - progressive
+            - interleaved
+          default: progressive
+          description: Output scan type. Every input is deinterlaced, so the output is progressive unless this is interleaved. Interleaved requires rate and is supported only for the h264 codec.
+        fieldOrder:
+          type: string
+          enum:
+            - tff
+            - bff
+          default: tff
+          description: Field order of interleaved video, top field first or bottom field first. Ignored for progressive video.
+
+    AudioParameters:
+      type: object
+      description: Basic audio parameters. All parameters are optional; any undefined parameter values will be determined from the input stream.
+      properties:
+        bitrate:
+          type: integer
+          description: Audio bitrate in kbps
+        channels:
+          type: integer
+          description: Number of channels
+        rate:
+          type: integer
+          description: Audio sample rate
+        inputLayout:
+          type: string
+          enum:
+            - metadata
+            - auto
+            - stereo
+          default: metadata
+          description: |
+            How the source's channel layout is determined. Applies to the Dolby PAT path
+            (`eac3`/`ac3` with `dlbpatenc`); ignored otherwise.
+              * metadata - the layout the source declares (its header / Dolby metadata).
+              * auto     - determined from the audio itself by the Dolby mixer's automatic
+                           detection: stereo carried in a wider declared layout (silent
+                           center/LFE/surrounds) is upmixed, real 5.1 is passed through, switching
+                           where the content changes. Needs `channels` 6 or 10; any other value logs
+                           a warning and uses metadata. Channels below about -60 to -80 dBFS count
+                           as silent. Source Dolby metadata does not reach the mixer.
+              * stereo   - always stereo: only the front left/right channels are used and they are
+                           upmixed to `channels` (`channels` greater than 2). Real centre/surround
+                           content in the source is dropped.
+        stereoSource:
+          type: boolean
+          default: false
+          deprecated: true
+          description: |
+            Older spelling of `inputLayout: stereo` (`true`) / `inputLayout: metadata` (`false`).
+            Setting it together with a contradicting `inputLayout` is a configuration error.
+
+    Scte35AdMarker:
+      type: string
+      description: |
+        Flavour of SCTE-35 ad marker written into HLS media playlists.
+          * elemental - EXT-X-CUE-OUT / EXT-X-CUE-OUT-CONT / EXT-X-CUE-IN.
+          * enhanced  - the above plus EXT-OATCLS-SCTE35 carrying the original section as
+                        base64, and SCTE35= on the continuation tags.
+      enum:
+        - elemental
+        - enhanced
+
+    Scte35OutputParameters:
+      type: object
+      properties:
+        mode:
+          $ref: '#/components/schemas/Scte35Mode'
+        pid:
+          $ref: '#/components/schemas/DvbPid'
+        nullInterval:
+          type: integer
+          description: Milliseconds interval for injecting SCTE-35 null packets. 0 means no null packet injection.
+          default: 0
+          
+    PredefinedSqueezeConfig:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Squeeze configuration name.
+        windows:
+          $ref: '#/components/schemas/SqueezeWindowConfig'
+          
+    SqueezeWindowConfig:
+      type: object
+      description: |
+        Definition of input and output windows regarding the decoded input video frames. This allows you to define crop/scale effects. 
+        Any dimension set to -1 means that the target value should be copied from the source frame geometry or 
+        automatically calculated while keeping the aspect ratio.
+      properties:
+        input:
+          $ref: '#/components/schemas/Rect'
+        output:
+          $ref: '#/components/schemas/Rect'
+          
+    Credentials:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required: 
+        - username
+        - password
+
+    HttpAuthentication:
+      type: string
+      enum:
+        - basic
+        - digest
+          
+    MediaType:
+      type: string
+      enum:
+        - audio
+        - video
+        - link
+    
+    Container:
+      type: string
+      description: |
+        Output container to be used.
+        * `mpegts` MPEG2 Transport Stream
+        * `es` Elementary Stream (RAW PCM or video frames)
+        * `fmp4` fMP4 (fragmented MP4) container - valid only for HLS output
+      enum:
+        - mpegts
+        - es
+        - fmp4
+    
+    HlsTransferFraming:
+      type: string
+      description: | 
+        Type of HTTP transfer encoding used when uploading a file to an HTTP server:
+        - 'chunked' – chunked transfer encoding
+        - 'fixed' – fixed-length encoding (Content-Length based)
+      enum:
+        - chunked
+        - fixed
+      default: 
+        - fixed
+    
+    HlsTransferMode:
+      type: string
+      description: |
+        Type of communication to use for pushing to destination.
+        - `http_put` - No creation of folders but deletes old files
+        - `http_dav` - HTTP PUT, PROPFIND, MKCOL, DELETE. Creates 
+                       folders as needed and deletes old files
+        - `file`     - Creates folders as needed and deletes old files in local filesystem
+      enum:
+        - http_put
+        - http_dav
+        - file
+      default: 
+        - http_put
+    
+    Scte35Mode:
+      type: string
+      enum:
+        - passthrough
+        - removal
+    
+    Codec:
+      type: string
+      description: |
+        * `passthrough` - pass-through configuration. In that case audio will not be transcoded.
+        * `es` - Elementary stream (audio - PCM, video - raw frame)
+      enum:
+        - passthrough
+        - es
+        - mp1
+        - mp2
+        - mp3
+        - aac
+        - ac3
+        - eac3
+        - h264
+        - h265
+        
+    Uri:
+      type: string
+      description: |
+        URI defining input/output endpoint. The URI scheme determines the protocol and other elements like 
+        host, port, and path that are forwarded to the corresponding protocol handler.
+        Currently, the following schemes are supported:
+        * file:// - regular file stored in the local storage
+        * udp:// - UDP streaming
+        * srt:// - SRT streaming
+        * http:// - for http HLS streaming
+        * https:// - for https HLS streaming
+        * hls+file:// - for local storage HLS streaming
+        * dash+file:// - CMAF DASH output to local storage (output only)
+        * dash+http://, dash+https:// - CMAF DASH output uploaded by HTTP PUT/WebDAV (output only)
+        * pls+file:// - for local storage playlist streaming
+    
+    UriArray:
+      type: array
+      items:
+        $ref: '#/components/schemas/Uri'
+    
+    Version:
+      type: string
+      description: Configuration format version in the format 'MAJOR.MINOR.PATCH', following Apache versioning rules regarding compatibility.
+      
+    DvbPid:
+      type: integer
+      minimum: 0
+      maximum: 8192
+      
+    Rect:
+      type: object
+      description: |
+        Common Rectangle 
+      properties:
+        x:
+          type: integer
+        y:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+
+    Scte35Parameters:
+      type: object
+      properties:
+        prerollTime:
+          type: integer
+          description: preroll time (in ms) for SCTE-35 events
+          default: 4000
+        pois:
+          $ref: '#/components/schemas/Scte35PoisParameters'
+
+    Scte35PoisParameters:
+      type: object
+      properties:
+        enable:
+          type: boolean
+          default: false
+        server:
+          $ref: '#/components/schemas/Scte35PoisServerParameters'
+      required:
+        - server
+        - enable
+
+    Scte35PoisServerParameters:
+      type: object
+      properties:
+        uri:
+          type: string
+          description: Complete URL for the POIS server endpoint.
+          example: http://127.0.0.1:1234/esam-endpoint
+        acquisitionPointId:
+          type: string
+          description: A unique identity of the acquisition point identifying the signal acquisition system
+        timeout:
+          type: integer
+          description: Timeout for POIS server requests in ms
+          default: 200
+      required:
+        - uri
+        - acquisitionPointId
+
+    SegmentationTypeId:
+      type: string
+      description: |
+        Representation of the segmentation_type_id field in segmentation descriptor. 
+        The Value can be in hex (0x, 0X), decimal, or octal form.
+
+    SegmentationPriority:
+      type: integer
+      description: Priority of a Segment, where 1 is the highest priority and 16 is the lowest.
+      minimum: 1
+      maximum: 16
+      default: 16
+
+    BlankingRestrictionFlag:
+      type: string
+      description: Represents restriction bit flags in the segmentation descriptor.
+      enum:
+        - NONE
+        - NO_REGIONAL_BLACKOUT
+        - WEB_DELIVERY_ALLOWED
+
+    BlankingRestriction:
+      type: object
+      properties:
+        ignore:
+          $ref: '#/components/schemas/BlankingRestrictionFlag'
+
+    BlankingSegment:
+      type: object
+      properties:
+        name:
+          description: Segment name.
+        start:
+          $ref: '#/components/schemas/SegmentationTypeId'
+        stop:
+          $ref: '#/components/schemas/SegmentationTypeId'
+        priority:
+          $ref: '#/components/schemas/SegmentationPriority'
+        
+      required:
+        - start
+        - end
+
+    BlankingCondition:
+      type: object
+      properties:
+        blankWhenNoSegmentationDescriptors:
+          type: boolean
+          default: false
+          description: |
+            Determines if a segment that has no segmentation descriptors should be considered
+            of being capable for blanking or not (which is usually the case with time_signal).
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlankingSegment'
+      required:
+        - segments
+
+    BlankingConditions:
+      type: object
+      properties:
+        spliceInsert:
+          $ref: '#/components/schemas/BlankingCondition'
+        timeSignal:
+          $ref: '#/components/schemas/BlankingCondition'
+      required:
+        - spliceInsert
+        - timeSignal
+
+    BlankingParameters:
+      type: object
+      description: Configuration of blanking/blackout feature
+      properties:
+        enable:
+          type: boolean
+          description: Determines if blanking/blackout is enabled or not.
+          default: false
+        restriction:
+          $ref: '#/components/schemas/BlankingRestriction'
+        conditions:
+          $ref: '#/components/schemas/BlankingConditions'
+    
+    GstParameters:
+      type: object
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: '#/components/schemas/GstPluginParameters'
+    
+    GstPluginRank:
+      type: string
+      description: |
+        Gstreamer plugin rank (refer to: [GstRank](https://gstreamer.freedesktop.org/documentation/gstreamer/gstpluginfeature.html?gi-language=c#GstRank))
+      enum:
+        - NONE
+        - MARGINAL
+        - SECONDARY
+        - PRIMARY
+
+    GstPluginParameters:
+      type: object
+      description: Gstreamer plugin parameters
+      properties:
+        name:
+          type: string
+          description: Gstreamer plugin name
+        rank:
+          $ref: '#/components/schemas/GstPluginRank'
+      required:
+        - name
+        - rank
+        
+    GstEncoderParameters:
+      type: object
+      description: Object describing particular Gstreamer encoder with properties and capabilities.
+      properties:
+        encoder:
+          type: string
+          description: Gstreamer plugin name
+          
+        properties:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            tune: zerolatency
+            
+        caps:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            profile: main
