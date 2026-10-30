@@ -216,7 +216,7 @@ Only the C API fallback ([section 6](#6-risks-that-change-this-plan)) would add 
 | `docker/build-docker.sh` build-argument pass-through | **Not done.** The script is unchanged; pass `--build-arg` to `docker build` directly. |
 | Read the `gst-mxl-rs` source: how buffer PTS map to the MXL grain index, what `sync` does, behaviour on a caps change | **Not done.** The clock decision is still open. |
 | Publish-to-read latency p50/p95/p99 | **Not done.** |
-| Phase 0 baseline of the engine (T0/T1: DOT graph, CPU, RAM, latency) | **Not done.** `:baseline` images exist; the measurements do not. |
+| Phase 0 baseline of the engine (T0/T1: graph, CPU, RAM, latency) | Done for one reference workload (1080p25, 1 and 2 outputs): [41, Phase 0 baseline](41-mxl-integration.md#phase-0-baseline). 50/60 fps, Dolby, graphics and long runs are not covered. |
 | Gate A numbers agreed; section 7 defaults approved | **Not done.** These need the project owner. |
 
 The table below is the original plan for the step; the status table above is what happened.

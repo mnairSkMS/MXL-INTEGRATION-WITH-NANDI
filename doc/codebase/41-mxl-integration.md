@@ -1,9 +1,10 @@
 # MXL and MXL Fabrics Integration
 
-**Status (2026-10-30): Phase 1 is implemented; nothing in the Nandi media graph uses MXL yet.** MXL
+**Status (2026-10-30): Phase 0 (baseline) and Phase 1 are done; nothing in the Nandi media graph uses MXL yet.** MXL
 v1.1.0 and its GStreamer plugin are built into `utpl/base`, so every image has them. They are
 **Build verified** and **Runtime verified** by the SDK tests in `tests/tests/mxl/sdk/` (see
-[Phase 1 results](#phase-1-results)). There is no MXL input, output, flow registry or Fabrics code
+[Phase 1 results](#phase-1-results)); the engine without MXL is measured in the
+[Phase 0 baseline](#phase-0-baseline). There is no MXL input, output, flow registry or Fabrics code
 in `transcoder/` or `api/`; those remain **integration gated** (planned, not implemented).
 
 This checkout exists to test integrating the [Media eXchange Layer](https://dmf-mxl.github.io/mxl/main/)
@@ -101,6 +102,53 @@ input pay the BGRA cost. `videoconvert` can use more threads (`n-threads`), whic
 Long-run (hours) drift; behaviour with a changing source resolution or rate; latency from write to
 read (p50/p95/p99); memory bandwidth; Dolby-processed audio; SCTE-35. These belong to Phase 2 and the
 gates in the brief.
+
+## Phase 0 baseline
+
+What the engine costs **today**, with no MXL in the path (tests T0/T1). Measured 2026-10-30 with
+`tests/manual/mxl/baseline.sh` on the unmodified `utpl/transcoder-test:baseline` image. Raw output is
+in [`doc/mxl/baseline-2026-10-30/`](../mxl/baseline-2026-10-30/). One run per row, on a shared
+28-core development host, so treat differences under about 5 % as noise.
+
+**Workload:** a generated 1080p25 H.264/AAC source over UDP (`ffmpeg -re`, `testsrc2`) into the real
+engine; outputs are x264 `veryfast` + `fdkaacenc` over UDP: 1080p 5 Mbit/s, and a second 720p
+2.5 Mbit/s. 15 s warm-up, 30 s measured. Every output was captured and decoded without errors.
+
+| | 1 output (1080p) | 2 outputs (1080p + 720p) | 2 outputs, `:mxl` image |
+| --- | ---: | ---: | ---: |
+| Engine CPU (cores) | 0.95 | 1.28 | 1.30 |
+| Resident memory | 325 MB | 367 MB | 364 MB |
+| Threads | 126 | 158 | 158 |
+| Elements / pad links in the graph | 108 / 160 | 147 / 211 | 147 / 211 |
+| Latency, UDP in → UDP out, p50 / p95 / p99 | 1491 / 1531 / 1532 ms | 1492 / 1531 / 1532 ms | 1492 / 1532 / 1533 ms |
+| Latency, UDP in → built-in preview sink, p50 | 804 ms | 805 ms | 805 ms |
+
+- **MXL in the image changes nothing measurable** (third column against the second).
+- **Latency is high but steady:** about 1.5 s from the UDP input to each output with a spread of
+  about 40 ms. It is the engine's own buffering, not MXL. An MXL tap must be compared against this.
+- **A second output costs about 0.33 cores and 42 MB** (a 720p encode plus its branch).
+- **The biggest single thread is the 1080p video path at about 0.43–0.45 cores** (the encoder's
+  queue thread); the compositor and input demux are each about 0.1 core.
+- **Built-in preview branch:** the engine always builds a separate preview sink (`preview-7`,
+  `appsink`), unrelated to the outputs, about 0.8 s behind the input.
+- **Element inventory of the 1-output graph (from creation logs):** `capsfilter` ×20, `queue` ×10,
+  `tee` ×4, `videoconvert` ×4, `decodebin` ×3 (one per input stream), `encodebin` ×2, `compositor`
+  ×1, `x264enc` ×1, `fdkaacenc` ×1, `udpsink` ×1, `appsink` ×1 (preview). This matches the tee and
+  decode structure described above; no decode is duplicated.
+
+**What it means for an MXL tap.** At this workload, the BGRA → v210 conversion of a CP2 tap is
+7.1 ms × 25 fps ≈ **0.18 core**, about **19 % on top of a 1-output channel** (0.95 cores), before the
+ring write. A CP1 tap (I420 → v210, 0.6 ms) would add about 0.015 core. Moving the 1080p encode into
+an external worker saves none of the 0.43 core, which only moves.
+
+**How the graph was captured.** The engine has no DOT export, and GStreamer 1.24.2 here lacks the
+`pipeline-snapshot` tracer. The script instead reads `GST_DEBUG=GST_ELEMENT_FACTORY:4,GST_PADS:4`
+logs (element creation and pad links, listed in `pad-links-*.txt`) and the `latency` tracer
+(`GST_TRACERS="latency(flags=pipeline)"`), which the engine honours without any code change. This is
+a link list, not a picture; render it if needed.
+
+**Not covered:** 50/60 fps, interlaced input, Dolby audio, graphics overlays, SRT/RTMP inputs,
+hardware encoders, long runs, and memory bandwidth. Add them before using these numbers for gates.
 
 ## What the source answers
 
@@ -223,11 +271,11 @@ in [42](42-mxl-implementation-plan.md). As agreed on 2026-10-30, MXL is built in
 (no separate test image), and the current codebase may be changed wherever integration and testing
 need it.
 
-1. **Phase 0 / WS-00:** `git init`; build and tag `:baseline` images **before** any MXL change; baseline
-   channel, DOT graphs, measured CPU/RAM/latency (T0, T1).
+1. **Phase 0 / WS-00 (done for the reference workload):** `git init`; `:baseline` images built
+   **before** any MXL change; baseline CPU/RAM/latency and graph link list measured (T0, T1).
 2. **WS-01 (done):** MXL built into `utpl/base` (inherited by every image); compose tmpfs domain;
-   SDK qualification tests in `tests/tests/mxl/sdk/` (T2). Not done: Phase 0 measurements (T0/T1),
-   and Gate A numbers have not been agreed.
+   SDK qualification tests in `tests/tests/mxl/sdk/` (T2). Phase 0 baseline measured (T0/T1, see
+   above). Not done: Gate A numbers have not been agreed.
 3. **WS-02 / WS-03:** Nandi `mxl` input and CP1/CP2 output taps. Proposed defaults for the open
    decisions and the configuration shape are in [42, section 7](42-mxl-implementation-plan.md#7-proposed-defaults-for-the-open-decisions)
    and need approval first.

@@ -1,0 +1,43 @@
+=== engine: 2 output(s), measured over 30s after 15s warm-up
+engine CPU: 1.30 cores (39.0 CPU-seconds)
+test source CPU (ffmpeg, not the engine): 0.45 cores
+--- engine threads by CPU, top 12 (cores over the window)
+ 0.437  queue8:src
+ 0.204  queue10:src
+ 0.123  multiqueue0:src
+ 0.120  pool-transcoder
+ 0.097  queue14:src
+ 0.085  queue13:src
+ 0.040  queue16:src
+ 0.030  muxer:src
+ 0.026  compositor-4:sr
+ 0.023  videotestsrc1:s
+ 0.014  queue12:src
+ 0.014  multiqueue1:src
+--- memory
+VmHWM:	  363616 kB
+VmRSS:	  363616 kB
+threads: 158
+--- latency (latency tracer, steady state after the warm-up) and graph
+source -> sink            samples   p50 ms   p95 ms   p99 ms   max ms
+udpsrc0      -> udpsink1        803     1491     1530     1531     1532
+udpsrc0      -> udpsink0        803     1492     1532     1533     1534
+udpsrc0      -> preview-7       626      805      807      807      808
+udpsrc0      -> input-single-0    624     1481     1482     1482     1483
+elements created (147): capsfilter x26, queue x19, bin x15, tee x9, videoconvert x7, h264parse x6, videorate x5, identity x4, audioconvert x4, decodebin x3, typefind x3, aacparse x3, encodebin x3, videoconvertscale x3, multiqueue x2, udpsink x2, mpegtsmux x2, x264enc x2, h264timestamper x2, videoscale x2, input-selector x2, fallbackswitch x2, videotestsrc x2, clocksync x2, audioresample x2, audiotestsrc x2, pipeline x1, udpsrc x1, tsdemux x1, deinterlace x1, compositor x1, videocrop x1, fdkaacenc x1, audiorate x1, utplaudiomute x1, avdec_h264 x1, avdec_aac x1, valve x1, appsink x1
+pad links: 211
+--- outputs
+output 0:
+program|stream|codec_name=h264|codec_type=video|width=1920|height=1080|r_frame_rate=25/1|bit_rate=N/A
+stream|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|bit_rate=130659
+
+stream|codec_name=h264|codec_type=video|width=1920|height=1080|r_frame_rate=25/1|bit_rate=N/A
+stream|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|bit_rate=130659
+  decode errors above (none = clean); duration 30.028489 s
+output 1:
+program|stream|codec_name=h264|codec_type=video|width=1280|height=720|r_frame_rate=25/1|bit_rate=N/A
+stream|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|bit_rate=130659
+
+stream|codec_name=h264|codec_type=video|width=1280|height=720|r_frame_rate=25/1|bit_rate=N/A
+stream|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|bit_rate=130659
+  decode errors above (none = clean); duration 30.025822 s

@@ -1,0 +1,35 @@
+=== engine: 1 output(s), measured over 30s after 15s warm-up
+engine CPU: 0.95 cores (28.6 CPU-seconds)
+test source CPU (ffmpeg, not the engine): 0.45 cores
+--- engine threads by CPU, top 12 (cores over the window)
+ 0.451  queue5:src
+ 0.118  multiqueue0:src
+ 0.109  pool-transcoder
+ 0.103  compositor-4:sr
+ 0.042  queue9:src
+ 0.033  videotestsrc1:s
+ 0.014  queue7:src
+ 0.014  muxer:src
+ 0.013  multiqueue1:src
+ 0.011  queue1:src
+ 0.010  videotestsrc0:s
+ 0.010  queue0:src
+--- memory
+VmHWM:	  324928 kB
+VmRSS:	  324928 kB
+threads: 126
+--- latency (latency tracer, steady state after the warm-up) and graph
+source -> sink            samples   p50 ms   p95 ms   p99 ms   max ms
+udpsrc0      -> udpsink0        802     1491     1531     1532     1533
+udpsrc0      -> preview-7       625      804      806      807      807
+udpsrc0      -> input-single-0    623     1481     1482     1482     1484
+elements created (108): capsfilter x20, bin x11, queue x10, h264parse x4, tee x4, videoconvert x4, audioconvert x4, decodebin x3, typefind x3, aacparse x3, identity x3, videorate x3, multiqueue x2, encodebin x2, input-selector x2, fallbackswitch x2, videotestsrc x2, videoconvertscale x2, clocksync x2, audioresample x2, audiotestsrc x2, pipeline x1, udpsrc x1, tsdemux x1, udpsink x1, mpegtsmux x1, x264enc x1, h264timestamper x1, videoscale x1, deinterlace x1, compositor x1, videocrop x1, fdkaacenc x1, audiorate x1, utplaudiomute x1, avdec_h264 x1, avdec_aac x1, valve x1, appsink x1
+pad links: 160
+--- outputs
+output 0:
+program|stream|codec_name=h264|codec_type=video|width=1920|height=1080|r_frame_rate=25/1|bit_rate=N/A
+stream|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|bit_rate=130659
+
+stream|codec_name=h264|codec_type=video|width=1920|height=1080|r_frame_rate=25/1|bit_rate=N/A
+stream|codec_name=aac|codec_type=audio|sample_rate=48000|channels=2|r_frame_rate=0/0|bit_rate=130659
+  decode errors above (none = clean); duration 30.031478 s
