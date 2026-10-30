@@ -243,7 +243,7 @@ The table below is the original plan for the step; the status table above is wha
 | Pixel format | `PixelFormat` (`transcoder/lib/common/include/utpl/common/types.h`) has no V210 value today. Add it, plus its caps-string mapping in `transcoder/lib/utpl/src/utpl/pipeline/caps.cpp`, its parser value and its schema enum. |
 | Media graph (`channel/connector/complex/video.cpp`, `audio.cpp`, `dolby.cpp`) | Register the tap as a connector consumer through `getPad(params)` with the v210 format and F32LE. Terminate the branch in `mxlsink` instead of a processor, behind a leaky `queue` for fail-open. |
 | Output wiring (`output/`, `channel.cpp`) | An `mxl` output builds a tap instead of a flowline, muxer and sink. |
-| Clock | An adapter from pipeline running time (monotonic clock) to TAI, unless Step 1 shows `mxlsink` already does it. |
+| Clock | **No adapter needed:** `mxlsink` maps pipeline time to MXL (TAI) time itself, with an offset sampled once and shared by the MXL elements of the pipeline ([41](41-mxl-integration.md)). Both taps must therefore be in the same pipeline. Add a long-run drift test. |
 | Parser (`transcoder/app/src/application/config/parser/json/parser.cpp`) | `type: "mxl"` next to `single`/`group` (line 637); validate UUIDs and the domain path. |
 | Schema and examples | `transcoder/config/doc/openapi.yaml` and an example in `transcoder/config/`. An example moves to `config/` only when something runs it (AGENTS.md). |
 | API and UI | Pydantic models, `frontend/src/features/channels` mappers and form. |
@@ -301,9 +301,9 @@ approval.** Each can be changed later, with the cost shown.
 | --- | --- | --- | --- |
 | MXL version | `v1.1.0`, as a build argument | Latest stable; includes `gst-mxl-rs` and Fabrics | Rebuild the base image |
 | Fail open or closed (Q8) | **Open**: leaky queue, errors logged and counted, on-air outputs continue. A per-output `failPolicy: "closed"` comes later if needed. | The brief's design principle: optional consumers never take the main output down | Small: a queue setting |
-| Clock | Keep the monotonic pipeline clock and convert to TAI at the tap, unless `mxlsink` already maps it | Changing the pipeline clock affects every output | Medium |
+| Clock | Keep the monotonic pipeline clock; `mxlsink` converts to TAI (confirmed in its source) | Changing the pipeline clock affects every output | Medium. **Open risk:** the offset is sampled once, so long-run drift is untested. |
 | SCTE-35 timeline (Q7) | Stays in Nandi. MXL flows carry no SCTE through Step 3; the carrier to workers is decided at Step 4. | MXL has no SCTE-35 semantics; ST 291 is not SCTE-35 | None until Step 4 |
-| Stop condition (Q18) | Stop or rethink if (a) neither `gst-mxl-rs` nor the C API works on GStreamer 1.24, or (b) the CP2 tap makes the on-air output regress (any TSDuck/`ffprobe` failure or dropped frames), or (c) the tap's CPU cost exceeds a limit set by the project owner | Keeps the project reversible | — |
+| Stop condition (Q18) | Stop or rethink if (a) neither `gst-mxl-rs` nor the C API works on GStreamer 1.24, or (b) the CP2 tap makes the on-air output regress (any TSDuck/`ffprobe` failure or dropped frames), or (c) the tap's CPU cost exceeds the limit. **CPU limit accepted by the project owner on 2026-10-30:** about 0.18 core extra for a CP2 tap at 1080p25 (about 19 % on a 1-output channel, measured baseline 0.95 core). Higher frame rates need a new decision (42 % of a core per 1080p59.94 tap). | Keeps the project reversible | — |
 | Domain location | Named tmpfs volume at `/run/mxl` | Sized separately from `/dev/shm`; shareable read-only between containers | Small: compose only |
 | Config shape | See below | Fits the existing output `type` enum and `transport.<protocol>` pattern | Medium once API/UI exist |
 

@@ -198,9 +198,14 @@ output in the flowline (`processor/transcoder/flowline.cpp:169`). A tap on the d
 
 Nothing in `transcoder/lib` or `transcoder/app` sets a pipeline clock, so GStreamer's default
 monotonic system clock is used. MXL indexes grains on the TAI timeline (SMPTE ST 2059-1 epoch).
-Mapping between them needs an explicit monotonic → realtime → TAI step in the adapter. Switching the
-whole pipeline to a realtime/TAI clock would affect every output, so treat it as a separate decision
-(see [open decisions](#open-decisions)).
+**`gst-mxl-rs` already does this mapping** (read in `rust/gst-mxl-rs/src/clock.rs` at v1.1.0, not
+yet exercised in a long run). The MXL elements do not provide a pipeline clock. The pipeline keeps
+its own clock, and each MXL element uses a constant offset `D = MXL time now − pipeline clock now`,
+sampled once and **shared by all MXL elements in the same pipeline**. A writer adds `D` to a buffer's
+timestamp to get the MXL time and grain index; a reader subtracts it. So a Nandi tap needs no separate
+clock adapter, and the video and audio taps stay on one timeline. The risk is that `D` is sampled
+only once: if the pipeline clock and the TAI clock drift apart over hours (NTP steps, slewing),
+the mapping is not re-sampled. That is the thing to test in a long run.
 
 ### Source loss
 
