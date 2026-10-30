@@ -63,7 +63,7 @@ A few tests exist to hold a specific design property that is easy to lose silent
 
 The production shell suite includes roughly 45 protocol matrix cases across `single` and `standard` inputs with file/HLS/SRT/UDP outputs; 12 audio cases; SCTE, blackout, overlay, squeeze, AV-sync, JIRA regression, and POIS cases. The test framework provides process setup, URI/config helpers, media generation, assertions, and cleanup.
 
-MXL integration tests T0–T15 are planned, not written. [41](41-mxl-integration.md) maps each one
+`tests/tests/mxl/sdk/` holds nine MXL SDK tests (plugin present, video and 6-channel audio round trips, A/V pair, frame rates, ring and memory, writer kill and restart, stalled reader, conversion cost). They need no transcoder, so they use `tests/framework/mxl.sh` instead of `test.sh`, and run with `tests/run.sh mxl` in `utpl/transcoder-test`. Run the container with `--user $(id -u):$(id -g)` so a failed run does not leave root-owned `tmp/` directories in the tree. `tests/manual/mxl/` has two host-level scripts: `cross-container.sh` (separate containers, different user, read-only mount, undersized tmpfs) and `engine-smoke.sh` (engine regression on any image). The rest of MXL tests T0–T15 are planned, not written. [41](41-mxl-integration.md) maps each one
 to where it will live and what it depends on.
 
 ## Evidence discipline for tests

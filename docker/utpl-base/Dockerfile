@@ -100,6 +100,58 @@ assets = [ \n\
     mv target/debian/*.deb /tmp/built/deb
 
 
+# MXL (Media eXchange Layer): SDK, tools and the gst-mxl-rs GStreamer plugin (mxlsink / mxlsrc).
+# Built in its own stage so a change here does not rebuild the GStreamer packages above.
+# ENABLE_MXL=0 builds an empty stage, which restores the image as it was before MXL.
+# Fabrics (libfabric) is not built; see doc/codebase/42-mxl-implementation-plan.md.
+FROM ${SrcImageBranch}:${SrcImageTag} as mxl-builder
+
+ARG ENABLE_MXL=1
+ARG MXL_TAG=v1.1.0
+# MXL needs Rust >= 1.87 (edition 2024); its own devcontainer uses 1.90.0.
+ARG MXL_RUST_TOOLCHAIN=1.90.0
+ARG MXL_JOBS=4
+
+# The Rust bindings are generated with bindgen (libclang) and load libmxl.so at run time.
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    apt update && \
+    DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt install -y --no-install-recommends --no-install-suggests \
+        build-essential cmake ninja-build pkg-config nasm autoconf automake libtool bison flex \
+        git curl ca-certificates zip unzip tar python3 \
+        libclang-dev \
+        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+
+# vcpkg supplies MXL's C++ dependencies. CMakePresets.json expects it in ~/vcpkg.
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    git clone https://github.com/microsoft/vcpkg /root/vcpkg && \
+    /root/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+ENV VCPKG_ROOT=/root/vcpkg
+
+# The source stays at this fixed path: the Rust plugin, built with `mxl-not-built`, records
+# <repo>/build/Linux-Clang-Release/lib/libmxl.so at compile time as the library to load. The base
+# stage below recreates that one path as a symlink to the installed library.
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    git clone --depth 1 --branch ${MXL_TAG} https://github.com/dmf-mxl/mxl.git /opt/mxl-src
+
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    cd /opt/mxl-src && \
+    cmake --preset Linux-GCC-Release -DBUILD_TESTS=OFF -DBUILD_DOCS=OFF -DCMAKE_INSTALL_PREFIX=/opt/mxl-install && \
+    cmake --build build/Linux-GCC-Release -j${MXL_JOBS} && \
+    cmake --install build/Linux-GCC-Release
+
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${MXL_RUST_TOOLCHAIN} --no-modify-path
+
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    cd /opt/mxl-src/rust && \
+    /root/.cargo/bin/cargo build --release --locked -p gst-mxl-rs --features mxl/mxl-not-built && \
+    /root/.cargo/bin/cargo build --release --locked -p gst-avsynctest-rs && \
+    mkdir -p /opt/mxl-plugins && \
+    cp target/release/libgstmxl.so target/release/libgstavsynctest.so /opt/mxl-plugins/
+
+RUN mkdir -p /opt/mxl-install /opt/mxl-plugins
+
+
 FROM ${SrcImageBranch}:${SrcImageTag} as base
 
 RUN \
@@ -140,3 +192,17 @@ RUN \
 ENV TSDUCK_DEB=tsduck_3.37-3670.ubuntu23_amd64.deb
 COPY docker/debs/$TSDUCK_DEB /tmp/
 RUN apt -y install --no-install-recommends --no-install-suggests /tmp/$TSDUCK_DEB && rm -rf /tmp/$TSDUCK_DEB
+
+# MXL: libraries and tools on the default paths, plugins in the GStreamer plugin directory, so
+# neither LD_LIBRARY_PATH nor GST_PLUGIN_PATH is needed. The symlink is the library path that
+# gst-mxl-rs recorded at build time (see the mxl-builder stage).
+COPY --from=mxl-builder [ "/opt/mxl-install", "/usr/local" ]
+COPY --from=mxl-builder [ "/opt/mxl-plugins", "/opt/mxl-plugins" ]
+RUN \
+    if ls /opt/mxl-plugins/*.so > /dev/null 2>&1; then \
+        cp /opt/mxl-plugins/*.so "$(pkg-config --variable=pluginsdir gstreamer-1.0 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/gstreamer-1.0)/" && \
+        mkdir -p /opt/mxl-src/build/Linux-Clang-Release/lib && \
+        ln -s "$(ls /usr/local/lib/libmxl.so* | head -n1)" /opt/mxl-src/build/Linux-Clang-Release/lib/libmxl.so; \
+    fi && \
+    rm -rf /opt/mxl-plugins && \
+    ldconfig

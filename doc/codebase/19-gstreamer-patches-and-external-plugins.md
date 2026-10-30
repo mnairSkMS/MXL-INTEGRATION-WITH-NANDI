@@ -21,6 +21,10 @@ fallbackswitch, AWS and NDI are built with Ubuntu's cargo from the `gstreamer-<v
 - `dashsink2` from commit `DASHSINK2_COMMIT` (it is not in any 1.24 tag; it needs Rust ≥ 1.92), with the patches in `transcoder/patches/gst-plugins-rs/` applied in name order. See [40](40-cmaf-dash-output.md) for what each patch fixes.
 - fmp4 from `FMP4_PLUGIN_TAG` (0.14.5) instead of the GStreamer tag (0.12.4): dashsink2 sets `cmafmux` `manual-split` and `send-force-keyunit`, which 0.12.4 lacks (dashsink2 panics). 0.14.5 is the newest release that builds against GStreamer 1.24 (later ones need 1.26 audio API); it keeps every `isofmp4mux` property the HLS fMP4 path sets. Current gst-plugins-rs as a whole does not build against 1.24.
 
+## MXL plugins
+
+`libgstmxl.so` (`mxlsink`, `mxlsrc`, from `gst-mxl-rs`) and `libgstavsynctest.so` come from the MXL v1.1.0 repository, built by the `mxl-builder` stage of `docker/utpl-base/Dockerfile` with a rustup toolchain (1.90.0; MXL needs ≥ 1.87) and installed in the GStreamer plugin directory. The plugin loads `libmxl.so` at run time from a path recorded at build time, so the image keeps a symlink at `/opt/mxl-src/build/Linux-Clang-Release/lib/libmxl.so`. Status: **Runtime verified** against GStreamer 1.24.2 by the SDK tests; no Nandi code uses these elements yet. Caps: `mxlsink` accepts `video/x-raw,format=v210`, `audio/x-raw,format=F32LE` (1–8 channels, interleaved, with a channel mask) and `meta/x-st-2038`; `mxlsrc` outputs the same. Details, findings and costs: [41](41-mxl-integration.md#phase-1-results).
+
 ## Vendor and hardware plugins
 
 The source accepts encoder factory names in JSON. MainConcept, Visionular, VA-API, and GPU/NDI paths are selected at runtime through GStreamer discovery. `doc/misc/encoder-integration.md` describes candidate deployment steps for both external software encoders and GPU hardware acceleration, but cannot prove installed factories.

@@ -19,7 +19,7 @@ Use a disposable build directory. Do not let a build write generated or installe
 
 ## Containers
 
-- `utpl-base` installs patched GStreamer packages, TSDuck, cpr, and runtime libraries.
+- `utpl-base` installs patched GStreamer packages, TSDuck, cpr, and runtime libraries. It also builds and installs MXL (the `mxl-builder` stage): see [41](41-mxl-integration.md). Build arguments `ENABLE_MXL` (default `1`; `0` skips MXL and restores the previous image), `MXL_TAG` (default `v1.1.0`), `MXL_RUST_TOOLCHAIN` and `MXL_JOBS`. The stage clones MXL and vcpkg from GitHub, so the build needs internet access. MXL adds about 16 MB per image. Because every other image is built `FROM utpl/base`, they all contain MXL.
 - `utpl-devel` adds compilers, headers, tooling, test dependencies, and Poetry.
 - `utpl-transcoder` builds the C++ application, packages the API, installs it under `/opt/utpl`, and starts Supervisor.
 - `utpl-transcoder-test` adds media-analysis tools and copies `tests/` into `/tests`.

@@ -1,8 +1,10 @@
 # MXL Implementation Plan
 
-**Status: plan only. Nothing here is implemented.** Element names and paths below were read from this
-checkout's source on 2026-10-30. Performance figures are **illustrative calculations** from frame
-sizes, not measurements. Phase 1 exists to measure them.
+**Status (2026-10-30): Step 0 and Step 1 (Phase 1) are done; Steps 2–5 are plan only.** Element names
+and paths were read from this checkout's source. The performance figures in section 4 are
+**illustrative calculations** from frame sizes, except where marked **measured**; the measured
+conversion and ring costs are in [41, Phase 1 results](41-mxl-integration.md#phase-1-results) and
+where they differ from the calculations, the measurements win.
 
 Read [41](41-mxl-integration.md) first for background, release status and open decisions. Paths are
 relative to `transcoder/lib/utpl/src/utpl/transcoder/` unless shown otherwise.
@@ -53,7 +55,7 @@ brackets.
 
 | Added | Where |
 | --- | --- |
-| `mxlsink`, `mxlsrc` (from `libgstmxl.so`, installed in the GStreamer plugin directory), `libmxl.so` (on the default library path), MXL tools (`mxl-info`, `mxl-video-probe`, `mxl-gst-testsrc`, `mxl-gst-sink`) | `utpl/base`, so every image built on it has them |
+| `mxlsink`, `mxlsrc` (from `libgstmxl.so`, installed in the GStreamer plugin directory), `libmxl.so` (on the default library path), MXL tools (`mxl-info`, `mxl-gst-testsrc`, `mxl-gst-sink`, `mxl-gst-looping-filesrc`, `mxl-data-probe`; `mxl-video-probe` is not in v1.1.0) | `utpl/base`, so every image built on it has them |
 | Test pipelines: `videotestsrc` → `videoconvert` → `capsfilter` (v210) → `queue` → `mxlsink`; `mxlsrc` → `videoconvert` → sink; the same for `audiotestsrc` → F32LE | `tests/tests/mxl/sdk/`, run by `tests/run.sh` in `utpl/transcoder-test` |
 
 ### 3.2 Processed-programme tap, CP2 (WS-03/WS-04)
@@ -139,6 +141,24 @@ Audio is negligible next to video, so the figures below are video only, at 1080p
 
 ### 4.2 Change by change
 
+**Measured CPU per 1080p frame** (single-threaded, from `tests/tests/mxl/sdk/09-conversion-cost`;
+this host; see [41](41-mxl-integration.md#phase-1-results)). These replace the "CPU" estimates in the
+table below:
+
+| Operation | Measured | One core at 29.97 fps | At 59.94 fps |
+| --- | ---: | ---: | ---: |
+| BGRA → v210 (CP2 tap) | 7.1 ms | 21 % | 42 % |
+| v210 → BGRA (MXL input into the compositor) | 8.1 ms | 24 % | 49 % |
+| I420 → v210 (CP1 tap) | 0.6 ms | 2 % | 4 % |
+| v210 → I420 (reader towards an encoder) | 0.6 ms | 2 % | 4 % |
+| `mxlsink` write / `mxlsrc` read | 0.3 / 0.8–1.0 ms | 1 % / 3 % | 2 % / 5 % |
+
+The write goes through memcpy-speed copies (0.3 ms for a 5.5 MB frame), so the "if `mxlsink` copies"
+memory-traffic figures below should be taken as the copying case. Shared memory is **measured**:
+27 MB for a 1080p29.97 flow, 60 MB for 1080p59.94, 12 MB for 720p29.97 (the plugin fixes the ring at
+about 170–185 ms, and has no history setting).
+
+
 | Change | What is added | Memory traffic added (1080p60) | CPU | Other effects |
 | --- | --- | --- | --- | --- |
 | **CP2 tap** (3.2) | BGRA → V210 conversion, then the write into the ring | Conversion: read 497.7 + write 331.8 = **829.5 MB/s**. If `mxlsink` copies into the ring (verify in Phase 1): +663.6 MB/s, about **1.5 GB/s** in total. | One extra conversion thread per tap: RGB → YUV matrix, 4:4:4 → 4:2:2, 8 → 10-bit packing. Unmeasured; may be a significant share of a core. | `/dev/shm`: 33.2 MB per 100 ms of history. Quality: 8-bit source in a 10-bit container gains no precision, chroma is halved horizontally, and the colour matrix must be set explicitly (BT.709, limited range) or colours shift. |
@@ -181,11 +201,29 @@ Only the C API fallback ([section 6](#6-risks-that-change-this-plan)) would add 
 | Measurement | One reference channel (bars and tone → 1080p, 2 outputs). Record the DOT graph (`GST_DEBUG_DUMP_DOT_DIR`), CPU per thread, RSS, memory bandwidth if available, and glass-to-glass latency. This is test T0, and it is the "today" column in section 4. |
 | Docs | Record the results in 41. |
 
-### Step 1: MXL in the existing images, SDK qualification (Phase 1, WS-01)
+### Step 1: MXL in the existing images, SDK qualification (Phase 1, WS-01) — DONE 2026-10-30
+
+**Status of this step:**
+
+| Item | State |
+| --- | --- |
+| `utpl/base` builds MXL, tools and plugins; all images inherit them | Done. Verified in `utpl/transcoder-test:mxl`. |
+| Compose tmpfs domain volume | Done in `docker-compose.yml` (not yet used by any channel). |
+| SDK tests 01–09 and the helper | Done. 9 of 9 pass in `utpl/transcoder-test:mxl`. |
+| Cross-container, different-user, read-only and undersized-tmpfs checks | Done, as the host script `tests/manual/mxl/cross-container.sh` (needs Docker). |
+| No regression in the engine | Shown with `tests/manual/mxl/engine-smoke.sh` on `:baseline` and `:mxl` (identical output). The existing suites do not run in this environment ([41](41-mxl-integration.md#environment-constraints)). |
+| Conversion cost, ring size and memory | Measured ([41](41-mxl-integration.md#phase-1-results)). |
+| `docker/build-docker.sh` build-argument pass-through | **Not done.** The script is unchanged; pass `--build-arg` to `docker build` directly. |
+| Read the `gst-mxl-rs` source: how buffer PTS map to the MXL grain index, what `sync` does, behaviour on a caps change | **Not done.** The clock decision is still open. |
+| Publish-to-read latency p50/p95/p99 | **Not done.** |
+| Phase 0 baseline of the engine (T0/T1: DOT graph, CPU, RAM, latency) | **Not done.** `:baseline` images exist; the measurements do not. |
+| Gate A numbers agreed; section 7 defaults approved | **Not done.** These need the project owner. |
+
+The table below is the original plan for the step; the status table above is what happened.
 
 | Layer | Change |
 | --- | --- |
-| `docker/utpl-base/Dockerfile`, builder stage (`base-builder`) | Add `ARG MXL_TAG=v1.1.0` and `ARG ENABLE_MXL=1`. Install MXL's apt build dependencies and vcpkg. Clone `dmf-mxl/mxl` at the tag; build the SDK and tools with the `Linux-GCC-Release` preset; `cmake --install` into a staging prefix under `/tmp/built/mxl`. Build `gst-mxl-rs` with the rustup toolchain the stage already installs for `dashsink2` (`DASH_RUST_TOOLCHAIN=1.99.1`, which meets MXL's minimum of 1.87), adding `libclang-dev` if `mxl-sys` uses bindgen. Stage `libgstmxl.so`. |
+| `docker/utpl-base/Dockerfile`, builder stage (`base-builder`) | Implemented as a separate `mxl-builder` stage (so the GStreamer packages are not rebuilt). `ARG MXL_TAG=v1.1.0`, `ARG ENABLE_MXL=1`, `MXL_RUST_TOOLCHAIN=1.90.0`, `MXL_JOBS=4`. Install MXL's apt build dependencies and vcpkg. Clone `dmf-mxl/mxl` at the tag; build the SDK and tools with the `Linux-GCC-Release` preset; `cmake --install` into a staging prefix under `/tmp/built/mxl`. Build `gst-mxl-rs` with the rustup toolchain the stage already installs for `dashsink2` (`DASH_RUST_TOOLCHAIN=1.99.1`, which meets MXL's minimum of 1.87), adding `libclang-dev` if `mxl-sys` uses bindgen. Stage `libgstmxl.so`. |
 | `docker/utpl-base/Dockerfile`, runtime stage (`base`) | `COPY --from=base-builder` the staged MXL files: libraries and tools to `/usr/local`, `libgstmxl.so` to the GStreamer plugin directory; then `ldconfig`. Elements and tools then work without `LD_LIBRARY_PATH` or `GST_PLUGIN_PATH`. Install any shared runtime libraries MXL needs that vcpkg does not link statically (found during the build). |
 | `utpl-devel`, `utpl-transcoder`, `utpl-transcoder-test` | No Dockerfile change expected: `utpl/devel` and the final `utpl/transcoder` stage are built `FROM utpl/base`, and `utpl/transcoder-test` from `utpl/transcoder`, so all of them inherit MXL. `utpl/transcoder-test` already has `gstreamer1.0-tools` for `gst-inspect-1.0`. |
 | `docker/build-docker.sh` | Same image list. Pass `--build-arg MXL_TAG` and `ENABLE_MXL` through, so MXL can be switched off if it ever breaks the base build. |
@@ -201,7 +239,7 @@ Only the C API fallback ([section 6](#6-risks-that-change-this-plan)) would add 
 
 | Layer | Change |
 | --- | --- |
-| Parameters (`include/utpl/transcoder/`) | New output type and parameters: domain, video flow UUID, audio flow UUIDs, size, rate, channel layout, history, fail policy. |
+| Parameters (`include/utpl/transcoder/`) | New output type and parameters: domain, video flow UUID, audio flow UUIDs, size, rate, channel layout, fail policy. |
 | Pixel format | `PixelFormat` (`transcoder/lib/common/include/utpl/common/types.h`) has no V210 value today. Add it, plus its caps-string mapping in `transcoder/lib/utpl/src/utpl/pipeline/caps.cpp`, its parser value and its schema enum. |
 | Media graph (`channel/connector/complex/video.cpp`, `audio.cpp`, `dolby.cpp`) | Register the tap as a connector consumer through `getPad(params)` with the v210 format and F32LE. Terminate the branch in `mxlsink` instead of a processor, behind a leaky `queue` for fail-open. |
 | Output wiring (`output/`, `channel.cpp`) | An `mxl` output builds a tap instead of a flowline, muxer and sink. |
@@ -210,7 +248,7 @@ Only the C API fallback ([section 6](#6-risks-that-change-this-plan)) would add 
 | Schema and examples | `transcoder/config/doc/openapi.yaml` and an example in `transcoder/config/`. An example moves to `config/` only when something runs it (AGENTS.md). |
 | API and UI | Pydantic models, `frontend/src/features/channels` mappers and form. |
 | Metrics | Frames written, frames dropped by the leaky queue, conversion time, last-write time. |
-| Tests | `tests/tests/mxl/tap/<case>/` with a `src/config.json` fixture (T3/T4). Nandi publishes; `mxl-video-probe` and `ffprobe` check the flow; TSDuck checks the on-air output **with and without** the tap to show it does not regress. |
+| Tests | `tests/tests/mxl/tap/<case>/` with a `src/config.json` fixture (T3/T4). Nandi publishes; `mxl-info` and `ffprobe` check the flow; TSDuck checks the on-air output **with and without** the tap to show it does not regress. |
 | Docs | 02, 05, 10, 11, 13, 26, 41. |
 
 ### Step 3: MXL input (Phase 2, WS-02)
@@ -249,6 +287,8 @@ review. Gate E decides, per topology.
 | The MXL build breaks or slows the base image | Every image depends on `utpl/base`. `ENABLE_MXL=0` restores today's build while it is fixed. | Step 1 |
 | BGRA → V210 conversion is too expensive | Move the tap, or change the canvas to a YUV format, which is a wider change affecting graphics | Step 1 measurement, Step 2 |
 | `mxlsink` blocks or waits on the clock unexpectedly | On-air stall unless the leaky queue is in place | Step 1 source reading, Step 2 tests |
+| A reader on a dead flow waits forever (measured, test 07) | A Nandi `mxl` input needs its own watchdog (poll `Active`, or a no-data timeout) or a lost writer freezes the input silently | Step 3 |
+| A failing `mxlsink` posts a pipeline error (measured: tmpfs full → "No space left on device") | The tap must catch it on its bin so the channel is not stopped (fail-open) | Step 2 |
 | Only the first audio stream reaches outputs ([27](27-known-gaps-contradictions-and-remediation.md)) | Per-language audio flows are impossible until it is fixed | Before Step 2 audio |
 | No audio during source loss ([27](27-known-gaps-contradictions-and-remediation.md)) | Gaps in the MXL audio flow | Before Step 2 audio |
 
@@ -268,7 +308,7 @@ approval.** Each can be changed later, with the cost shown.
 | Config shape | See below | Fits the existing output `type` enum and `transport.<protocol>` pattern | Medium once API/UI exist |
 
 Proposed configuration. Field names follow the existing parser; this is a proposal, not a schema
-yet.
+yet. There is no history setting: `mxlsink` in v1.1.0 fixes the ring (about 170–185 ms).
 
 ```json
 "outputs": [
@@ -276,7 +316,7 @@ yet.
     "name": "programme-mxl",
     "type": "mxl",
     "transports": [
-      { "uri": "mxl:///run/mxl", "mxl": { "failPolicy": "open", "historyMs": 100 } }
+      { "uri": "mxl:///run/mxl", "mxl": { "failPolicy": "open" } }
     ],
     "streams": [
       { "type": "video", "codec": "raw", "video": { "width": 1920, "height": 1080 },

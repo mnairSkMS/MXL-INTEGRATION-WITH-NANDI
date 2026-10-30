@@ -84,6 +84,10 @@ services:
       - ./media/slates:/media/slates:ro
       # First-run seed for TRANSCODER_LICENSE_PATH only; the engine never reads this path.
       - ${LICENSE_FILE:-./transcoder/license/prod/licenses/offline.lic}:/opt/utpl/etc/transcoder.lic.seed:ro
+      # MXL domain (raw video/audio flows shared between processes). A tmpfs of its own, so it is
+      # not limited by Docker's 64 MiB /dev/shm. Nothing uses it unless a channel has an MXL
+      # input or output. Other containers mount the same volume read-only to consume flows.
+      - mxl-domain:/run/mxl
     command:
       - /bin/sh
       - -ec
@@ -114,3 +118,14 @@ services:
       - ./runtime:/runtime:ro
       - ./docker/utpl-transcoder/hls_lan_server.py:/opt/hls_lan_server.py:ro
     command: ["/opt/venv/bin/python", "/opt/hls_lan_server.py", "/runtime/hls", "8081"]
+
+volumes:
+  # Size is a cap, not a reservation. Measured with the MXL plugin v1.1.0 (tests/tests/mxl/sdk/
+  # 06-ring-and-memory): a 1080p29.97 flow takes 27 MB, 1080p59.94 takes 60 MB, 720p29.97 12 MB.
+  # Allow for every flow of every channel using this volume, plus headroom.
+  mxl-domain:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=${MXL_DOMAIN_SIZE:-256m}"

@@ -209,6 +209,16 @@ are in [41](41-mxl-integration.md).
 - **Existing gaps that an MXL output would inherit:** live-input outages drop audio, and only the first audio stream reaches any output (both P2 above).
 - **Unreachable processor compositor.** `VideoTranscodingProcessor::_compositor` is tested but never assigned (`channel/processor/transcoder/video.cpp:88`, `:110`); graphics compositing happens only in the connector. Remove the member or document why it is kept.
 
+## MXL Phase 1 findings (2026-10-30)
+
+Measured with the v1.1.0 plugin; details in [41](41-mxl-integration.md#phase-1-results).
+
+- **P2: a reader on a dead MXL flow waits forever.** `mxlsrc` neither errors nor ends when the writer is killed (`mxl-info` shows `Active: false`). A Nandi `mxl` input needs its own watchdog. Test `07-writer-kill-and-restart`.
+- **P2: `mxlsink` has no history setting; the ring is fixed (about 170–185 ms).** The brief's configurable ring history does not exist in v1.1.0. A 1080p59.94 flow takes 60 MB of tmpfs.
+- **P3: the docs describe `mxl-video-probe`, which is not in v1.1.0.** Use `mxl-info`, `mxl-data-probe` and `ffprobe`.
+- **P3: the existing shell suites do not run in this environment.** `tests/run.sh proto/…` and `overlay/…` fail on both the baseline and MXL images (Big Buck Bunny source not available; `tsplay` and the HTTP helper fail to start). Not caused by MXL. Needs a network download or a replacement source, and a look at the helpers.
+- **P3: `tests/manual/mxl/engine-smoke.sh` ends by timeout.** The engine keeps running after end of file, so the script reports exit status 124.
+
 ## Maintenance rule
 
 When a mismatch is resolved, add the observed command/result and source version, update the owning handbook page and feature catalog, and retain a short history entry here. Do not erase a discrepancy merely because a test was renamed or a document was edited.
