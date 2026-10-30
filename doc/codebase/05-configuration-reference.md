@@ -169,6 +169,7 @@ Current format:
 | `inputs[0].transport` | object | Required for `>=1.1.0` | Holds URI and protocol parameter objects. |
 | `transport.uri` | string or string array | Required/non-empty | One URI selects `SingleInput` or `PlaylistInput`; two select redundant `StandardInput`. More than two are rejected. |
 | `inputs[0].selector.program` | integer | Unset | Selects an MPEG-TS program number during discovery. |
+| `inputs[0].mxlTap` | object | Absent (no tap) | Copies the decoded source to MXL flows. See [Input MXL tap](#input-mxl-tap) and [41](41-mxl-integration.md). |
 
 ### URI schemes and input status
 
@@ -185,6 +186,29 @@ Current format:
 | `rtmp://host[:port]/app/key`, `rtmps://...` | `rtmp2src`, remuxed to MPEG-TS | Live. No transport block. `rtmp://127.0.0.1:1935/live/<key>` reads from the bundled push relay. |
 
 Two live URIs enable redundancy/fallback and require compatible live protocols. File and playlist redundancy are rejected. The runtime also needs the `fallbackswitch` element.
+
+### Input MXL tap
+
+`inputs[n].mxlTap` copies an input's **decoded** media into [MXL](41-mxl-integration.md) flows that other processes can read. It is **Runtime verified** (eight tests against the installed engine, recorded in [41](41-mxl-integration.md#source-tap-step-2)). Parser: `parser.cpp` (the `mxlTap` block, next to `role` and `offAir`); parameters: `MxlTapParameters` in `input.h`; media graph: `stream/input/base.cpp` (`_createMxlTap`, `linkSrcPad`) and `mxltap.cpp`.
+
+```json
+"mxlTap": {
+  "domain": "/run/mxl",
+  "video": { "flowId": "5fbec3b1-1b0f-417d-9059-8b94a47197ed" },
+  "audio": { "flowId": "b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10", "channels": 2 }
+}
+```
+
+| JSON path | Type | Default/required | Behavior |
+| --- | --- | --- | --- |
+| `mxlTap.domain` | string | Required | MXL domain directory (a tmpfs shared with readers; `docker-compose.yml` mounts one at `/run/mxl`). |
+| `mxlTap.video.flowId` | UUID string | Optional | Writes the first decoded video stream as v210 at the source's size and frame rate. Interlaced pictures are reduced to one field per frame. A change of size or rate makes a new flow. |
+| `mxlTap.audio.flowId` | UUID string | Optional | Writes the first decoded audio stream as Float32, 48 kHz. |
+| `mxlTap.audio.channels` | integer 1–8 | `2` | Channels of the audio flow; the source is mixed to this count. |
+
+At least one of `video` and `audio` is required, the two ids must differ, and ids must be canonical UUIDs; otherwise the configuration is rejected at start. One writer per flow: a second stream asking for a flow already in use is skipped with a warning.
+
+Constraints: single (live) inputs only; passthrough streams are not tapped (they are still compressed); a playlist input is not covered. The tap is **fail-open**: it is a leaky side branch with its own pipeline, so a missing `mxlsink`, a full or missing domain, or an unsupported picture stops only the tap, which retries every 5 s. The channel keeps running and its outputs are unchanged.
 
 ### Input transport objects
 

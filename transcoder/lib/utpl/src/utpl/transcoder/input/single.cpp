@@ -1378,9 +1378,11 @@ pipeline::ElementPtr transcoder::SingleInput::_createDemuxer(bool filterAllScteE
                     existing->replacePads(pad, srcPad);
 
                 } else {
-                    this->_streams.push_back(
-                        std::make_shared<SingleInputStream>(pad, srcPad, this->_bin)
-                    );
+                    auto stream = std::make_shared<SingleInputStream>(pad, srcPad, this->_bin);
+
+                    stream->setMxlTap(this->_inputParameters.getMxlTap());
+
+                    this->_streams.push_back(stream);
                 }
             }            
         }

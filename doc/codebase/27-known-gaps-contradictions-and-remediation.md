@@ -219,6 +219,16 @@ Measured with the v1.1.0 plugin; details in [41](41-mxl-integration.md#phase-1-r
 - **P3: the existing shell suites do not run in this environment.** `tests/run.sh proto/…` and `overlay/…` fail on both the baseline and MXL images (Big Buck Bunny source not available; `tsplay` and the HTTP helper fail to start). Not caused by MXL. Needs a network download or a replacement source, and a look at the helpers.
 - **P3: `tests/manual/mxl/engine-smoke.sh` ends by timeout.** The engine keeps running after end of file, so the script reports exit status 124.
 
+## MXL source tap findings (2026-10-30)
+
+Details in [41](41-mxl-integration.md#source-tap-step-2).
+
+- **P3: one `utpl_scte_section_test` failure in the first full CTest run, not reproduced.** It failed once while a heavy image build was running in the background, then passed in 4 individual runs and in 6 complete CTest runs. Cause not established; the test and the SCTE code were not touched. Watch for it on a loaded host.
+- **P3: a reader that fed the video and audio flows into one muxer recorded about 9 s of silence at the start of the audio**, while the same audio flow read alone was complete. Not explained (a muxer holding one branch is the likely candidate). The lip-sync test reads each flow into its own sink to avoid it.
+- **P3: mxlTap is not applied to playlist or redundant inputs.** The setting is carried in `InputParameters` and read by `SingleInput`; `PlaylistInput` and `StandardInput` were not tested.
+- **P3: only the first audio stream is tapped**, as for every output (see the P2 on audio selection above).
+- **Observation, not a defect: the engine's on-air output was 42 ms ahead in picture** (flash before beep) with the synthetic flash/beep source; the resolution of the measurement is one frame (40 ms).
+
 ## Maintenance rule
 
 When a mismatch is resolved, add the observed command/result and source version, update the owning handbook page and feature catalog, and retain a short history entry here. Do not erase a discrepancy merely because a test was renamed or a document was edited.

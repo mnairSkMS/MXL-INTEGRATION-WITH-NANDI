@@ -1,6 +1,6 @@
 # MXL Implementation Plan
 
-**Status (2026-10-30): Step 0 and Step 1 (Phase 1) are done; Steps 2–5 are plan only.** Element names
+**Status (2026-10-30): Steps 0, 1 and 2 are done (baseline, MXL in the images, source tap); Steps 3–6 are plan only.** Element names
 and paths were read from this checkout's source. The performance figures in section 4 are
 **illustrative calculations** from frame sizes, except where marked **measured**; the measured
 conversion and ring costs are in [41, Phase 1 results](41-mxl-integration.md#phase-1-results) and
@@ -235,7 +235,28 @@ The table below is the original plan for the step; the status table above is wha
 | Docs | 03 (images now contain MXL; build arguments), 19 (external plugin), 23, 41. |
 | Exit | Gate A on reference flows; the defaults in [section 7](#7-proposed-defaults-for-the-open-decisions) are confirmed. |
 
-### Step 2: CP2 publishing tap (Phase 2, WS-03/WS-04)
+### Step 2: Source tap, CP1 (Phase 2, WS-03) — DONE 2026-10-30
+
+Built **before** the programme tap (agreed with the project owner): it is cheaper (a decoded source is
+already YUV), independent of graphics, fallback and Dolby code, and proves the whole path
+Nandi → MXL → another process. Settings, design, results and findings are on
+[41, Source tap](41-mxl-integration.md#source-tap-step-2); the key is `inputs[n].mxlTap`
+([05](05-configuration-reference.md#input-mxl-tap)).
+
+Differences from the plan this page first made:
+
+| Planned | Built |
+| --- | --- |
+| `type: "mxl"` output | `inputs[n].mxlTap`, because a source tap belongs to an input, not to an output. |
+| `mxlsink` in the main pipeline behind a leaky queue | `mxlsink` in a **side pipeline** fed through `appsink` → `appsrc` (as the input preview works), so an error cannot reach the channel's bus. |
+| A clock adapter | None: the plugin maps pipeline time to MXL time; the side pipeline shares the channel's clock and base time. |
+| `videoconvert` only | `deinterlace` first (progressive flow), and `audiorate` in the audio path (contiguous timestamps). |
+| A configurable ring length | Not possible: `mxlsink` fixes the ring. |
+
+Measured cost on this host: +0.02 to +0.06 core on 720p25 and 1080i25 channels (41). The programme tap
+(Step 3) will reuse `MxlTap` with a different attach point and a BGRA → v210 conversion.
+
+### Step 3: CP2 programme tap (Phase 2, WS-03/WS-04)
 
 | Layer | Change |
 | --- | --- |
@@ -251,7 +272,7 @@ The table below is the original plan for the step; the status table above is wha
 | Tests | `tests/tests/mxl/tap/<case>/` with a `src/config.json` fixture (T3/T4). Nandi publishes; `mxl-info` and `ffprobe` check the flow; TSDuck checks the on-air output **with and without** the tap to show it does not regress. |
 | Docs | 02, 05, 10, 11, 13, 26, 41. |
 
-### Step 3: MXL input (Phase 2, WS-02)
+### Step 4: MXL input (Phase 2, WS-02)
 
 | Layer | Change |
 | --- | --- |
@@ -261,7 +282,7 @@ The table below is the original plan for the step; the status table above is wha
 | Tests | `tests/tests/mxl/input/<case>/` (T8): 30000/1001, writer restart and discontinuity; output checked with `ffprobe` and TSDuck. A loopback test feeds one channel's CP2 tap into a second channel's MXL input. |
 | Docs | 07, 05, 02, 26. |
 
-### Step 4: External consumers and encoder worker (Phases 2–3, WS-05 to WS-07)
+### Step 5: External consumers and encoder worker (Phases 2–3, WS-05 to WS-07)
 
 | Layer | Change |
 | --- | --- |
@@ -272,7 +293,7 @@ The table below is the original plan for the step; the status table above is wha
 | Compose | A worker service sharing the `mxl-domain` volume read-only. |
 | Tests | T5–T7, T9, T10: consumer restart, slow reader, multi-audio, SCTE during restart. |
 
-### Step 5: Fabrics (Phase 4, WS-08)
+### Step 6: Fabrics (Phase 4, WS-08)
 
 No Nandi media-graph change. Two hosts run `mxl-fabrics` over TCP and then Verbs/EFA, compared
 against a compressed SRT feed under contention (T11). Fabrics is built into `utpl/base` in Step 1 if
@@ -287,10 +308,10 @@ review. Gate E decides, per topology.
 | The MXL build breaks or slows the base image | Every image depends on `utpl/base`. `ENABLE_MXL=0` restores today's build while it is fixed. | Step 1 |
 | BGRA → V210 conversion is too expensive | Move the tap, or change the canvas to a YUV format, which is a wider change affecting graphics | Step 1 measurement, Step 2 |
 | `mxlsink` blocks or waits on the clock unexpectedly | On-air stall unless the leaky queue is in place | Step 1 source reading, Step 2 tests |
-| A reader on a dead flow waits forever (measured, test 07) | A Nandi `mxl` input needs its own watchdog (poll `Active`, or a no-data timeout) or a lost writer freezes the input silently | Step 3 |
-| A failing `mxlsink` posts a pipeline error (measured: tmpfs full → "No space left on device") | The tap must catch it on its bin so the channel is not stopped (fail-open) | Step 2 |
-| Only the first audio stream reaches outputs ([27](27-known-gaps-contradictions-and-remediation.md)) | Per-language audio flows are impossible until it is fixed | Before Step 2 audio |
-| No audio during source loss ([27](27-known-gaps-contradictions-and-remediation.md)) | Gaps in the MXL audio flow | Before Step 2 audio |
+| A reader on a dead flow waits forever (measured, test 07) | A Nandi `mxl` input needs its own watchdog (poll `Active`, or a no-data timeout) or a lost writer freezes the input silently | Step 4 |
+| A failing `mxlsink` posts a pipeline error (measured: tmpfs full → "No space left on device") | Done for the source tap: the tap runs in a side pipeline, so the error never reaches the channel | Step 2 (done); the same design applies to Step 3 |
+| Only the first audio stream reaches outputs ([27](27-known-gaps-contradictions-and-remediation.md)) | Per-language audio flows are impossible until it is fixed | Before Step 3 audio |
+| No audio during source loss ([27](27-known-gaps-contradictions-and-remediation.md)) | Gaps in the MXL audio flow | Before Step 3 audio |
 
 ## 7. Proposed defaults for the open decisions
 
@@ -302,7 +323,7 @@ approval.** Each can be changed later, with the cost shown.
 | MXL version | `v1.1.0`, as a build argument | Latest stable; includes `gst-mxl-rs` and Fabrics | Rebuild the base image |
 | Fail open or closed (Q8) | **Open**: leaky queue, errors logged and counted, on-air outputs continue. A per-output `failPolicy: "closed"` comes later if needed. | The brief's design principle: optional consumers never take the main output down | Small: a queue setting |
 | Clock | Keep the monotonic pipeline clock; `mxlsink` converts to TAI (confirmed in its source) | Changing the pipeline clock affects every output | Medium. **Open risk:** the offset is sampled once, so long-run drift is untested. |
-| SCTE-35 timeline (Q7) | Stays in Nandi. MXL flows carry no SCTE through Step 3; the carrier to workers is decided at Step 4. | MXL has no SCTE-35 semantics; ST 291 is not SCTE-35 | None until Step 4 |
+| SCTE-35 timeline (Q7) | Stays in Nandi. MXL flows carry no SCTE through Step 4; the carrier to workers is decided at Step 5. | MXL has no SCTE-35 semantics; ST 291 is not SCTE-35 | None until Step 4 |
 | Stop condition (Q18) | Stop or rethink if (a) neither `gst-mxl-rs` nor the C API works on GStreamer 1.24, or (b) the CP2 tap makes the on-air output regress (any TSDuck/`ffprobe` failure or dropped frames), or (c) the tap's CPU cost exceeds the limit. **CPU limit accepted by the project owner on 2026-10-30:** about 0.18 core extra for a CP2 tap at 1080p25 (about 19 % on a 1-output channel, measured baseline 0.95 core). Higher frame rates need a new decision (42 % of a core per 1080p59.94 tap). | Keeps the project reversible | — |
 | Domain location | Named tmpfs volume at `/run/mxl` | Sized separately from `/dev/shm`; shareable read-only between containers | Small: compose only |
 | Config shape | See below | Fits the existing output `type` enum and `transport.<protocol>` pattern | Medium once API/UI exist |

@@ -268,6 +268,18 @@ Every input video stream carries a JPEG preview tap (`utpl/transcoder/preview.{h
 
 The first still after a quiet spell takes about 0.1–0.3 s, waiting for a keyframe. The on-air output (H.264, E-AC-3 5.1, SCTE-35) was unchanged with `ffprobe` during every preview mode, for an SRT/UDP live input and a two-item playlist. The REST endpoints are in [17](17-rest-grpc-and-sqlite-control-plane.md#input-preview-and-media-thumbnails).
 
+## MXL source tap
+
+`inputs[n].mxlTap` copies an input's **decoded** video and first audio stream into MXL flows (v210 and
+Float32) for other processes. The branch sits on the same decoded-stream `tee` as the input preview
+(`BaseInputStream::linkSrcPad`, `stream/input/base.cpp`), made only of a leaky `queue` and an `appsink`;
+the conversion and `mxlsink` run in a side pipeline of their own (`MxlTap`, `mxltap.cpp`) that shares
+the channel's clock and base time. A fault there (a missing plugin, a full or unusable domain, an
+unsupported picture) stops only the tap, which retries every 5 s; the channel and its outputs are
+unchanged (measured: same streams, no decode errors, same frame count). Single inputs only; passthrough
+streams are not tapped. Settings: [05](05-configuration-reference.md#input-mxl-tap); design, results
+and limits: [41](41-mxl-integration.md#source-tap-step-2).
+
 ## Constraints
 
 The application rejects empty URI sets, more than two URIs, redundant file/playlist input, and playlist with passthrough. See [configuration](05-configuration-reference.md) and [playlist switching](08-playlists-buffering-and-switching.md).

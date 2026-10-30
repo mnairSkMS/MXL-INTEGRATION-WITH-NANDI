@@ -1,6 +1,7 @@
 #ifndef __UTPL_TRANSCODER_STREAM_BASE_H__
 #define __UTPL_TRANSCODER_STREAM_BASE_H__
 
+#include "utpl/transcoder/mxltap.h"
 #include "utpl/transcoder/preview.h"
 #include "utpl/pipeline/bin.h"
 
@@ -18,6 +19,10 @@ namespace utpl {
                 pipeline::PadPtr peekPad(bool passthrough) override;
 
                 const StreamParameters &getStreamParameters() const override;
+
+                // Copies this stream's decoded media to MXL once it is linked, if the input is
+                // configured for it. Must be called before link().
+                void setMxlTap(const MxlTapParameters &parameters);
 
                 void link() override;
                 void unlink() override;
@@ -46,7 +51,12 @@ namespace utpl {
                 // JPEG preview branch on a video stream's tee; see preview.h.
                 std::unique_ptr<PreviewTap> _preview;
 
+                // MXL branch on the tee of a decoded video or audio stream; see mxltap.h.
+                MxlTapParameters       _mxlTapParameters;
+                std::unique_ptr<MxlTap> _mxlTap;
+
                 pipeline::PadPtr _createPreview(bool encoded);
+                pipeline::PadPtr _createMxlTap();
         };
     }
 }

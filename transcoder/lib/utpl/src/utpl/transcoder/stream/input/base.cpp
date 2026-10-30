@@ -107,6 +107,42 @@ pipeline::PadPtr transcoder::BaseInputStream::_createPreview(bool encoded) {
     );
 }
 
+void transcoder::BaseInputStream::setMxlTap(const MxlTapParameters &parameters) {
+    this->_mxlTapParameters = parameters;
+}
+
+// The sink pad of a new MXL tap for this stream, or null when the stream gets none: the input is not
+// configured for it, the stream is neither decoded video nor decoded audio, or its flow is taken.
+pipeline::PadPtr transcoder::BaseInputStream::_createMxlTap() {
+    if (this->_mxlTap || ! this->_mxlTapParameters.isEnabled()) {
+        return nullptr;
+    }
+
+    MxlTap::Kind kind;
+
+    if (this->_streamParameters.hasVideoParameters()) {
+        kind = MxlTap::Kind::VIDEO;
+
+    } else if (this->_streamParameters.hasAudioParameters()) {
+        kind = MxlTap::Kind::AUDIO;
+
+    } else {
+        return nullptr;
+    }
+
+    this->_mxlTap = MxlTap::create(this->_mxlTapParameters, kind);
+
+    if (! this->_mxlTap) {
+        return nullptr;
+    }
+
+    this->_bin->add(this->_mxlTap->getBin());
+
+    return std::make_shared<pipeline::Pad>(
+        pipeline::GstPadPtr::wrap(gst_element_get_static_pad((*this->_mxlTap->getBin())->get(), "sink"))
+    );
+}
+
 void transcoder::BaseInputStream::unlink() {
     for (auto &pad : this->_decodedPads) {
         pad->setTarget(nullptr);
@@ -148,6 +184,7 @@ void transcoder::BaseInputStream::unlink() {
 
     // Its bin was a tee branch, so the loop above has already stopped and removed it.
     this->_preview = nullptr;
+    this->_mxlTap  = nullptr;
 }
 
 void transcoder::BaseInputStream::setStreamParameters(const StreamParameters &parameters) {
@@ -170,6 +207,13 @@ void transcoder::BaseInputStream::linkSrcPad(pipeline::PadPtr pad, bool isPastrh
         previewSink = this->_createPreview(isPastrhrough);
     }
 
+    // Only decoded media is copied to MXL; a passthrough stream is still compressed.
+    pipeline::PadPtr mxlSink;
+
+    if (! isPastrhrough && ! this->_decodedPads.empty()) {
+        mxlSink = this->_createMxlTap();
+    }
+
     auto &list = isPastrhrough ? this->_passthroughPads : this->_decodedPads;
 
     if (isPastrhrough) {
@@ -183,7 +227,7 @@ void transcoder::BaseInputStream::linkSrcPad(pipeline::PadPtr pad, bool isPastrh
         WARN(("No pads to link!"));
         
     } else {
-        if (list.size() > 1 || previewSink) {
+        if (list.size() > 1 || previewSink || mxlSink) {
             this->_splitter = this->_bin->add(pipeline::Element::make("tee"));
 
             pad->link(this->_splitter->getPad("sink"));
@@ -214,6 +258,25 @@ void transcoder::BaseInputStream::linkSrcPad(pipeline::PadPtr pad, bool isPastrh
                 this->_splitter->releasePad(teePad);
                 this->_bin->remove(this->_preview->getBin());
                 this->_preview = nullptr;
+            }
+        }
+
+        // Linked straight to the tee, like the preview: the tap's own leaky queue is the only
+        // thing that can hold a buffer, so it can never hold the on-air branches back.
+        if (mxlSink) {
+            auto teePad = this->_splitter->requestPad("src_%u");
+            auto result = gst_pad_link((*teePad)->get(), (*mxlSink)->get());
+
+            if (result == GST_PAD_LINK_OK) {
+                this->_mxlTap->getBin()->syncWithParent();
+
+            } else {
+                // A tap must never cost the stream: drop it and carry on without one.
+                WARN(("MXL tap disabled for stream {}: link failed ({})", (void *) this, gst_pad_link_get_name(result)));
+
+                this->_splitter->releasePad(teePad);
+                this->_bin->remove(this->_mxlTap->getBin());
+                this->_mxlTap = nullptr;
             }
         }
 

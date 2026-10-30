@@ -456,9 +456,52 @@ components:
         selector:
           $ref: '#/components/schemas/StreamSelector'
 
+        mxlTap:
+          $ref: '#/components/schemas/MxlTapParameters'
+
       required:
         - transport
-          
+
+    MxlTapParameters:
+      type: object
+      description: >
+        Optional copy of the input's decoded video and audio into MXL (Media eXchange Layer)
+        flows, readable by other processes. The channel is never affected by the tap: if it
+        cannot run, it stops itself and is retried every few seconds. Applies to the first decoded
+        video stream and the first decoded audio stream of a single (non-playlist) input.
+        The MXL elements (mxlsink) must be installed; otherwise the tap is skipped with a warning.
+      properties:
+        domain:
+          type: string
+          description: MXL domain directory, a tmpfs shared with the readers (for example /run/mxl).
+        video:
+          type: object
+          description: Written as v210 at the source's size and frame rate. Interlaced sources keep one field per frame.
+          properties:
+            flowId:
+              type: string
+              format: uuid
+              description: Flow id (UUID). One writer per flow.
+          required:
+            - flowId
+        audio:
+          type: object
+          description: Written as Float32 at 48 kHz.
+          properties:
+            flowId:
+              type: string
+              format: uuid
+            channels:
+              type: integer
+              minimum: 1
+              maximum: 8
+              default: 2
+              description: Channels of the flow. The source is mixed to this count.
+          required:
+            - flowId
+      required:
+        - domain
+
     OutputProperties:
       type: object
       properties:

@@ -26,6 +26,7 @@ transcoder                    object, req
   inputs[]                    req, >=1
     transport                 req   { uri, srt|udp|hls|dash|file|playlist|ndi }
     selector                        { program }
+    mxlTap                          { domain, video.flowId, audio.flowId, audio.channels }
   outputs[]                   req, >=1
     type, name, container, scte
     transports[]                    { uri, srt|udp|hls|s3|file }
@@ -58,6 +59,7 @@ One entry per source. Multiple entries are alternative sources for failover.
 | `transport` | object, req | The source endpoint. Missing → parse error. | — | — |
 | `transport.uri` | string \| string[], req | Source endpoint. An array is an ordered failover list. | `HUMAN` | Never invent a host, port or path. |
 | `selector.program` | int | MPEG-TS program number to pick from a multi-program stream. | `HUMAN` | Only for multi-program TS; omit otherwise. |
+| `mxlTap` | object | Copies the decoded source to MXL flows (other processes read them). Fail-open: a broken tap never affects the channel. | `HUMAN` | Needs the MXL plugin in the image and a shared tmpfs domain. `domain` and at least one `video.flowId`/`audio.flowId` (UUIDs, different) are required; `audio.channels` 1–8, default 2. Details: [codebase/05](codebase/05-configuration-reference.md#input-mxl-tap). |
 
 **URI schemes:** `file://` `udp://` `srt://` `http://` `https://` (HLS, or DASH for `.mpd` / `transport.dash`) `hls+file://`
 `pls+file://` `ndi://` `rtmp://` `rtmps://` `s3://`

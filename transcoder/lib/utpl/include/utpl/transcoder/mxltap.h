@@ -1,0 +1,76 @@
+#ifndef __UTPL_TRANSCODER_MXLTAP_H__
+#define __UTPL_TRANSCODER_MXLTAP_H__
+
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <string>
+
+#include <gst/gst.h>
+
+#include "utpl/pipeline/bin.h"
+#include "utpl/transcoder/input.h"
+
+namespace utpl {
+    namespace transcoder {
+        // A copy of one decoded input stream, written to an MXL flow (see MxlTapParameters).
+        //
+        // It is built like the input preview: in the media graph it is only a leaky queue and an
+        // appsink hanging off the stream's tee, so it can drop frames but never hold the channel
+        // back. The conversion and `mxlsink` live in a pipeline of their own, which shares the
+        // channel's clock and base time so buffer times mean the same moment in both. Errors there
+        // (a full tmpfs, a domain that disappeared) stay there: the side pipeline is dropped and
+        // started again later, and the channel is not told.
+        class MxlTap {
+            public:
+                enum class Kind {
+                    VIDEO,
+                    AUDIO
+                };
+
+                // Nullptr when there is nothing to do: no flow configured for this kind, the MXL
+                // plugin is not installed, or another tap already writes this flow.
+                static std::unique_ptr<MxlTap> create(const MxlTapParameters &parameters, Kind kind);
+
+                ~MxlTap();
+
+                // The branch to link to a tee: a "sink" pad, then queue and appsink.
+                pipeline::BinPtr getBin();
+
+            private:
+                MxlTap(const MxlTapParameters &parameters, Kind kind, const std::string &owner);
+
+                static GstFlowReturn onFeed(GstElement *sink, gpointer self);
+
+                // 1: started. 0: the channel is not running yet, try again with the next buffer.
+                // -1: failed, the caller backs off.
+                int  _start(GstSample *sample);
+                void _stop();
+
+                std::string _describe() const;
+
+            private:
+                MxlTapParameters _parameters;
+                Kind             _kind;
+                std::string      _owner;    // "<domain>|<flow id>", claimed for the tap's lifetime
+                std::string      _flowId;
+                pipeline::BinPtr _bin;
+                GstElement      *_feed = nullptr;
+
+                std::mutex       _guard;
+                GstElement      *_pipeline = nullptr; // the side pipeline, while it runs
+                GstElement      *_source   = nullptr; // its appsrc
+                std::string      _shape;              // size and rate it was started for (video)
+
+                std::atomic<bool> _errored { false };
+                std::chrono::steady_clock::time_point _retryAt;
+
+                // Counters, for the log line written when the pipeline is replaced or stopped.
+                guint64 _pushed   = 0;
+                guint64 _restarts = 0;
+        };
+    }
+}
+
+#endif /* __UTPL_TRANSCODER_MXLTAP_H__ */

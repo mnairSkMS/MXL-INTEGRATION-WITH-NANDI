@@ -611,6 +611,62 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
                             }
                         }
 
+                        // Optional copy of the decoded source into MXL flows.
+                        if (input.contains("mxlTap") && ! input["mxlTap"].is_null()) {
+                            const auto &tapJson = input["mxlTap"];
+
+                            utpl::transcoder::MxlTapParameters tap;
+
+                            if (! tapJson.contains("domain") || ! tapJson["domain"].is_string() || tapJson["domain"].get<std::string>().empty()) {
+                                throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap.domain is required (the MXL domain directory)");
+                            }
+
+                            tap.setDomain(tapJson["domain"].get<std::string>());
+
+                            auto parseFlowId = [&](const char *key) -> std::string {
+                                if (! tapJson.contains(key) || tapJson[key].is_null()) {
+                                    return std::string();
+                                }
+
+                                const auto &keyJson = tapJson[key];
+
+                                if (! keyJson.contains("flowId") || ! keyJson["flowId"].is_string()) {
+                                    throw utpl::InvalidArgumentException(std::string("transcoder.inputs[") + std::to_string(inputIndex) + "].mxlTap." + key + ".flowId is required");
+                                }
+
+                                const auto flowId = keyJson["flowId"].get<std::string>();
+
+                                if (! utpl::transcoder::MxlTapParameters::isValidFlowId(flowId)) {
+                                    throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap." + key + ".flowId '" + flowId + "' is not a UUID");
+                                }
+
+                                return flowId;
+                            };
+
+                            tap.setVideoFlowId(parseFlowId("video"));
+                            tap.setAudioFlowId(parseFlowId("audio"));
+
+                            if (tap.getVideoFlowId().empty() && tap.getAudioFlowId().empty()) {
+                                throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap needs a video or an audio flow");
+                            }
+
+                            if (! tap.getVideoFlowId().empty() && tap.getVideoFlowId() == tap.getAudioFlowId()) {
+                                throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap video and audio need different flow ids");
+                            }
+
+                            if (tapJson.contains("audio") && tapJson["audio"].contains("channels")) {
+                                const int channels = tapJson["audio"]["channels"].get<int>();
+
+                                if (channels < 1 || channels > utpl::transcoder::MxlTapParameters::MAX_AUDIO_CHANNELS) {
+                                    throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap.audio.channels must be 1 to 8");
+                                }
+
+                                tap.setAudioChannels(channels);
+                            }
+
+                            inputParams.setMxlTap(tap);
+                        }
+
                         if (inputIndex == 0) {
                             if (inputParams.getRole() != utpl::transcoder::InputRole::PRIMARY) {
                                 throw utpl::InvalidArgumentException("transcoder.inputs[0] is the programme source and must have role 'primary'");

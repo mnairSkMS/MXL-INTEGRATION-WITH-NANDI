@@ -97,6 +97,7 @@ set(SOURCE_FILES
     src/utpl/transcoder/blanker.cpp
     src/utpl/transcoder/adBreak.cpp
     src/utpl/transcoder/preview.cpp
+    src/utpl/transcoder/mxltap.cpp
 
     src/utpl/esam/client.cpp
     src/utpl/esam/model.cpp
