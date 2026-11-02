@@ -5,6 +5,7 @@
 #include <map>
 #include "utpl/common/debug.h"
 
+#include "utpl/transcoder/mxlparameters.h"
 #include "utpl/transcoder/stream.h"
 #include "utpl/transcoder/types.h"
 
@@ -518,7 +519,10 @@ namespace utpl {
             UNKNOWN,
 
             SINGLE,
-            GROUP
+            GROUP,
+
+            // The finished programme, written to MXL flows instead of being encoded and sent.
+            MXL
         };
 
         class OutputParameters {
@@ -592,6 +596,15 @@ namespace utpl {
                     return this->_liveSource;
                 }
 
+                // Flows of an MXL output (the programme tap); see MxlOutput.
+                const MxlTapParameters &getMxl() const {
+                    return this->_mxl;
+                }
+
+                void setMxl(const MxlTapParameters &mxl) {
+                    this->_mxl = mxl;
+                }
+
                 const std::string &getGroupName() const {
                     return this->_groupName;
                 }
@@ -609,6 +622,7 @@ namespace utpl {
                 std::vector<OutputTransport>  _transports;
                 bool                          _liveSource;
                 std::string                   _groupName;
+                MxlTapParameters              _mxl;
         };
     }
 }

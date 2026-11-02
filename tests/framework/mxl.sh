@@ -180,26 +180,42 @@ function mxl_require_engine() {
     mxl_require ffmpeg ffprobe
 }
 
-# mxl_write_config <file> <tap json or empty> [domain]
+# mxl_write_config <file> <tap json or empty>
 # A 720p25 H.264 + AAC channel from udp://127.0.0.1:2222 to udp://127.0.0.1:4444. The tap json is the
-# value of "mxlTap", for example '{"domain":"...","video":{"flowId":"..."}}'.
+# value of "mxlTap", for example '{"domain":"...","video":{"flowId":"..."}}'. Variations, by environment:
+#   MXL_INPUT_TRANSPORT  the members of the input's "transport" object, without the braces (default:
+#                        the udp uri above), for example '"uri": ["udp://a", "udp://b"]' 
+#   MXL_OUT_SIZE         output picture size, WxH (default 1280x720)
+#   MXL_OUT_AUDIO        output audio channels (default 2)
+#   MXL_EXTRA_OUTPUT     one more output object, for example the result of mxl_programme_json
 function mxl_write_config() {
-    local file="$1" tap="$2" extra=""
+    local file="$1" tap="$2" extra="" transport size="${MXL_OUT_SIZE:-1280x720}"
     [ -n "$tap" ] && extra=", \"mxlTap\": $tap"
+    transport="${MXL_INPUT_TRANSPORT:-\"uri\": \"udp://127.0.0.1:${MXL_PORT_IN}\"}"
     cat > "$file" <<JSON
 { "version": "1.1.0",
   "application": { "logger": { "transcoder": { "level": "trace", "console": { "enable": true, "colors": false, "stderr": false } } } },
   "transcoder": {
-    "inputs": [ { "transport": { "uri": "udp://127.0.0.1:${MXL_PORT_IN}" } ${extra} } ],
+    "inputs": [ { "transport": { ${transport} }${extra} } ],
     "outputs": [ { "transports": [ { "uri": "udp://127.0.0.1:${MXL_PORT_OUT}" } ], "container": "mpegts",
       "streams": [
-        { "type": "audio", "codec": "aac", "audio": { "rate": 48000, "channels": 2 },
+        { "type": "audio", "codec": "aac", "audio": { "rate": 48000, "channels": ${MXL_OUT_AUDIO:-2} },
           "aac": { "encoder": "fdkaacenc", "properties": { "bitrate": "128000" }, "caps": {} } },
-        { "type": "video", "codec": "h264", "video": { "width": 1280, "height": 720 },
+        { "type": "video", "codec": "h264", "video": { "width": ${size%x*}, "height": ${size#*x} },
           "h264": { "encoder": "x264enc",
                     "properties": { "key-int-max": "50", "tune": "zerolatency", "speed-preset": "veryfast", "bitrate": "3000" },
-                    "caps": { "profile": "high" } } } ] } ] } }
+                    "caps": { "profile": "high" } } } ] }${MXL_EXTRA_OUTPUT:+, ${MXL_EXTRA_OUTPUT}} ] } }
 JSON
+}
+
+# mxl_programme_json [width] [height] [rate] [audio channels]: an output of type "mxl" with the fixed flow
+# ids. Size and rate left out follow the input.
+function mxl_programme_json() {
+    local video="\"flowId\": \"$MXL_FLOW_VIDEO\""
+    [ -n "$1" ] && video+=", \"width\": $1"
+    [ -n "$2" ] && video+=", \"height\": $2"
+    [ -n "$3" ] && video+=", \"rate\": $3"
+    echo "{ \"type\": \"mxl\", \"name\": \"programme\", \"mxl\": { \"domain\": \"$MXL_DOMAIN\", \"video\": { $video }, \"audio\": { \"flowId\": \"$MXL_FLOW_AUDIO\", \"channels\": ${4:-2} } } }"
 }
 
 # mxl_tap_json [domain] [audio channels]: the tap block using the fixed flow ids.
@@ -208,12 +224,18 @@ function mxl_tap_json() {
 }
 
 # mxl_start_source <kind> [size] [rate]: a live MPEG-TS source into the engine's input.
-#   tone  testsrc2 picture and a 1 kHz sine
+#   tone  testsrc2 picture and a sine (1 kHz)
 #   sync  black picture that flashes white for 2 frames at the start of each second, and a 1 kHz beep
 #         of 40 ms starting at the same instants, so any offset between the two is added later
 #   interlaced  as tone, 1080i25 top field first
+#   ac3   as tone, with AC-3 audio. MXL_SRC_AUDIO selects the layout: "stereo" (default) or "5.1",
+#         in which the tone is on the centre channel only
+#   scte  as tone, with SCTE-35 splice_null sections every second on a data PID of their own
+# Variations, by environment: MXL_SRC_PORT (default the engine's input port), MXL_SRC_FREQ (tone, default 1000 Hz).
+# The size may be given as WxH, rate as 25, 50 or 60000/1001. Sets MXL_SRC_PID.
 function mxl_start_source() {
-    local kind="$1" size="${2:-1280x720}" rate="${3:-25}" video audio filt="" opts=""
+    local kind="$1" size="${2:-1280x720}" rate="${3:-25}" video audio filt="" opts="" acodec="-c:a aac -ac 2" tail="" freq="${MXL_SRC_FREQ:-1000}"
+    local port="${MXL_SRC_PORT:-$MXL_PORT_IN}"
     case "$kind" in
         sync)
             video="color=c=black:s=${size}:r=${rate},geq=lum='if(lt(mod(T\,1)\,0.08)\,235\,16)':cb=128:cr=128"
@@ -221,17 +243,54 @@ function mxl_start_source() {
             ;;
         interlaced)
             video="testsrc2=size=1920x1080:rate=50"
-            audio="sine=frequency=1000:sample_rate=48000"
+            audio="sine=frequency=${freq}:sample_rate=48000"
             filt="-vf tinterlace=mode=interleave_top"
             opts="-flags +ildct+ilme -x264opts tff=1"
             ;;
+        ac3)
+            video="testsrc2=size=${size}:rate=${rate}"
+            audio="sine=frequency=${freq}:sample_rate=48000"
+            if [ "${MXL_SRC_AUDIO:-stereo}" = "5.1" ]; then
+                tail="-af pan=5.1|FC=c0"
+                acodec="-c:a ac3 -b:a 384k"
+            else
+                acodec="-c:a ac3 -ac 2"
+            fi
+            ;;
         *)
             video="testsrc2=size=${size}:rate=${rate}"
-            audio="sine=frequency=1000:sample_rate=48000"
+            audio="sine=frequency=${freq}:sample_rate=48000"
             ;;
     esac
-    mxl_bg ffmpeg -v error -re -f lavfi -i "$video" -f lavfi -i "$audio" $filt \
-        -c:v libx264 -preset veryfast -g 50 -b:v 3M $opts -c:a aac -ac 2 -f mpegts "udp://127.0.0.1:${MXL_PORT_IN}?pkt_size=1316"
+    if [ "$kind" = "scte" ]; then
+        # ffmpeg cannot write an SCTE-35 PID, so tsp adds one to a file, offline as the other SCTE tests do,
+        # and the file is then played out in real time with tsp. A splice_insert every 3 s from 9 s to 42 s on PID 500 (more than 12 events make tsp hang).
+        if [ ! -f "$MXL_TMP/scte.ts" ]; then
+            # splice_insert events, one every 3 s through the file, so that some come after the engine has
+            # joined. splice_null is not used: the engine treats it as a heartbeat, so finding it on the
+            # output would prove nothing.
+            {
+                echo '<?xml version="1.0" encoding="UTF-8"?>'
+                echo '<tsduck>'
+                for ((k = 0; k < 12; k++)); do
+                    echo "  <splice_information_table><splice_insert splice_event_id=\"$((100 + k))\" unique_program_id=\"1\" out_of_network=\"true\" pts_time=\"$(( (9 + 3 * k) * 90000 ))\"/></splice_information_table>"
+                done
+                echo '</tsduck>'
+            } > "$MXL_TMP/splice.xml"
+            ffmpeg -v error -y -f lavfi -i "$video" -f lavfi -i "$audio" -t 70 \
+                -c:v libx264 -preset veryfast -g 50 -b:v 3M -c:a aac -ac 2 -f mpegts "$MXL_TMP/plain.ts" >> "$MXL_LOG" 2>&1
+            tsp --add-input-stuffing 1/10 -I file "$MXL_TMP/plain.ts" \
+                -P pmt --service 1 --add-programinfo-id 0x43554549 --add-pid 500/0x86 \
+                -P spliceinject --inject-count 1 --service 1 --start-delay 1000 \
+                    --files "$MXL_TMP/splice.xml" --min-bitrate 1024 --wait-first-batch \
+                -P filter --negate --pid 0x1FFF -O file "$MXL_TMP/scte.ts" >> "$MXL_LOG" 2>&1
+        fi
+        # Played out packet by packet: ffmpeg would re-wrap the SCTE-35 sections as PES and lose them.
+        mxl_bg tsp -I file "$MXL_TMP/scte.ts" -P regulate -O ip --packet-burst 7 "127.0.0.1:${port}"
+    else
+        mxl_bg ffmpeg -v error -re -f lavfi -i "$video" -f lavfi -i "$audio" $filt $tail \
+            -c:v libx264 -preset veryfast -g 50 -b:v 3M $opts $acodec -f mpegts "udp://127.0.0.1:${port}?pkt_size=1316"
+    fi
     MXL_SRC_PID=$MXL_LAST_PID
 }
 
@@ -259,4 +318,104 @@ function mxl_alive() { kill -0 "$1" 2> /dev/null; }
 # mxl_cpu_seconds <pid>: user + system CPU time so far.
 function mxl_cpu_seconds() {
     awk '{ printf "%.2f", ($14 + $15) / 100 }' "/proc/$1/stat"
+}
+
+### Measurements, shared by the tap tests and the soak run
+
+# mxl_lipsync_pairs "<flash onsets>" "<beep onsets>": median flash-minus-beep in ms and the number of
+# pairs ("none 0" when nothing pairs up). Onsets are in seconds.
+function mxl_lipsync_pairs() {
+    python3 -I - "$1" "$2" <<'PY'
+import sys
+flash = [float(x) for x in sys.argv[1].split()]
+beep = [float(x) for x in sys.argv[2].split()]
+d = []
+for t in flash:
+    if not beep:
+        break
+    b = min(beep, key=lambda x: abs(x - t))
+    if abs(b - t) < 0.5:
+        d.append((t - b) * 1000)
+d.sort()
+print(f"{d[len(d) // 2]:.0f} {len(d)}" if d else "none 0")
+PY
+}
+
+# mxl_lipsync_file <media file>: "<median ms> <pairs>" for a file made from the `sync` source.
+function mxl_lipsync_file() {
+    local f="$1" flash beep astart
+    flash=$(ffprobe -v error -f lavfi -i "movie=$f,signalstats" -show_entries frame=pts_time:frame_tags=lavfi.signalstats.YAVG -of csv=p=0 \
+        | awk -F, '{ y = $2 + 0; if (y > 120 && prev <= 120) printf "%s ", $1; prev = y }')
+    # silencedetect times start at 0 for the audio stream, ffprobe picture times include the stream's
+    # start offset (ffmpeg's mux delay, about 1.4 s), so the audio start time is added back.
+    astart=$(ffprobe -v error -select_streams a:0 -show_entries stream=start_time -of default=nw=1:nk=1 "$f" | head -1)
+    beep=$(ffmpeg -v info -i "$f" -map 0:a -af silencedetect=noise=-35dB:d=0.3 -f null - 2>&1 | grep -o 'silence_end: [0-9.]*' \
+        | awk -v s="$astart" '{ printf "%.4f ", $2 + s }')
+    mxl_lipsync_pairs "$flash" "$beep"
+}
+
+# mxl_lipsync_flows <seconds> <log file>: reads both flows in one pipeline, so that they share a
+# timeline, and writes "flash onsets" and "beep onsets" (two lines, seconds) to <log file>.onsets.
+function mxl_lipsync_flows() {
+    local seconds="$1" log="$2"
+    timeout "$seconds" gst-launch-1.0 -m \
+        mxlsrc video-flow-id=$MXL_FLOW_VIDEO domain=$MXL_DOMAIN ! videoconvert ! videoanalyse message=true ! fakesink sync=false \
+        mxlsrc audio-flow-id=$MXL_FLOW_AUDIO domain=$MXL_DOMAIN ! audioconvert ! level interval=10000000 post-messages=true ! fakesink sync=false \
+        > "$log" 2>&1 || true
+    python3 -I - "$log" > "$log.onsets" <<'PY'
+import re, sys
+flash, beep, prev_hi, prev_loud = [], [], False, False
+for line in open(sys.argv[1], errors="replace"):
+    m = re.search(r"GstVideoAnalyse.*?running-time=\(guint64\)(\d+).*?luma-average=\(double\)([0-9.e+-]+)", line)
+    if m:
+        hi = float(m[2]) > 0.45
+        if hi and not prev_hi:
+            flash.append(int(m[1]) / 1e9)
+        prev_hi = hi
+        continue
+    m = re.search(r"level, endtime=.*?running-time=\(guint64\)(\d+).*?rms=\(GValueArray\)< ?([-0-9.e+]+)", line)
+    if m:
+        loud = float(m[2]) > -30
+        if loud and not prev_loud:
+            beep.append(int(m[1]) / 1e9)   # running-time is the start of the 10 ms interval
+        prev_loud = loud
+print(" ".join(f"{t:.4f}" for t in flash))
+print(" ".join(f"{t:.4f}" for t in beep))
+PY
+}
+
+# mxl_head_lag_ms <flow id>: how far the newest written position of a flow is behind the wall clock, in
+# ms (negative: ahead). The head index counts grains (video frames or audio samples) from the TAI
+# epoch, so this is the flow's own timeline against the system clock. Constant means no drift.
+function mxl_head_lag_ms() {
+    local id="$1" rate head now
+    rate=$(mxl_flow_field "$id" 'Grain/sample rate')
+    head=$(mxl_flow_field "$id" 'Head index')
+    now=$(date +%s.%N)
+    awk -v r="$rate" -v h="$head" -v n="$now" 'BEGIN { split(r, f, "/"); printf "%.1f", (n - h * f[2] / f[1]) * 1000 }'
+}
+
+# mxl_read_video <seconds> <frames> <file.y4m>: the video flow as I420 frames.
+function mxl_read_video() {
+    timeout "$1" gst-launch-1.0 -q -e mxlsrc video-flow-id=$MXL_FLOW_VIDEO domain=$MXL_DOMAIN num-buffers=$2 \
+        ! videoconvert ! "video/x-raw,format=I420" ! y4menc ! filesink location="$3" >> $MXL_LOG 2>&1
+}
+
+# mxl_read_audio <seconds> <file.wav>: the audio flow (mxlsrc audio buffers are 1 ms each).
+function mxl_read_audio() {
+    timeout $(( $1 + 15 )) gst-launch-1.0 -q -e mxlsrc audio-flow-id=$MXL_FLOW_AUDIO domain=$MXL_DOMAIN num-buffers=$(( $1 * 1000 )) \
+        ! audioconvert ! wavenc ! filesink location="$2" >> $MXL_LOG 2>&1
+}
+
+# mxl_tone_db <wav> <frequency> [channel]: peak level in dB of a narrow band around the frequency
+# (one channel when given, counting from 0).
+function mxl_tone_db() {
+    local pre=""
+    [ -n "$3" ] && pre="pan=mono|c0=c$3,"
+    ffmpeg -v info -i "$1" -af "${pre}bandpass=f=$2:width_type=h:w=200,volumedetect" -f null - 2>&1 | awk '/max_volume/ { print $(NF-1) }'
+}
+
+# mxl_distinct_frames <y4m>: how many different pictures the file holds.
+function mxl_distinct_frames() {
+    ffmpeg -v error -i "$1" -f framemd5 - 2>/dev/null | awk '!/^#/ { print $NF }' | sort -u | wc -l
 }

@@ -4,6 +4,7 @@
 
 #include "video.h"
 #include "flowline.h"
+#include "mxlflowline.h"
 
 using namespace utpl;
 
@@ -45,9 +46,15 @@ std::shared_ptr<transcoder::Flowline> transcoder::VideoTranscodingProcessor::cre
         }
     }
 
-    this->_flowLines.push_back(
-        std::make_shared<TranscodingFlowline>(this->_name + "-flowline-" + std::to_string(this->_flowLines.size()), container, outParams)
-    );
+    const auto name = this->_name + "-flowline-" + std::to_string(this->_flowLines.size());
+
+    if (outParams.getCodec() == Codec::MXL) {
+        // The programme tap: the canvas goes to an MXL flow as it is, with nothing to encode.
+        this->_flowLines.push_back(std::make_shared<MxlFlowline>(name, outParams));
+
+    } else {
+        this->_flowLines.push_back(std::make_shared<TranscodingFlowline>(name, container, outParams));
+    }
 
     return *this->_flowLines.rbegin();
 }

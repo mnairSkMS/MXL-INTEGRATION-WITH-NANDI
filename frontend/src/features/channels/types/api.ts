@@ -122,7 +122,8 @@ export type StreamDto = VideoStreamDto | AudioStreamDto | UnknownStreamDto;
 
 export interface OutputItemDto {
   name: string;
-  type: 'single' | 'group';
+  /** 'mxl' publishes the programme to MXL flows; the channel form has no fields for it (see channelFormToConfig). */
+  type: 'single' | 'group' | 'mxl';
   /** Mandatory below schema 1.4.0; always emitted, which is valid at every version. */
   container: 'mpegts' | 'es' | 'fmp4';
   transports: Array<{

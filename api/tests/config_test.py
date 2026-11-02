@@ -127,6 +127,25 @@ def test_unknown_keys_survive_a_round_trip(env):
     assert written["nditest"] == {"kept": True}
 
 
+def test_an_inputs_mxl_tap_block_survives_a_write(env):
+    """inputs[n].mxlTap is read by the engine's parser but has no form field or API model.
+
+    Setting it by hand in the config must not be undone by the next save.
+    """
+    tap = {
+        "domain": "/run/mxl",
+        "video": {"flowId": "5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c01"},
+        "audio": {"flowId": "5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c02", "channels": 2},
+    }
+    document = _document()
+    document["transcoder"]["inputs"][0]["mxlTap"] = tap
+
+    engine_config.validate(document)
+    engine_config.write(document)
+
+    assert engine_config.read()["transcoder"]["inputs"][0]["mxlTap"] == tap
+
+
 # ---------------------------------------------------------------------------
 # Reading
 # ---------------------------------------------------------------------------

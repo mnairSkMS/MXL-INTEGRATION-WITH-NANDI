@@ -113,8 +113,12 @@ export function channelFormToConfig(
   });
 
   // 2. Map Outputs
-  const existingOutputs = result.transcoder.outputs || [];
-  result.transcoder.outputs = form.outputs.map((outItem: FormOutputItem, index: number) => {
+  // An output of type 'mxl' publishes the programme to MXL flows. The form has no fields for it, so it is
+  // left out of the form's outputs and carried over exactly as it is, after them.
+  const allOutputs = result.transcoder.outputs || [];
+  const mxlOutputs = allOutputs.filter((o) => o.type === 'mxl');
+  const existingOutputs = allOutputs.filter((o) => o.type !== 'mxl');
+  const formOutputs = form.outputs.map((outItem: FormOutputItem, index: number) => {
     const existingOutput = existingOutputs.find((o) => o.name === outItem.name) || existingOutputs[index] || {};
     const existingVideoStream = (existingOutput.streams?.find((s) => s.type === 'video') || {}) as Partial<VideoStreamDto>;
     const existingAudioStream = (existingOutput.streams?.find((s) => s.type === 'audio') || {}) as Partial<AudioStreamDto>;
@@ -276,6 +280,8 @@ export function channelFormToConfig(
 
     return outputDto;
   });
+
+  result.transcoder.outputs = [...formOutputs, ...mxlOutputs];
 
   return result;
 }

@@ -523,8 +523,65 @@ components:
             $ref: '#/components/schemas/StreamDefinition'
         scte:
           $ref: '#/components/schemas/Scte35OutputParameters'
+        mxl:
+          $ref: '#/components/schemas/MxlOutputParameters'
+      description: >
+        `streams` is required for every output type except MXL, which has `mxl` instead.
       required:
         - streams
+
+    MxlOutputParameters:
+      type: object
+      description: >
+        Settings of an output of type MXL (the programme tap). The flows carry what the channel puts on
+        air after its compositor and audio processing. The output joins the channel's video and audio
+        processors like any other output: a size and rate equal to an existing output's share its
+        canvas, anything else makes a canvas of its own (and costs CPU). If the MXL elements are not
+        installed, or a flow is already written by another stream, the media is discarded with a warning.
+        A flow whose stream delivers nothing for 3 s is closed.
+      properties:
+        domain:
+          type: string
+          description: MXL domain directory, a tmpfs shared with the readers (for example /run/mxl).
+        video:
+          type: object
+          description: Written as v210. Width, height and rate that are left out follow the input.
+          properties:
+            flowId:
+              type: string
+              format: uuid
+              description: Flow id (UUID). One writer per flow.
+            width:
+              type: integer
+              minimum: 1
+            height:
+              type: integer
+              minimum: 1
+            rate:
+              description: Frames per second, a whole number or a fraction such as "30000/1001".
+              oneOf:
+                - type: integer
+                  minimum: 1
+                - type: string
+                  pattern: '^[0-9]+(/[0-9]+)?$'
+          required:
+            - flowId
+        audio:
+          type: object
+          description: Written as Float32 at 48 kHz.
+          properties:
+            flowId:
+              type: string
+              format: uuid
+            channels:
+              type: integer
+              minimum: 1
+              maximum: 8
+              default: 2
+          required:
+            - flowId
+      required:
+        - domain
 
     StreamDefinition:
       type: object
@@ -630,9 +687,12 @@ components:
               - `type`
               - `outputs`
               - `transports`
+
+          - **MXL** – The finished programme, written to MXL (Media eXchange Layer) flows instead of being encoded and sent. It has no `transports`, `container` or `streams`; the `mxl` object says which flows to write. See `MxlOutputParameters`.
       enum:
         - SINGLE
         - GROUP
+        - MXL
       default: SINGLE
 
     VideoPixelFormat:

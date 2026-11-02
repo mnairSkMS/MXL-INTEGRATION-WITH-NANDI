@@ -21,8 +21,10 @@ namespace utpl {
                 const StreamParameters &getStreamParameters() const override;
 
                 // Copies this stream's decoded media to MXL once it is linked, if the input is
-                // configured for it. Must be called before link().
-                void setMxlTap(const MxlTapParameters &parameters);
+                // configured for it. Must be called before link(). A stream that is linked and
+                // unlinked again while it stays on air, as a playlist's is at every change of item,
+                // passes keepWhileUnlinked so that the flow carries on through the change.
+                void setMxlTap(const MxlTapParameters &parameters, bool keepWhileUnlinked = false);
 
                 void link() override;
                 void unlink() override;
@@ -54,6 +56,8 @@ namespace utpl {
                 // MXL branch on the tee of a decoded video or audio stream; see mxltap.h.
                 MxlTapParameters       _mxlTapParameters;
                 std::unique_ptr<MxlTap> _mxlTap;
+                bool                   _mxlTapKept     = false;  // survives unlink()
+                bool                   _mxlTapAttached = false;  // its branch is on the tee now
 
                 pipeline::PadPtr _createPreview(bool encoded);
                 pipeline::PadPtr _createMxlTap();

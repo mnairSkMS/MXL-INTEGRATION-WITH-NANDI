@@ -55,6 +55,7 @@ namespace utpl {
         UNKNOWN    = 0,
 
         ES,  // Elementary stream (PCM, raw Video)
+        MXL, // Raw media written to an MXL flow (the programme tap); never read from a file or stream
         MP1, // A/V
         MP2, // A/V
         MP3,

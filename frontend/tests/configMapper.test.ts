@@ -139,6 +139,64 @@ describe('Configuration Mappers', () => {
     expect((updatedConfig.transcoder.outputs[0] as any)._internalMuxerBacklogMs).toBe(250);
   });
 
+  it('keeps an input\'s mxlTap block when the form is saved, edited or not', () => {
+    // Written by hand: the form has no fields for it, so the saved document must carry it over.
+    const tap = {
+      domain: '/run/mxl',
+      video: { flowId: '5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c01' },
+      audio: { flowId: '5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c02', channels: 2 },
+    };
+    const base = {
+      version: '1.1.0',
+      transcoder: {
+        inputs: [{ transport: { uri: 'srt://old-host:8000' }, mxlTap: tap }],
+        outputs: [],
+      },
+    } as unknown as EngineConfigDto;
+
+    const unedited = channelFormToConfig(configToChannelForm(base), base);
+    expect((unedited.transcoder.inputs[0] as any).mxlTap).toEqual(tap);
+
+    const edited = channelFormToConfig(sampleFormValues, base);
+    expect(edited.transcoder.inputs[0].transport.uri).toBe('srt://10.0.0.1:8000?mode=caller');
+    expect((edited.transcoder.inputs[0] as any).mxlTap).toEqual(tap);
+  });
+
+  it('keeps an output of type mxl (the programme tap) when the form is saved, and does not show it as a form output', () => {
+    const mxlOutput = {
+      type: 'mxl',
+      name: 'programme',
+      mxl: {
+        domain: '/run/mxl',
+        video: { flowId: '5fbec3b1-1b0f-417d-9059-8b94a47197ed', width: 1920, height: 1080, rate: '30000/1001' },
+        audio: { flowId: 'b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10', channels: 2 },
+      },
+    };
+    const base = {
+      version: '1.1.0',
+      transcoder: {
+        inputs: [{ transport: { uri: 'srt://old-host:8000' } }],
+        outputs: [
+          { name: 'test-hls', type: 'single', container: 'mpegts', transports: [{ uri: 'old-uri' }], streams: [] },
+          mxlOutput,
+        ],
+      },
+    } as unknown as EngineConfigDto;
+
+    const form = configToChannelForm(base);
+    expect(form.outputs).toHaveLength(1);
+    expect(form.outputs[0].name).toBe('test-hls');
+
+    const saved = channelFormToConfig(form, base);
+    expect(saved.transcoder.outputs).toHaveLength(2);
+    expect(saved.transcoder.outputs[0].type).toBe('single');
+    expect(saved.transcoder.outputs[1]).toEqual(mxlOutput);
+
+    // Deleting every output in the form must not delete the programme tap.
+    const noOutputs = channelFormToConfig({ ...form, outputs: [] }, base);
+    expect(noOutputs.transcoder.outputs).toEqual([mxlOutput]);
+  });
+
   it('PRESERVES extra streams, transports, and nested credentials during form-to-config mapping', () => {
     const existingBaseConfig: EngineConfigDto = {
       version: '1.4.2',

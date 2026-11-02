@@ -26,6 +26,118 @@ static utpl::Pid _parseStreamPid(const nlohmann::json &json) {
 }
 
 // Two streams, or a stream and the SCTE-35 track, on one PID would break the multiplex.
+// The domain, flow ids and audio channels of an MXL block: the input's "mxlTap" and the output's "mxl"
+// have the same keys. `where` names the block in the messages ("transcoder.inputs[0].mxlTap").
+static utpl::transcoder::MxlTapParameters _parseMxlFlows(const nlohmann::json &json, const std::string &where) {
+    utpl::transcoder::MxlTapParameters tap;
+
+    if (! json.is_object()) {
+        throw utpl::InvalidArgumentException(where + " must be an object");
+    }
+
+    if (! json.contains("domain") || ! json["domain"].is_string() || json["domain"].get<std::string>().empty()) {
+        throw utpl::InvalidArgumentException(where + ".domain is required (the MXL domain directory)");
+    }
+
+    tap.setDomain(json["domain"].get<std::string>());
+
+    auto parseFlowId = [&](const char *key) -> std::string {
+        if (! json.contains(key) || json[key].is_null()) {
+            return std::string();
+        }
+
+        const auto &keyJson = json[key];
+
+        if (! keyJson.is_object() || ! keyJson.contains("flowId") || ! keyJson["flowId"].is_string()) {
+            throw utpl::InvalidArgumentException(where + "." + key + ".flowId is required");
+        }
+
+        const auto flowId = keyJson["flowId"].get<std::string>();
+
+        if (! utpl::transcoder::MxlTapParameters::isValidFlowId(flowId)) {
+            throw utpl::InvalidArgumentException(where + "." + key + ".flowId '" + flowId + "' is not a UUID");
+        }
+
+        return flowId;
+    };
+
+    tap.setVideoFlowId(parseFlowId("video"));
+    tap.setAudioFlowId(parseFlowId("audio"));
+
+    if (tap.getVideoFlowId().empty() && tap.getAudioFlowId().empty()) {
+        throw utpl::InvalidArgumentException(where + " needs a video or an audio flow");
+    }
+
+    if (! tap.getVideoFlowId().empty() && tap.getVideoFlowId() == tap.getAudioFlowId()) {
+        throw utpl::InvalidArgumentException(where + " video and audio need different flow ids");
+    }
+
+    if (json.contains("audio") && json["audio"].is_object() && json["audio"].contains("channels")) {
+        const int channels = json["audio"]["channels"].get<int>();
+
+        if (channels < 1 || channels > utpl::transcoder::MxlTapParameters::MAX_AUDIO_CHANNELS) {
+            throw utpl::InvalidArgumentException(where + ".audio.channels must be 1 to 8");
+        }
+
+        tap.setAudioChannels(channels);
+    }
+
+    return tap;
+}
+
+// The picture of an MXL output: "width", "height" and "rate" (a whole number, or a fraction such as
+// "30000/1001"). What is left out follows the input.
+static utpl::transcoder::VideoParameters _parseMxlVideo(const nlohmann::json &video, const std::string &where) {
+    utpl::transcoder::VideoParameters params;
+
+    auto positive = [&](const char *key) -> int {
+        const int value = video[key].get<int>();
+
+        if (value <= 0) {
+            throw utpl::InvalidArgumentException(where + "." + key + " must be positive");
+        }
+
+        return value;
+    };
+
+    if (video.contains("width")) {
+        params.setWidth(positive("width"));
+    }
+
+    if (video.contains("height")) {
+        params.setHeight(positive("height"));
+    }
+
+    if (video.contains("rate")) {
+        const auto &rate = video["rate"];
+        int num = 0, den = 1;
+
+        if (rate.is_number_integer()) {
+            num = rate.get<int>();
+
+        } else if (rate.is_string()) {
+            const auto text = rate.get<std::string>();
+            const auto slash = text.find('/');
+
+            try {
+                num = std::stoi(text.substr(0, slash));
+                den = (slash == std::string::npos) ? 1 : std::stoi(text.substr(slash + 1));
+
+            } catch (const std::exception &) {
+                num = 0;
+            }
+        }
+
+        if (num <= 0 || den <= 0) {
+            throw utpl::InvalidArgumentException(where + ".rate must be a whole number or a fraction such as \"30000/1001\"");
+        }
+
+        params.setFramerate(utpl::Fraction(num, den));
+    }
+
+    return params;
+}
+
 static void _checkOutputPids(const utpl::transcoder::OutputParameters &outputParams, const nlohmann::json &output) {
     std::set<utpl::Pid> used;
     bool                hasPid = false;
@@ -615,54 +727,7 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
                         if (input.contains("mxlTap") && ! input["mxlTap"].is_null()) {
                             const auto &tapJson = input["mxlTap"];
 
-                            utpl::transcoder::MxlTapParameters tap;
-
-                            if (! tapJson.contains("domain") || ! tapJson["domain"].is_string() || tapJson["domain"].get<std::string>().empty()) {
-                                throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap.domain is required (the MXL domain directory)");
-                            }
-
-                            tap.setDomain(tapJson["domain"].get<std::string>());
-
-                            auto parseFlowId = [&](const char *key) -> std::string {
-                                if (! tapJson.contains(key) || tapJson[key].is_null()) {
-                                    return std::string();
-                                }
-
-                                const auto &keyJson = tapJson[key];
-
-                                if (! keyJson.contains("flowId") || ! keyJson["flowId"].is_string()) {
-                                    throw utpl::InvalidArgumentException(std::string("transcoder.inputs[") + std::to_string(inputIndex) + "].mxlTap." + key + ".flowId is required");
-                                }
-
-                                const auto flowId = keyJson["flowId"].get<std::string>();
-
-                                if (! utpl::transcoder::MxlTapParameters::isValidFlowId(flowId)) {
-                                    throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap." + key + ".flowId '" + flowId + "' is not a UUID");
-                                }
-
-                                return flowId;
-                            };
-
-                            tap.setVideoFlowId(parseFlowId("video"));
-                            tap.setAudioFlowId(parseFlowId("audio"));
-
-                            if (tap.getVideoFlowId().empty() && tap.getAudioFlowId().empty()) {
-                                throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap needs a video or an audio flow");
-                            }
-
-                            if (! tap.getVideoFlowId().empty() && tap.getVideoFlowId() == tap.getAudioFlowId()) {
-                                throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap video and audio need different flow ids");
-                            }
-
-                            if (tapJson.contains("audio") && tapJson["audio"].contains("channels")) {
-                                const int channels = tapJson["audio"]["channels"].get<int>();
-
-                                if (channels < 1 || channels > utpl::transcoder::MxlTapParameters::MAX_AUDIO_CHANNELS) {
-                                    throw utpl::InvalidArgumentException("transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap.audio.channels must be 1 to 8");
-                                }
-
-                                tap.setAudioChannels(channels);
-                            }
+                            const auto tap = _parseMxlFlows(tapJson, "transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap");
 
                             inputParams.setMxlTap(tap);
                         }
@@ -696,6 +761,9 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
                                 } else if (typeString == "group") {
                                     type = utpl::transcoder::OutputType::GROUP;
 
+                                } else if (typeString == "mxl") {
+                                    type = utpl::transcoder::OutputType::MXL;
+
                                 } else {
                                     type = utpl::transcoder::OutputType::UNKNOWN;
 
@@ -704,6 +772,55 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
                             }
 
                             outputParams.setType(type);
+                        }
+
+                        // The programme, written to MXL flows. It has no transport, container or stream list of
+                        // its own: the "mxl" block says which flows, and the streams are made from it.
+                        if (outputParams.getType() == utpl::transcoder::OutputType::MXL) {
+                            const std::string where = "transcoder.outputs[" + std::to_string(engineParams.getOutputParameters().size()) + "].mxl";
+
+                            if (output.contains("name")) {
+                                outputParams.setName(output["name"].get<std::string>());
+                            }
+
+                            if (! output.contains("mxl")) {
+                                throw utpl::InvalidArgumentException(where + " is required for an output of type 'mxl'");
+                            }
+
+                            const auto &mxlJson = output["mxl"];
+                            const auto  mxl     = _parseMxlFlows(mxlJson, where);
+
+                            outputParams.setMxl(mxl);
+
+                            if (! mxl.getVideoFlowId().empty()) {
+                                utpl::transcoder::StreamParameters streamParams;
+
+                                streamParams.setCodec(utpl::Codec::MXL);
+                                streamParams.setVideoParameters(
+                                    mxlJson.contains("video") && mxlJson["video"].is_object()
+                                        ? _parseMxlVideo(mxlJson["video"], where + ".video")
+                                        : utpl::transcoder::VideoParameters()
+                                );
+
+                                outputParams.addStream(streamParams);
+                            }
+
+                            if (! mxl.getAudioFlowId().empty()) {
+                                utpl::transcoder::StreamParameters streamParams;
+                                utpl::transcoder::AudioParameters  audioParams;
+
+                                audioParams.setRate(48000);
+                                audioParams.setChannels(mxl.getAudioChannels());
+
+                                streamParams.setCodec(utpl::Codec::MXL);
+                                streamParams.setAudioParameters(audioParams);
+
+                                outputParams.addStream(streamParams);
+                            }
+
+                            engineParams.addOutputParameters(outputParams);
+
+                            continue;
                         }
 
                         // Legacy

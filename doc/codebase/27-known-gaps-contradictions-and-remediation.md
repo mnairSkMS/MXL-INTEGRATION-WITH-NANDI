@@ -225,9 +225,22 @@ Details in [41](41-mxl-integration.md#source-tap-step-2).
 
 - **P3: one `utpl_scte_section_test` failure in the first full CTest run, not reproduced.** It failed once while a heavy image build was running in the background, then passed in 4 individual runs and in 6 complete CTest runs. Cause not established; the test and the SCTE code were not touched. Watch for it on a loaded host.
 - **P3: a reader that fed the video and audio flows into one muxer recorded about 9 s of silence at the start of the audio**, while the same audio flow read alone was complete. Not explained (a muxer holding one branch is the likely candidate). The lip-sync test reads each flow into its own sink to avoid it.
-- **P3: mxlTap is not applied to playlist or redundant inputs.** The setting is carried in `InputParameters` and read by `SingleInput`; `PlaylistInput` and `StandardInput` were not tested.
+- **Closed 2026-11-02: mxlTap on playlist and redundant inputs.** It is now tapped after the redundancy switch and on the playlist's own streams (tests `09`, `10`). Two inputs in one channel (the alternate source of ad insertion) with a tap on either were not tested.
 - **P3: only the first audio stream is tapped**, as for every output (see the P2 on audio selection above).
 - **Observation, not a defect: the engine's on-air output was 42 ms ahead in picture** (flash before beep) with the synthetic flash/beep source; the resolution of the measurement is one frame (40 ms).
+
+## MXL tap findings (2026-11-02)
+
+Details in [41](41-mxl-integration.md#findings-made-while-closing-the-gaps-2026-11-02).
+
+- **P2 (fixed): a cut-off or jittery source killed the video tap.** The MXL writer refuses a frame in the slot of the last one or an earlier one, and `mxlsink` reports it as a silent flow error. Fixed by `MxlFrameGrid`; unit-tested; test `14` and the failover test cover it.
+- **P2 (fixed): a leaky `appsrc` held one frame**, because `max-bytes` defaults to 200 KB and a raw frame is larger. Every other frame was dropped whenever the writer waited. The tap now sets `max-bytes`.
+- **Not a fault: "5 tap starts" after a long gap in test `14`** was the test counting the 30 s statistics line, which also contains the word "started". The log shows four real starts. The tests now match only the start lines.
+- **P3: the MXL reader `mxlsrc` errors on a skipped slot** (read in the plugin's source, not measured), so a reader of a tapped flow has to be ready to start again after a source gap.
+- **P3: `tsp -P spliceinject` hangs when more than 12 events are queued from one file**, and `ffmpeg -c copy` loses SCTE-35 sections (it re-wraps them as PES). The test source avoids both.
+- **P3: the programme audio flow's head advanced 13 % faster than real time for part of a source outage** (test `programme/05`). The silence is produced by the channel.
+- **P3 (UI): an output of type `mxl` is not shown in the channel form**; it is kept through a save (tested), but cannot be edited there.
+- **Observation: this host varies by 0.1 to 0.2 core between runs of the same CPU measurement**, so tap costs are given as ranges.
 
 ## Maintenance rule
 

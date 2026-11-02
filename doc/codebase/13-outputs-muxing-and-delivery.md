@@ -21,6 +21,10 @@
 
 Runtime check (scratch build, 2026-10-24): file, SRT and HLS outputs carried video 0x3E8, audio 0x3E9 and SCTE 0x1F4 as configured. With only audio fixed at 0x41, video moved to 0x42. With no `pid`, numbering was unchanged (0x41/0x42).
 
+## MXL output
+
+An output of `"type": "mxl"` is created as `MxlOutput` (`output/mxl.cpp`) next to the `SingleOutput`s. It has no muxer or sink: each stream's pad ends in an `MxlTap` that converts the raw media in a side pipeline and writes an MXL flow, and a flowline that does not encode (`MxlFlowline`, see [09](09-channel-routing-connectors-and-flowlines.md)) delivers the processor's picture and audio to it. It is the programme tap of [41](41-mxl-integration.md#programme-tap-step-3); settings are in [05](05-configuration-reference.md#output-mxl). It is not part of a group.
+
 ## Sink selection
 
 `OutputSink::create` dispatches by URI protocol:

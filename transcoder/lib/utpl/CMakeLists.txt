@@ -54,6 +54,7 @@ set(SOURCE_FILES
     src/utpl/transcoder/output/dash/presentation.cpp
 
     src/utpl/transcoder/output/single.cpp
+    src/utpl/transcoder/output/mxl.cpp
     src/utpl/transcoder/output/group.cpp
 
     src/utpl/transcoder/input/single.cpp
@@ -85,6 +86,7 @@ set(SOURCE_FILES
     src/utpl/transcoder/channel/processor/transcoder/audio.cpp
     src/utpl/transcoder/channel/processor/transcoder/video.cpp
     src/utpl/transcoder/channel/processor/transcoder/flowline.cpp
+    src/utpl/transcoder/channel/processor/transcoder/mxlflowline.cpp
     src/utpl/transcoder/channel/processor/transcoder/dolby.cpp
     src/utpl/transcoder/channel/compositor.cpp
     
@@ -97,6 +99,7 @@ set(SOURCE_FILES
     src/utpl/transcoder/blanker.cpp
     src/utpl/transcoder/adBreak.cpp
     src/utpl/transcoder/preview.cpp
+    src/utpl/transcoder/mxlframegrid.cpp
     src/utpl/transcoder/mxltap.cpp
 
     src/utpl/esam/client.cpp

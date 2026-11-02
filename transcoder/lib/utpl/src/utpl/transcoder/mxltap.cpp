@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <set>
 
@@ -14,6 +15,19 @@ using namespace utpl;
 // After a failure the side pipeline is not restarted for this long, so a persistent fault (for
 // example a full tmpfs) costs one attempt every few seconds and not one per frame.
 #define MXL_TAP_RETRY_SECONDS 5
+
+// A stream that has delivered nothing for this long has left the air (or its source is gone). Its flow
+// is closed. It is longer than a change of playlist item or a short hiccup of the source.
+#define MXL_TAP_IDLE_SECONDS 3
+
+// How often a working tap writes a line of statistics to the log.
+#define MXL_TAP_STATS_SECONDS 30
+
+// Frames the side pipeline holds while the writer waits for their time: about a second at 25 to 30 fps,
+// and it is only filled when the input runs that far ahead of the clock. The memory is capped as well,
+// but never below three frames, so a large picture holds fewer than the count.
+#define MXL_TAP_VIDEO_QUEUE     30
+#define MXL_TAP_VIDEO_MAX_BYTES (128ULL * 1024 * 1024)
 
 namespace {
     // One writer per flow: a second tap on the same flow would fight the first over its memory.
@@ -52,9 +66,16 @@ std::unique_ptr<transcoder::MxlTap> transcoder::MxlTap::create(const MxlTapParam
     return std::unique_ptr<MxlTap>(new MxlTap(parameters, kind, owner));
 }
 
+struct transcoder::MxlTap::Watch {
+    std::mutex guard;
+    MxlTap    *tap = nullptr;
+};
+
 transcoder::MxlTap::MxlTap(const MxlTapParameters &parameters, Kind kind, const std::string &owner) : _parameters(parameters), _kind(kind), _owner(owner) {
-    this->_flowId  = (kind == Kind::VIDEO) ? parameters.getVideoFlowId() : parameters.getAudioFlowId();
-    this->_retryAt = std::chrono::steady_clock::now();
+    this->_flowId     = (kind == Kind::VIDEO) ? parameters.getVideoFlowId() : parameters.getAudioFlowId();
+    this->_retryAt    = std::chrono::steady_clock::now();
+    this->_lastSample = this->_retryAt;
+    this->_statsAt    = this->_retryAt;
 
     const bool video = (kind == Kind::VIDEO);
 
@@ -71,9 +92,39 @@ transcoder::MxlTap::MxlTap(const MxlTapParameters &parameters, Kind kind, const 
     this->_feed = gst_bin_get_by_name(GST_BIN((*this->_bin)->get()), "feed");
 
     g_signal_connect(this->_feed, "new-sample", G_CALLBACK(onFeed), this);
+
+    // The timer may run while the tap is being destroyed, so it reaches the tap only through a cell that
+    // the destructor empties first.
+    this->_watch      = std::make_shared<Watch>();
+    this->_watch->tap = this;
+
+    this->_watchId = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 1, +[](gpointer data) -> gboolean {
+        auto &watch = *static_cast<std::shared_ptr<Watch> *>(data);
+
+        std::lock_guard lock(watch->guard);
+
+        if (! watch->tap) {
+            return G_SOURCE_REMOVE;
+        }
+
+        watch->tap->_checkIdle();
+
+        return G_SOURCE_CONTINUE;
+    }, new std::shared_ptr<Watch>(this->_watch), +[](gpointer data) {
+        delete static_cast<std::shared_ptr<Watch> *>(data);
+    });
 }
 
 transcoder::MxlTap::~MxlTap() {
+    {
+        std::lock_guard lock(this->_watch->guard);
+        this->_watch->tap = nullptr;
+    }
+
+    if (this->_watchId) {
+        g_source_remove(this->_watchId);
+    }
+
     if (this->_feed) {
         // No callback may reach this object once the destructor returns.
         g_signal_handlers_disconnect_by_data(this->_feed, this);
@@ -96,25 +147,72 @@ pipeline::BinPtr transcoder::MxlTap::getBin() {
     return this->_bin;
 }
 
-std::string transcoder::MxlTap::_describe() const {
-    char buffer[512];
+void transcoder::MxlTap::_checkIdle() {
+    std::lock_guard lock(this->_guard);
+
+    // A line every half minute while the tap is working, so that a log shows what it did.
+    const auto now = std::chrono::steady_clock::now();
+
+    if (this->_pipeline && now - this->_statsAt >= std::chrono::seconds(MXL_TAP_STATS_SECONDS)) {
+        if (this->_pushed != this->_statsPushed) {
+            if (this->_kind == Kind::VIDEO) {
+                LOG(("MXL tap {} (video): {} frames written in the last {} s; since the flow started {} dropped and {} moved by a slot",
+                    this->_flowId, this->_pushed - this->_statsPushed, MXL_TAP_STATS_SECONDS, this->_grid.getDropped(), this->_grid.getMoved()));
+
+            } else {
+                LOG(("MXL tap {} (audio): {} buffers written in the last {} s", this->_flowId, this->_pushed - this->_statsPushed, MXL_TAP_STATS_SECONDS));
+            }
+        }
+
+        this->_statsPushed = this->_pushed;
+        this->_statsAt     = now;
+    }
+
+    if (this->_pipeline && now - this->_lastSample > std::chrono::seconds(MXL_TAP_IDLE_SECONDS)) {
+        LOG(("MXL tap {}: no data for {} s; the flow is closed until the stream delivers again", this->_flowId, MXL_TAP_IDLE_SECONDS));
+        this->_stop();
+    }
+}
+
+std::string transcoder::MxlTap::_describe(GstCaps *caps, gsize bufferSize) const {
+    // The domain is a path and can be long.
+    char buffer[4096];
 
     if (this->_kind == Kind::VIDEO) {
-        // The deinterlacer passes progressive pictures through. For interlaced ones it keeps one
-        // field per frame, so the frame rate is unchanged: an MXL video flow is progressive.
+        // The writer waits for each frame's time on the channel's clock, and frames reach the tap ahead of
+        // it by as much as the input holds them back: nothing for a live source, but 0.7 s for a playlist
+        // item read from a file. appsrc keeps that many waiting. It holds `max-buffers` buffers and also
+        // stops at `max-bytes` (200 KB unless set); one raw frame is larger than that, so the default
+        // holds a single frame and every other frame is dropped.
+        const guint64 maxBytes = std::max<guint64>((guint64) bufferSize * 3, MXL_TAP_VIDEO_MAX_BYTES);
+
+        // A progressive picture needs no deinterlacer. An interlaced one is reduced to one field per frame,
+        // so the frame rate is unchanged: an MXL video flow is progressive.
+        bool interlaced = false;
+
+        if (caps) {
+            if (const GstStructure *structure = gst_caps_get_structure(caps, 0)) {
+                if (const gchar *mode = gst_structure_get_string(structure, "interlace-mode")) {
+                    interlaced = std::string(mode) != "progressive";
+                }
+            }
+        }
+
         std::snprintf(buffer, sizeof(buffer),
-            "appsrc name=src is-live=true format=time max-buffers=3 leaky-type=downstream"
-            " ! deinterlace mode=auto method=linear fields=top"
+            "appsrc name=src is-live=true format=time max-buffers=%d max-bytes=%" G_GUINT64_FORMAT " leaky-type=downstream"
+            "%s"
             " ! videoconvert"
             " ! video/x-raw,format=v210"
             " ! mxlsink name=mxl flow-id=%s domain=%s",
+            MXL_TAP_VIDEO_QUEUE, maxBytes,
+            interlaced ? " ! deinterlace mode=auto method=linear fields=top" : "",
             this->_flowId.c_str(), this->_parameters.getDomain().c_str());
 
     } else {
         const int channels = this->_parameters.getAudioChannels();
 
         std::snprintf(buffer, sizeof(buffer),
-            "appsrc name=src is-live=true format=time max-buffers=50 leaky-type=downstream"
+            "appsrc name=src is-live=true format=time max-buffers=50 max-bytes=0 leaky-type=downstream"
             " ! audioconvert ! audioresample"
             // mxlsink places every audio buffer at the sample index of its own timestamp, so
             // timestamps must be contiguous. Decoded frames carry timestamps rounded to the
@@ -138,7 +236,8 @@ int transcoder::MxlTap::_start(GstSample *sample) {
     }
 
     GError     *error    = nullptr;
-    GstElement *pipeline = gst_parse_launch(this->_describe().c_str(), &error);
+    GstBuffer  *first    = gst_sample_get_buffer(sample);
+    GstElement *pipeline = gst_parse_launch(this->_describe(gst_sample_get_caps(sample), first ? gst_buffer_get_size(first) : 0).c_str(), &error);
 
     if (! pipeline) {
         WARN(("MXL tap {}: unable to build the side pipeline: {}", this->_flowId, error ? error->message : "?"));
@@ -214,6 +313,7 @@ void transcoder::MxlTap::_stop() {
     this->_pipeline = nullptr;
     this->_source   = nullptr;
     this->_shape.clear();
+    this->_grid.reset();
 
     // Stopping waits for the side pipeline's streaming thread, which is also what delivers its
     // errors to the handler above, so the handler is removed first.
@@ -232,7 +332,7 @@ void transcoder::MxlTap::_stop() {
 
     gst_object_unref(pipeline);
 
-    LOG(("MXL tap {} stopped after {} buffers", this->_flowId, this->_pushed));
+    LOG(("MXL tap {} stopped after {} buffers ({} dropped, {} moved by a slot)", this->_flowId, this->_pushed, this->_grid.getDropped(), this->_grid.getMoved()));
 }
 
 GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
@@ -247,6 +347,8 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
         std::lock_guard lock(self->_guard);
 
         const auto now = std::chrono::steady_clock::now();
+
+        self->_lastSample = now;
 
         if (self->_errored.exchange(false)) {
             self->_stop();
@@ -271,6 +373,10 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
                     gst_structure_get_fraction(structure, "framerate", &num, &den);
 
                     shape = std::to_string(width) + "x" + std::to_string(height) + "@" + std::to_string(num) + "/" + std::to_string(den);
+
+                    if (shape != self->_shape) {
+                        self->_grid.setRate(num, den);
+                    }
                 }
 
                 if (self->_pipeline && shape != self->_shape) {
@@ -294,15 +400,37 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
                 GstClockTime running = gst_segment_to_running_time(gst_sample_get_segment(sample), GST_FORMAT_TIME, GST_BUFFER_PTS(buffer));
 
                 if (GST_CLOCK_TIME_IS_VALID(running)) {
-                    // A copy of the buffer header, not of the picture: the memory is shared. Only
-                    // the time is changed, to the channel's running time.
-                    GstBuffer *out = gst_buffer_make_writable(gst_buffer_ref(buffer));
+                    uint64_t stamped = running;
+                    auto     placed  = (self->_kind == Kind::VIDEO) ? self->_grid.place(running, &stamped) : MxlFrameGrid::Result::WRITE;
 
-                    GST_BUFFER_PTS(out) = running;
-                    GST_BUFFER_DTS(out) = GST_CLOCK_TIME_NONE;
+                    if (placed == MxlFrameGrid::Result::RESTART) {
+                        // The channel's times went back by over a second (a source that was replaced, a
+                        // timeline that was reset). The flow cannot be written backwards: start it afresh.
+                        LOG(("MXL tap {}: the picture's times stepped back; the flow is restarted", self->_flowId));
+                        self->_stop();
+                        self->_restarts++;
 
-                    if (gst_app_src_push_buffer(GST_APP_SRC(self->_source), out) == GST_FLOW_OK) {
-                        self->_pushed++;
+                        if (self->_start(sample) == 1) {
+                            self->_shape = shape;
+                            placed       = self->_grid.place(running, &stamped);
+
+                        } else {
+                            self->_retryAt = now + std::chrono::seconds(MXL_TAP_RETRY_SECONDS);
+                            placed         = MxlFrameGrid::Result::DROP;
+                        }
+                    }
+
+                    if (placed == MxlFrameGrid::Result::WRITE && self->_pipeline && self->_source) {
+                        // A copy of the buffer header, not of the picture: the memory is shared. Only
+                        // the time is changed, to the channel's running time on the frame grid.
+                        GstBuffer *out = gst_buffer_make_writable(gst_buffer_ref(buffer));
+
+                        GST_BUFFER_PTS(out) = stamped;
+                        GST_BUFFER_DTS(out) = GST_CLOCK_TIME_NONE;
+
+                        if (gst_app_src_push_buffer(GST_APP_SRC(self->_source), out) == GST_FLOW_OK) {
+                            self->_pushed++;
+                        }
                     }
                 }
             }

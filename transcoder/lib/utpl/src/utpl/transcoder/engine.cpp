@@ -14,6 +14,7 @@
 
 #include "utpl/transcoder/output/single.h"
 #include "utpl/transcoder/output/group.h"
+#include "utpl/transcoder/output/mxl.h"
 
 #include "utpl/esam/client.h"
 
@@ -212,6 +213,11 @@ struct transcoder::Engine::Pimpl {
                 if (outputParams.getType() == OutputType::SINGLE) {
                     this->_outputs.push_back({
                         std::make_shared<SingleOutput>(), outputParams
+                    });
+
+                } else if (outputParams.getType() == OutputType::MXL) {
+                    this->_outputs.push_back({
+                        std::make_shared<MxlOutput>(), outputParams
                     });
                 }
             }

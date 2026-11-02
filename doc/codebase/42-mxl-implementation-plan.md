@@ -1,6 +1,6 @@
 # MXL Implementation Plan
 
-**Status (2026-10-30): Steps 0, 1 and 2 are done (baseline, MXL in the images, source tap); Steps 3–6 are plan only.** Element names
+**Status (2026-11-02): Steps 0, 1, 2 and 3 are done (baseline, MXL in the images, source tap, programme tap); Steps 4–6 are plan only.** Element names
 and paths were read from this checkout's source. The performance figures in section 4 are
 **illustrative calculations** from frame sizes, except where marked **measured**; the measured
 conversion and ring costs are in [41, Phase 1 results](41-mxl-integration.md#phase-1-results) and
@@ -254,23 +254,36 @@ Differences from the plan this page first made:
 | A configurable ring length | Not possible: `mxlsink` fixes the ring. |
 
 Measured cost on this host: +0.02 to +0.06 core on 720p25 and 1080i25 channels (41). The programme tap
-(Step 3) will reuse `MxlTap` with a different attach point and a BGRA → v210 conversion.
+(Step 3) reuses `MxlTap` with a different attach point and a BGRA → v210 conversion.
 
-### Step 3: CP2 programme tap (Phase 2, WS-03/WS-04)
+**Gaps closed 2026-11-02** (all in [41](41-mxl-integration.md#source-tap-step-2)): redundant two-URI inputs
+(tapped after the switch), playlist inputs (one flow through every item), 1080p50, 720p59.94 and 1080p29.97,
+AC-3 5.1 and stereo, a source with SCTE-35, a source that stops and returns, and the UI and API round trip.
+Not closed: the Dolby SDK paths (integration gated), a channel with a second input, and a run of hours
+(a soak script exists). Four faults surfaced and were fixed: the writer's strictly increasing slots (the
+`MxlFrameGrid`), the 200 KB default of `appsrc`, sources that run ahead of the clock, and a tap that was
+destroyed at every playlist item change.
 
-| Layer | Change |
+### Step 3: CP2 programme tap (Phase 2, WS-03/WS-04) — DONE 2026-11-02
+
+Settings, design, results and findings are on [41, Programme tap](41-mxl-integration.md#programme-tap-step-3);
+the key is an output with `"type": "mxl"` ([05](05-configuration-reference.md#output-mxl)).
+
+Differences from the plan this page first made:
+
+| Planned | Built |
 | --- | --- |
-| Parameters (`include/utpl/transcoder/`) | New output type and parameters: domain, video flow UUID, audio flow UUIDs, size, rate, channel layout, fail policy. |
-| Pixel format | `PixelFormat` (`transcoder/lib/common/include/utpl/common/types.h`) has no V210 value today. Add it, plus its caps-string mapping in `transcoder/lib/utpl/src/utpl/pipeline/caps.cpp`, its parser value and its schema enum. |
-| Media graph (`channel/connector/complex/video.cpp`, `audio.cpp`, `dolby.cpp`) | Register the tap as a connector consumer through `getPad(params)` with the v210 format and F32LE. Terminate the branch in `mxlsink` instead of a processor, behind a leaky `queue` for fail-open. |
-| Output wiring (`output/`, `channel.cpp`) | An `mxl` output builds a tap instead of a flowline, muxer and sink. |
-| Clock | **No adapter needed:** `mxlsink` maps pipeline time to MXL (TAI) time itself, with an offset sampled once and shared by the MXL elements of the pipeline ([41](41-mxl-integration.md)). Both taps must therefore be in the same pipeline. Add a long-run drift test. |
-| Parser (`transcoder/app/src/application/config/parser/json/parser.cpp`) | `type: "mxl"` next to `single`/`group` (line 637); validate UUIDs and the domain path. |
-| Schema and examples | `transcoder/config/doc/openapi.yaml` and an example in `transcoder/config/`. An example moves to `config/` only when something runs it (AGENTS.md). |
-| API and UI | Pydantic models, `frontend/src/features/channels` mappers and form. |
-| Metrics | Frames written, frames dropped by the leaky queue, conversion time, last-write time. |
-| Tests | `tests/tests/mxl/tap/<case>/` with a `src/config.json` fixture (T3/T4). Nandi publishes; `mxl-info` and `ffprobe` check the flow; TSDuck checks the on-air output **with and without** the tap to show it does not regress. |
-| Docs | 02, 05, 10, 11, 13, 26, 41. |
+| New output type and parameters: domain, flow UUIDs, size, rate, channel layout, fail policy | `OutputType::MXL` and a `mxl` block (domain, `video.{flowId,width,height,rate}`, `audio.{flowId,channels}`). No fail policy: the tap is fail-open (the decision was assumed, not approved). |
+| Add `PixelFormat::V210`, its caps mapping, parser value and schema enum | **Not needed.** The v210 conversion is done in the tap's side pipeline (`videoconvert`), so no pixel-format enum, caps mapping or parser value was added. |
+| Register the tap as a connector consumer through `getPad(params)`; terminate the branch in `mxlsink` behind a leaky `queue` | The output joins the existing processors like any output, through a new `Codec::MXL` and a flowline that does not encode (`MxlFlowline`); the tap (leaky `queue`, `appsink`, side pipeline with `mxlsink`) is the output's stream sink. No connector code changed. |
+| Output wiring in `output/` and `channel.cpp` | `MxlOutput` (`output/mxl.cpp`), created in `engine.cpp`; `channel.cpp` only passes the MXL parameters on; `application.cpp` validates the new type. |
+| Clock: no adapter, both taps in the same pipeline | As planned. Each tap's side pipeline shares the channel's clock and base time. |
+| Parser `type: "mxl"` next to `single`/`group` | As planned; the input's and the output's blocks share one validation helper. `rate` also accepts a fraction string. |
+| API and UI: Pydantic models and a form | No API model (the config passes through). The UI does not show the output and keeps it through a save. |
+| Metrics: frames written, dropped, conversion time, last write | A statistics line in the log every 30 s (frames written; frames dropped and moved by the grid). No metrics endpoint. |
+
+Measured cost: +0.16 core on a 720p25 channel with a shared canvas ([41](41-mxl-integration.md#programme-tap-step-3)).
+The 1080p cost of an own canvas, a 1080p50 programme flow and Dolby audio were not measured.
 
 ### Step 4: MXL input (Phase 2, WS-02)
 

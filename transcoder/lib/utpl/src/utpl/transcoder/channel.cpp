@@ -309,6 +309,7 @@ class transcoder::Channel::Pimpl {
                     targetParams.setGroupName     (outputParams.getGroupName());
                     targetParams.setContainer     (outputParams.getContainer());
                     targetParams.setScteParameters(outputParams.getScteParameters());
+                    targetParams.setMxl           (outputParams.getMxl());
                     targetParams.setLiveSource    (isLiveInput);
 
                     // Apply group output parameters

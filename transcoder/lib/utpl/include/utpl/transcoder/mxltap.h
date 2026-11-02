@@ -11,6 +11,7 @@
 
 #include "utpl/pipeline/bin.h"
 #include "utpl/transcoder/input.h"
+#include "utpl/transcoder/mxlframegrid.h"
 
 namespace utpl {
     namespace transcoder {
@@ -48,9 +49,16 @@ namespace utpl {
                 int  _start(GstSample *sample);
                 void _stop();
 
-                std::string _describe() const;
+                // The side pipeline for pictures with this caps and size (video) or for the configured channels (audio).
+                std::string _describe(GstCaps *caps, gsize bufferSize) const;
+
+                // Once a second: lets go of the flow when the stream has delivered nothing for a while,
+                // so that a stream that left the air does not leave a flow that looks alive.
+                void _checkIdle();
 
             private:
+                struct Watch;
+
                 MxlTapParameters _parameters;
                 Kind             _kind;
                 std::string      _owner;    // "<domain>|<flow id>", claimed for the tap's lifetime
@@ -63,12 +71,20 @@ namespace utpl {
                 GstElement      *_source   = nullptr; // its appsrc
                 std::string      _shape;              // size and rate it was started for (video)
 
+                MxlFrameGrid     _grid;               // video only: the place of each frame in the flow
+
+                std::shared_ptr<Watch> _watch;
+                guint                  _watchId = 0;
+                std::chrono::steady_clock::time_point _lastSample;
+
                 std::atomic<bool> _errored { false };
                 std::chrono::steady_clock::time_point _retryAt;
 
                 // Counters, for the log line written when the pipeline is replaced or stopped.
                 guint64 _pushed   = 0;
                 guint64 _restarts = 0;
+                guint64 _statsPushed = 0;  // _pushed at the last line of statistics
+                std::chrono::steady_clock::time_point _statsAt;
         };
     }
 }

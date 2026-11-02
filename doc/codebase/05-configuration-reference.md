@@ -189,7 +189,7 @@ Two live URIs enable redundancy/fallback and require compatible live protocols. 
 
 ### Input MXL tap
 
-`inputs[n].mxlTap` copies an input's **decoded** media into [MXL](41-mxl-integration.md) flows that other processes can read. It is **Runtime verified** (eight tests against the installed engine, recorded in [41](41-mxl-integration.md#source-tap-step-2)). Parser: `parser.cpp` (the `mxlTap` block, next to `role` and `offAir`); parameters: `MxlTapParameters` in `input.h`; media graph: `stream/input/base.cpp` (`_createMxlTap`, `linkSrcPad`) and `mxltap.cpp`.
+`inputs[n].mxlTap` copies an input's **decoded** media into [MXL](41-mxl-integration.md) flows that other processes can read. It is **Runtime verified** (fourteen tests, recorded in [41](41-mxl-integration.md#source-tap-step-2)). Parser: `parser.cpp` (the `mxlTap` block, next to `role` and `offAir`); parameters: `MxlTapParameters` in `input.h`; media graph: `stream/input/base.cpp` (`_createMxlTap`, `linkSrcPad`) and `mxltap.cpp`.
 
 ```json
 "mxlTap": {
@@ -208,7 +208,23 @@ Two live URIs enable redundancy/fallback and require compatible live protocols. 
 
 At least one of `video` and `audio` is required, the two ids must differ, and ids must be canonical UUIDs; otherwise the configuration is rejected at start. One writer per flow: a second stream asking for a flow already in use is skipped with a warning.
 
-Constraints: single (live) inputs only; passthrough streams are not tapped (they are still compressed); a playlist input is not covered. The tap is **fail-open**: it is a leaky side branch with its own pipeline, so a missing `mxlsink`, a full or missing domain, or an unsupported picture stops only the tap, which retries every 5 s. The channel keeps running and its outputs are unchanged.
+Where the tap sits for each kind of input:
+
+| Input | Tap on | Behaviour |
+| --- | --- | --- |
+| Single URI | The input's own decoded video and first audio stream | As above. |
+| Two redundant URIs | The stream **after the switch** between the two sources | One flow, whichever source is on air. A failover does not restart the tap (test `09`). Neither source is tapped alone. |
+| Playlist (`pls+`) | The playlist's own video and audio streams, which carry each item in turn | One flow for the whole playlist, kept through every change of item (test `10`). The items themselves are not tapped. |
+
+Constraints: passthrough streams are not tapped (they are still compressed); only the first audio stream is tapped. A channel with a second input (used only as the alternate source of SCTE ad insertion) was **not tested** with a tap on either input; what a tap does on an input the channel is not using has not been measured.
+
+Timing and faults:
+
+- A flow carries the engine's **running time** of each frame, so it lines up with what the same frame does on air. A source that is held back before it reaches the tap (a playlist item read from a file arrives about 0.7 s early) is handled by a queue of about a second of video in the tap's side pipeline.
+- The writer needs strictly increasing frame slots. The tap puts video on an exact frame grid so that jitter or a cut-off source never makes two frames share a slot; a frame that is more than one slot early is moved to the next slot, one that is two or more early is dropped, and a timeline that steps back by over a second restarts the flow.
+- A flow whose stream delivers nothing for 3 s is closed (and opened again when data returns), so a flow that is not written never looks alive. A gap of 1.5 s does not close it (test `14`).
+- The tap is **fail-open**: it is a leaky side branch with its own pipeline, so a missing `mxlsink`, a full or missing domain, or an unsupported picture stops only the tap, which retries every 5 s. The channel keeps running and its outputs are unchanged.
+- By the plugin's source, an MXL reader (`mxlsrc`) returns an error if it reads a slot that was skipped (it is flagged invalid), so a reader should be ready to start again after a gap in the source. This was read, not measured.
 
 ### Input transport objects
 
@@ -271,7 +287,7 @@ Every output has a logical type, optional unique name, delivery transports, cont
 | Field | Type/default | Behavior |
 | --- | --- | --- |
 | `name` | string; empty | Non-empty names must be unique. Required for `group` and for any single output referenced by a link. |
-| `type` | `single` or `group`; parser default `single` | Value is lowercased. Unknown values eventually fail application validation. |
+| `type` | `single`, `group` or `mxl`; parser default `single` | Value is lowercased. Unknown values eventually fail application validation. `mxl` writes the programme to MXL flows; see [Output MXL](#output-mxl). |
 | `transports` | array | Required for standalone single and group outputs. A grouped single may omit it in format `>=1.4.0`. |
 | `container` | `mpegts`, `es`, or `fmp4` | Required for a standalone single. Group inheritance is available in `>=1.4.0`; actual fMP4 use is HLS-specific. Values are case-sensitive. |
 | `streams` | non-empty array | Always required by the parser. |
@@ -404,6 +420,42 @@ Rules:
 - A group's streams must all be links. Non-empty modifiers must be unique within the group.
 - Group-to-group links are rejected.
 - Linking a single output marks it as belonging to the group; such a child may omit transport/container where inheritance applies.
+
+### Output MXL
+
+An output of `"type": "mxl"` publishes the **finished programme** (the picture and sound the channel puts on air, after its compositor, graphics and audio processing) as [MXL](41-mxl-integration.md) flows. It is **Runtime verified** (six tests, recorded in [41](41-mxl-integration.md#programme-tap-step-3)). It replaces the encoder, muxer and sink of an ordinary output and has no `transports`, `container` or `streams`: the `mxl` block says what to write. Parser: `parser.cpp` (the `type: "mxl"` branch of the output loop, helpers `_parseMxlFlows` and `_parseMxlVideo`); parameters: `OutputType::MXL` and `OutputParameters::getMxl()`; media graph: `output/mxl.cpp` and `channel/processor/transcoder/mxlflowline.cpp`.
+
+```json
+{
+  "type": "mxl",
+  "name": "programme",
+  "mxl": {
+    "domain": "/run/mxl",
+    "video": { "flowId": "5fbec3b1-1b0f-417d-9059-8b94a47197ed", "width": 1920, "height": 1080, "rate": "30000/1001" },
+    "audio": { "flowId": "b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10", "channels": 2 }
+  }
+}
+```
+
+| JSON path | Type | Default/required | Behavior |
+| --- | --- | --- | --- |
+| `mxl.domain` | string | Required | MXL domain directory (a tmpfs shared with readers). |
+| `mxl.video.flowId` | UUID string | Optional | Writes the programme picture as v210. |
+| `mxl.video.width`, `height` | positive integers | The input's | Size of the programme flow. |
+| `mxl.video.rate` | integer or fraction string (`"30000/1001"`) | The input's | Frame rate of the programme flow. The normal stream `rate` takes whole numbers only; a fraction is accepted here so that 29.97 and 59.94 can be written. |
+| `mxl.audio.flowId` | UUID string | Optional | Writes the programme audio as Float32, 48 kHz. |
+| `mxl.audio.channels` | integer 1–8 | `2` | Channels of the audio flow; the channel's audio processor mixes to this count. |
+
+At least one of `video` and `audio` is required, the two ids must differ, and ids must be canonical UUIDs; otherwise the configuration is rejected at start with a message naming the key (`transcoder.outputs[n].mxl…`).
+
+How it fits the channel:
+
+- The output joins the channel's **video and audio processors** like an ordinary output. An MXL video of the same size and rate as an on-air output shares its canvas (the cost is the conversion to v210 and one extra branch); any other size or rate makes a canvas of its own, with the compositor and scaler that implies (test `04`, 720p in and 1920×1080 out). Audio of the same channel count and rate as another output shares its processor.
+- A flow carries the processors' output in running time, so it lines up with the frames the encoders get. It is taken before the encoders: it does not carry the encoders' latency or the muxer's offsets, and it is in sync with the source (test `03`).
+- **It keeps running when the source stops.** The programme is the channel's output, so the flows keep being written while the channel holds or fills the picture (test `05`).
+- The tap is **fail-open**, as the source tap is: it is a leaky branch with a side pipeline of its own, so a missing `mxlsink`, a full or unusable domain, or a flow that another stream already writes stops only the tap (the media is discarded with a warning) and the on-air outputs are unchanged.
+- SCTE-35 does not travel in the flow (decision Q7 of the plan is still open). Only the first video and first audio stream have flows.
+- The UI's channel form has no fields for it: a config with an MXL output opens in the UI, the output is not shown, and a save keeps it exactly as it is.
 
 ## Output SCTE-35 settings
 

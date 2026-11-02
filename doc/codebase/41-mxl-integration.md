@@ -1,12 +1,13 @@
 # MXL and MXL Fabrics Integration
 
-**Status (2026-10-30): Phase 0 (baseline) and Phase 1 are done, and the source tap (Step 2) is implemented; the programme tap, an MXL input and an external encoder are not.** MXL
+**Status (2026-11-02): Phase 0 (baseline) and Phase 1 are done, and the source tap (Step 2) and the programme output (Step 3) are implemented and tested; an MXL input, an external encoder and Fabrics are not.** MXL
 v1.1.0 and its GStreamer plugin are built into `utpl/base`, so every image has them. They are
 **Build verified** and **Runtime verified** by the SDK tests in `tests/tests/mxl/sdk/` (see
 [Phase 1 results](#phase-1-results)); the engine without MXL is measured in the
-[Phase 0 baseline](#phase-0-baseline). The only MXL code in `transcoder/` is the source tap
-([Source tap](#source-tap-step-2)); an MXL input, the programme tap, a flow registry and Fabrics remain
-**integration gated** (planned, not implemented), and `api/` has no MXL code.
+[Phase 0 baseline](#phase-0-baseline). The MXL code in `transcoder/` is the source tap
+([Source tap](#source-tap-step-2)) and the programme output ([Programme tap](#programme-tap-step-3)); an
+MXL input, a flow registry and Fabrics remain **integration gated** (planned, not implemented), and
+`api/` has no MXL model (the engine config passes `mxlTap` and `mxl` through untouched).
 
 This checkout exists to test integrating the [Media eXchange Layer](https://dmf-mxl.github.io/mxl/main/)
 (MXL) and MXL Fabrics with Nandi (this UTPL engine; "Nandi Transcoder" is the product name in the
@@ -165,16 +166,19 @@ build and then against the engine installed in the rebuilt image (see
 | --- | --- | --- |
 | Settings | `MxlTapParameters` in `input.h`; parser block in `parser.cpp`; `openapi.yaml` | `domain`, `video.flowId`, `audio.flowId`, `audio.channels`. A wrong block is refused at start. |
 | Branch in the graph | `BaseInputStream::linkSrcPad` / `_createMxlTap` in `stream/input/base.cpp`, class `MxlTap` in `mxltap.cpp` | A leaky `queue` and an `appsink` on the tee of a decoded video or audio stream, built like the input preview. It can drop frames; it cannot hold the channel back. |
-| Side pipeline | `MxlTap::_start` | `appsrc → (deinterlace) → videoconvert → v210 → mxlsink`, or `appsrc → audioconvert → audioresample → audiorate → F32LE → mxlsink`. It uses the channel's clock and base time, so buffer times mean the same moment in both pipelines, and the plugin maps them to MXL (TAI) time. Buffers are passed by reference (only the header is copied to change the time). |
-| Failure handling | `MxlTap::onFeed`, bus handler | An error inside the side pipeline is logged and never reaches the channel. The pipeline is replaced on the next buffer, but not more than once every 5 s per tap. A new picture size or frame rate starts a new video flow. |
+| Side pipeline | `MxlTap::_start`, `_describe` | `appsrc → [deinterlace, only for an interlaced picture] → videoconvert → v210 → mxlsink`, or `appsrc → audioconvert → audioresample → audiorate → F32LE → mxlsink`. It uses the channel's clock and base time, so buffer times mean the same moment in both pipelines, and the plugin maps them to MXL (TAI) time. Buffers are passed by reference (only the header is copied to change the time). The video `appsrc` holds up to 30 frames (at most 128 MB) while the writer waits for their time. |
+| Frame grid | `MxlFrameGrid` (`mxlframegrid.cpp`), unit test `utpl_mxl_frame_grid_test` | Video frames are stamped `origin + n × period`, with `n` strictly increasing, because the MXL writer refuses a frame that falls in, or before, the slot of the last one. See the findings below. |
+| Failure handling | `MxlTap::onFeed`, bus handler, `_checkIdle` | An error inside the side pipeline is logged and never reaches the channel. The pipeline is replaced on the next buffer, but not more than once every 5 s per tap. A new picture size or frame rate starts a new video flow. A tap whose stream delivers nothing for 3 s closes its flow and opens it again when data returns. A line of statistics is logged every 30 s. |
 | One writer per flow | `MxlTap::create` | A second stream asking for a flow already in use is skipped with a warning. |
+| Redundant inputs | `StandardInput::probe`, class `FallbackStream` | The tap sits on the stream **after the switch** between the two sources; the two single inputs get no tap. A failover is invisible in the flow. |
+| Playlist inputs | `PlaylistInput::probe`, `BaseInputStream::setMxlTap(…, keepWhileUnlinked)` | The tap sits on the playlist's own audio and video streams and survives the unlink and link that every change of item makes; the items get no tap. |
 
 ### Results (720p25 H.264 + AAC source into a 720p25 channel, unless stated)
 
 | Check (test) | Result |
 | --- | --- |
 | Flow content (`01`) | Video flow 1280×720 at 25/1, 50 of 50 frames; audio flow 48 kHz stereo with the 1 kHz tone; on-air output has audio and video and no decode errors. |
-| Lip-sync (`02`) | Flash-to-beep offset: generated source **0 ms**; MXL flows **+31 ms**; the engine's on-air output **−42 ms**. 14 pairs in the MXL flows. The resolution is about one frame (40 ms), so the MXL figure is within one frame of the source. Limit used: 80 ms (provisional, Gate A). |
+| Lip-sync (`02`) | Flash-to-beep offset: generated source **0 ms**; MXL flows **+14 ms** (earlier runs: +2, +31); the engine's on-air output **−41 ms**. 14 pairs in the MXL flows. The resolution is about one frame (40 ms), so the MXL figure is within one frame of the source. Limit used: 80 ms (provisional, Gate A). |
 | On-air output unchanged (`03`) | Same streams, zero decode errors, same frame count with and without the tap. Engine CPU **0.38 → 0.40 cores** (an earlier run: 0.36 → 0.42). |
 | Reader faults (`04`) | Readers stopped for 6 s and then killed with SIGKILL: largest gap between on-air video packets 40 ms (one frame), audio 21 ms, no decode errors; a new reader could join afterwards. |
 | Unusable domain (`05`) | A path that cannot be created and a read-only directory: the engine keeps running and the on-air output is clean; the failure is logged; 8 start attempts for two taps in about 24 s. |
@@ -182,9 +186,19 @@ build and then against the engine installed in the rebuilt image (see
 | Source changes size (`07`) | 720p → 1080p while running: the video flow followed (1280×720 → 1920×1080) and the engine kept running. |
 | Interlaced source (`08`) | 1080i25 (top field first): flow 1920×1080 at 25/1. Engine CPU **0.57 → 0.63 cores** with the tap, including the deinterlace (`method=linear fields=top`). |
 | Parameters (`utpl_mxl_tap_parameters_test`) | Defaults, enabling rules, UUID validation, survives copying `InputParameters`. The whole C++ suite passes (11 of 11, six repeat runs). |
+| Redundant inputs (`09`) | Two UDP sources, 1 kHz and 2 kHz. The one on air is stopped; the audio flow follows to the other tone within the engine's switch time and the video keeps moving (at least 40 different pictures in 50 frames). The video tap is started **once**: a failover does not restart it. Which source goes on air first is a startup race (whichever fills its buffer first), so the test finds out and stops that one. |
+| Playlist (`10`) | Two 14 s items (1 kHz, then 2 kHz). One flow carries both: the tone changes, the picture keeps moving, and the video tap starts once. Before the tap was kept through the unlink and link of an item change it started once per item and a reader attached to the old flow hung. |
+| Frame rates (`11`) | 1080p50, 720p59.94 and 1080p29.97: each flow has the source's rate (`50/1`, `60000/1001`, `30000/1001`) and size, and a reader gets 100 frames in about the real-time duration plus start-up (2.43 s for 2.00 s; 2.15 s for 1.67 s; 3.58 s for 3.34 s). |
+| AC-3 audio (`12`) | Stereo AC-3: the tone is on both channels. 5.1 AC-3 with a tone on the centre channel only: a 6-channel flow has it on channel 2 only (−18.1 dB, the other five at −91 dB: the layout is exact). The same source into a 2-channel flow: tone on both channels at −31.2 dB, because GStreamer's downmix matrix is normalised and puts a centre-only tone about 13 dB below its level. The Dolby SDK encoder and decoder paths are **integration gated** and were not exercised. |
+| SCTE-35 (`13`) | A source with `splice_insert` events on PID 500: the engine reads them (6 non-null sections logged as "Acquired SCTE-35 section"), exactly two taps start (video and audio; the data PID takes none), both flows have the right content and the on-air output is clean. The channel's SCTE-35 output PID stays empty for this re-encoded channel with **or without** the tap (a control run), so the evidence is the engine's own log. |
+| Source dropout (`14`) | A 1.5 s gap: the taps are not restarted and new readers get 50 different pictures and the tone. An 8 s gap: both flows are closed after 3 s without data and opened again when the source returns; new readers get picture and tone. Four tap starts in all (two at the start, two on return). |
+| UI and API round trip | A hand-written `mxlTap` survives the channel form's save (`frontend/tests/configMapper.test.ts`, edited and unedited form) and the API's config write (`api/tests/config_test.py::test_an_inputs_mxl_tap_block_survives_a_write`). The form has no fields for it. |
+| Frame grid (`utpl_mxl_frame_grid_test`) | 10 unit tests: consecutive slots, jitter, never a slot twice or an earlier one (5000 random frames), a moved frame is healed by a drop, repeats dropped, gaps kept, a step back by over a second asks for a restart, 29.97 never shares a slot over 100000 frames. |
 
-The extra CPU is measured on a small 720p25 channel and a 1080i25 one; it is **not** yet measured for
-1080p50/59.94, where the conversion cost grows with the frame rate.
+The extra CPU of the source tap was measured at 720p25 (+0.02 to +0.06 core), 1080i25 (+0.02 to +0.11),
+1080p29.97 (+0.05 and +0.18), 720p59.94 (+0.11 and +0.15) and 1080p50 (+0.15 and +0.40); the two figures are
+two runs of the same test. This host (28 cores, shared) varies by 0.1 to 0.2 core from run to run, so read
+them as ranges: the source tap costs roughly 0.05 to 0.4 core, rising with pixels per second.
 
 ### Findings made while building it
 
@@ -206,30 +220,141 @@ The extra CPU is measured on a small 720p25 channel and a 1080i25 one; it is **n
   `ffprobe` picture times are absolute, and ffmpeg starts both about 1.4 s into the file; adding the
   audio start time (done in test `02`) removes a phantom 459 ms.
 
+### Findings made while closing the gaps (2026-11-02)
+
+Closing the gaps found four faults in the first version of the tap. Each one hid behind a test that used
+a steady live source.
+
+- **The MXL writer refuses a frame in the same slot as the last one, or an earlier one.**
+  `PosixDiscreteFlowWriter::openGrain` returns `MXL_ERR_INVALID_ARG` for an index at or below the last
+  committed one, and `mxlsink` turns that into a flow error with no message. Frame times inside the
+  channel jitter (34, 40, 32, 44 ms apart when a source was cut off), so two frames could land in one
+  40 ms slot and the side pipeline died. `MxlFrameGrid` now puts every frame on `origin + n × period`.
+  A frame that collides takes the next slot; if the stream stays late after three such frames, one frame
+  is dropped, which puts it back in step without leaving an empty slot. Without that "healing" the
+  video stayed one slot (40 ms) behind the sound for good, and the lip-sync test read +55 ms.
+- **A leaky `appsrc` holds one frame by default.** It stops at `max-bytes` (200 KB) as well as at
+  `max-buffers`, and one raw frame is larger than that. While the writer waited for a frame's time every
+  other frame was dropped, which left every other slot of the ring flagged invalid and made new readers
+  hang. The side pipeline sets `max-bytes` itself (up to 128 MB, never less than three frames).
+- **Sources that run ahead of the clock need a deep enough queue.** A playlist item read from a file
+  reached the tap 0.68 s (video) and 0.36 s (audio) before its timestamp, so the writer waits that long
+  per frame and the queue has to hold that many frames: 30 frames now (a live source needs none).
+- **A tap on a stream that is unlinked and linked again** (a playlist's, at every item change) was
+  destroyed and rebuilt each time, closing and recreating the flow. The tap is now kept through that,
+  and a stream that delivers nothing for 3 s closes its flow, so a flow that is not written never looks alive.
+- **By the plugin's source** (read, not measured), `mxlsrc` returns an error when it reads a slot that was
+  skipped, since the writer flags those invalid. A reader of a tapped flow should be ready to start again
+  after a gap in the source.
+- **`tsp` details for SCTE-35 test sources:** `spliceinject` hangs when more than 12 events are queued
+  from one file, and `ffmpeg -c copy` re-wraps SCTE-35 sections as PES and loses them; the sections must be
+  played out with `tsp -P regulate`.
+
 ### Not covered
 
-Playlist inputs (a tap on a `pls+` input is untested; the setting is read for single inputs); redundant
-two-URI inputs; passthrough streams (never tapped); more than one audio track (only the first is
-tapped); 1080p50/59.94; Dolby audio; SCTE-35; a long run (hours), where the once-sampled clock offset
-could drift; a UI round trip (the channel UI spreads the existing input object, so a hand-written
-`mxlTap` should survive a save, read from the code, not run).
+Passthrough streams (never tapped); more than one audio track (only the first is tapped); the Dolby SDK
+paths (**integration gated**); a channel with a second input (the alternate source of SCTE ad insertion)
+with a tap on either input; hardware decoders (the decoders here are software: a tap that holds up to 30
+frames would hold decoder surfaces); and a run of hours (the 20-minute soak is in [the soak result](#soak-result); the
+memory trend of +14.8 MB per hour needs a longer run to judge).
 
 ### Source tap verification against the installed engine
 
-After the images were rebuilt (`utpl/base:mxl` → `utpl/transcoder:mxl` → `utpl/transcoder-test:mxl`,
-which compile the new code into `/opt/utpl/bin/transcoder`), the suites were run again with **no
-scratch build mounted**:
+The images were rebuilt (`utpl/base:mxl` → `utpl/transcoder:mxl` → `utpl/transcoder-test:mxl`, which compile
+the code into `/opt/utpl/bin/transcoder`) on 2026-10-30 and again on 2026-11-02 after the gaps were closed,
+and the suites were run with **no scratch build mounted**:
 
-| Suite | Result |
+| Suite (2026-11-02) | Result |
 | --- | --- |
-| `tests/run.sh mxl/tap` | **8 of 8 pass.** Lip-sync: source 0 ms, MXL flows **+2 ms**, on-air −43 ms (the scratch build gave +31 ms; both are within the one-frame resolution of the measurement). Engine CPU without / with the tap: 0.38 / 0.44 cores (720p25), 0.56 / 0.61 (1080i25). Reader faults: largest on-air gap 40 ms video, 21 ms audio. |
-| `tests/run.sh mxl/sdk` | **9 of 9 pass** (Phase 1, no regression). |
-| `tests/manual/mxl/engine-smoke.sh` on a channel with no tap | Same output as before the change: AC-3 5.1 + 640×360 H.264 at 25 fps, decoding without errors. |
-| C++ CTest (scratch build) | 11 of 11 pass, six repeat runs (one earlier failure of `utpl_scte_section_test` under load did not reproduce, see [27](27-known-gaps-contradictions-and-remediation.md)). |
+| `tests/run.sh mxl` (SDK + tap + programme) | **29 of 29 pass**: 9 SDK, 14 tap, 6 programme. |
+| Lip-sync (`tap/02`) | Source 0 ms, MXL flows **+19 ms**, on-air −43 ms. |
+| Engine CPU without / with the tap | 0.39 / 0.42 cores (720p25, `tap/03`); 0.53 / 0.61 (1080i25, `tap/08`); 1.75 / 1.96 (1080p50), 0.80 / 0.89 (720p59.94), 1.10 / 1.17 (1080p29.97) (`tap/11`). |
+| Reader faults (`tap/04`) | Largest on-air gap 40 ms video, 21 ms audio. |
+| Conversion cost per frame (`sdk/09`, 1080p, single thread) | BGRA → v210 7.75 ms (the programme tap); I420 → v210 0.72 ms (the source tap); `mxlsink` write 0.55 ms; `mxlsrc` read 1.05 ms; v210 → BGRA 8.57 ms; v210 → I420 0.81 ms. |
+| C++ CTest (scratch build) | 12 of 12 pass, including `utpl_mxl_frame_grid_test`. |
 
-The measured cost of the tap across the runs is **+0.02 to +0.06 core** on these 720p25 and 1080i25
-channels. Run to run the CPU varies by a few hundredths of a core, so these are indications, not
-exact figures.
+Across all the runs the measured cost of the source tap is **+0.02 to +0.4 core**, rising with pixels per
+second and varying by 0.1 to 0.2 core between runs of the same test on this shared host; these are
+indications, not exact figures.
+
+### Soak result
+
+`tests/manual/mxl/tap-soak.sh 20` ran the source tap for 20 minutes on the installed engine (2026-11-02;
+720p25 flash-and-beep source, video and audio flows; the series and the output are in
+[`doc/mxl/soak-2026-11-02/`](../mxl/soak-2026-11-02/)). Once a minute it compares the newest position of each
+flow with the system clock (the mean of ten samples), and it measures lip-sync through the flows at the start,
+in the middle and at the end.
+
+| Measure | Result |
+| --- | --- |
+| Video flow behind the clock | Mean **123.5 ms**, range 118.8 to 130.2 ms, trend **+0.9 ms per hour**. No drift. |
+| Audio flow behind the clock | Mean 322.9 ms, mostly about 305 ms with bursts to 333, 353, 388, 337, 353, 370 and 333 ms in single minutes. The least-squares trend is −21 ms per hour, which is the scatter of the bursts, not a drift. The cause of the bursts is not established. |
+| Lip-sync through the flows | **+7 ms** at the start, **+2 ms** in the middle, **+7 ms** at the end (14 pairs each; the source is 0 ms). |
+| Engine memory | 247.6 MB at minute 1 to 252.2 MB at minute 20: **+14.8 MB per hour** on a straight line. Twenty minutes cannot tell a leak from warm-up. |
+| Engine CPU | Mean **0.37 core**, one minute at 0.54 and one at 0.44. |
+| Tap starts and errors | 2 and 0: neither tap restarted. |
+
+This covers 20 minutes, not hours: the once-sampled clock offset of the plugin showed no drift in that time,
+and the memory line needs a longer run (hours) to be judged. The Gate A limits are not agreed, so the run
+judges only hard faults.
+
+## Programme tap (Step 3)
+
+An output of `"type": "mxl"` ([05](05-configuration-reference.md#output-mxl)) publishes the **finished
+programme** (CP2: after the compositor, graphics and audio processing, before any encoder) as MXL flows.
+It was built and tested on 2026-11-02. **Runtime verified** by `tests/tests/mxl/programme/`, first against
+a scratch build and then against the installed engine (see
+[the image check](#programme-tap-verification-against-the-installed-engine)).
+
+### How it works
+
+| Part | Where | What it does |
+| --- | --- | --- |
+| Settings | `OutputType::MXL` and `OutputParameters::getMxl()` (`output/parameters.h`); `MxlTapParameters` now in `mxlparameters.h`; parser branch `type: "mxl"`, helpers `_parseMxlFlows` and `_parseMxlVideo`; `application.cpp` validation; `openapi.yaml` `MxlOutputParameters` | `mxl.domain`, `mxl.video.{flowId,width,height,rate}`, `mxl.audio.{flowId,channels}`. The parser makes one video and one audio stream with the new `Codec::MXL`, so the channel treats them like any other output stream. A wrong block is refused at start with a message that names the key. The input's block and the output's share the validation. |
+| Joining a processor | `channel.cpp` (the loop that finds a processor for each output stream) | Unchanged. An MXL video stream of the same size and rate as an on-air output joins that processor and shares its canvas; any other size or rate creates a processor of its own. Audio of the same channel count and rate shares a processor. |
+| Raw flowline | `MxlFlowline` (`channel/processor/transcoder/mxlflowline.cpp`); the `Codec::MXL` branch in `VideoTranscodingProcessor::createFlowLine` and `AudioTranscodingProcessor::createFlowLine` | An `identity` and a ghost pad on the channel bin. Nothing is encoded. `compatible()` is always false: each MXL stream ends in one flow. |
+| Output | `MxlOutput` (`output/mxl.cpp`), created by `Engine` | A bin with one `MxlTap` per stream (the first video and the first audio). If the tap cannot be created (no `mxlsink`, or the flow is already written) the stream goes to a `fakesink` and a warning is logged, so the flowline is never left unlinked. |
+| Tap | `MxlTap` | The same class as the source tap: a leaky `queue` and an `appsink` in the channel, and a side pipeline with `videoconvert → v210 → mxlsink` (or the audio path). The processors' canvas is BGRA, so the conversion to v210 is done in the side pipeline; a progressive picture does not pass through a deinterlacer. The frame grid, the idle watchdog and the statistics line apply as for the source tap. |
+
+### Results (720p25 H.264 + AAC source into a 720p25 channel, unless stated)
+
+| Check (test) | Result |
+| --- | --- |
+| Flow content (`01`) | Video flow 1280×720 at 25/1, 50 of 50 frames with at least 40 different pictures; audio flow 48 kHz stereo with the 1 kHz tone (−21.1 dB; the 4 kHz band −54.1 dB); the channel's ordinary output still has audio and video and no decode errors. |
+| On-air output unchanged, CPU (`02`) | Same streams and picture size with and without the MXL output; video frame counts within 25 of each other over two 10 s captures; no decode errors. Engine CPU **0.37 → 0.53 cores** on the scratch build and **0.38 → 0.48** on the installed engine (+0.10 to +0.16 core: a shared canvas, BGRA 720p25 to v210 and the audio branch). |
+| Lip-sync (`03`) | Flash-to-beep offset: generated source **0 ms**; programme flows **−1 ms** (installed engine: **+5 ms**); the on-air output **−65 ms** (−42 ms). The programme flows are taken before the encoders, so they stay with the source; the on-air offset is added by the AAC encoder (about 43 ms) and the muxer. Limit: 80 ms from the source (provisional, Gate A). |
+| Own size (`04`) | A 720p25 source with an on-air output of 720p and an MXL output of 1920×1080 at 25: the programme flow is **1920×1080** with a real picture (mean luma 122.8; black would be near 16), and the on-air output stays 1280×720 and clean. The extra canvas costs the compositor and scaler for 1080p; its CPU was not measured separately. |
+| Source stops (`05`) | With the source gone for 8 s, the programme video head still advanced **125 of 125 grains** in 5 s: the channel keeps writing its picture. The audio head advanced 272 508 samples in the same 5 s (240 000 at real time): the channel's silence fill ran ahead for a while. After the source returned, new readers got 50 different pictures and the tone. |
+| Bad configuration (`06`) | Eight wrong blocks (no `mxl`, no domain, not a UUID, no flow, equal ids, 9 channels, negative width, a rate that is not a number or fraction) are each refused at start with a message that contains the key. |
+| UI | An output of type `mxl` is not shown in the channel form and a save keeps it exactly as it is, even when every form output is deleted (`frontend/tests/configMapper.test.ts`). |
+
+### Findings
+
+- **The flowline must hand its output to the output through a ghost pad on the channel bin.** The first
+  version linked the `identity`'s own pad to the output's bin and GStreamer refused
+  (`GST_PAD_LINK_WRONG_HIERARCHY`); the encoding flowline does the same with `addPad`.
+- **The application's own validation (`application.cpp`) rejects an unknown output type** before the
+  engine starts; a new type needs a case there as well as in the parser and the engine.
+- **The audio head ran 13 % ahead of real time for part of a source outage** (see `05`). The channel
+  produces the silence; the tap writes it as it comes. It is not a fault of the tap, but a reader that
+  aligns by the flow's head should not assume exactly one second per second after an outage.
+
+### Programme tap verification against the installed engine
+
+With the images rebuilt on 2026-11-02 and no scratch build mounted, `tests/run.sh mxl/programme` passes
+**6 of 6**. Flow content: tone at −21.1 dB, the 4 kHz band at −46.4 dB. Engine CPU 0.38 without and 0.48
+cores with the MXL output (720p25, shared canvas). Lip-sync: source 0 ms, programme flows +5 ms, on-air
+−42 ms. Own size: 1920×1080 flow from a 720p source, mean luma 122.0. Source stops: video head 125 of 125
+grains in 5 s, audio head 272 803 samples. Programme-tap conversion cost: BGRA → v210 7.75 ms per 1080p frame
+(`sdk/09`), which is why a 1080p programme flow is the case to watch against the CPU limit.
+
+### Not covered
+
+Dolby-processed audio (the equivalent tap on the Dolby connector; **integration gated**); more than one
+audio stream; interlaced programme output (the canvas is progressive); graphics overlays in the picture
+(the tap is after the compositor, so it should carry them, but this was not looked at); 1080p50 or
+59.94 programme flows; SCTE-35 (it does not travel in a flow; decision Q7 is open); HLS or DASH outputs
+alongside the MXL output; runs of hours.
 
 ## What the source answers
 
@@ -341,7 +466,7 @@ implemented and pass; the rest are planned.
 | T0 | Baseline channel: DOT graph, CPU, RAM, latency | `tests/` plus a config in `config/` | Image built from this checkout |
 | T1 | Audited decode sharing / `tee` topology | DOT export from T0 | T0 |
 | T2 | Standalone `mxlsink` → `mxlsrc`, V210 and Float32, 30000/1001, checked with `ffprobe` | `tests/tests/mxl/sdk/01…09` (**9 of 9 pass**), run in `utpl/transcoder-test`; cross-container and read-only checks in `tests/manual/mxl/cross-container.sh`. MXL is built into `utpl/base`; there is no separate image. | Done |
-| T3–T4 | Nandi publishes CP1 (source) / CP2 (programme) | `tests/tests/mxl/tap/` | WS-03, config contract |
+| T3–T4 | Nandi publishes CP1 (source) / CP2 (programme) | `tests/tests/mxl/tap/` (CP1, 14 tests) and `tests/tests/mxl/programme/` (CP2, 6 tests), both implemented and passing | Done for the cases listed in their sections; Gate A limits not agreed |
 | T5–T7 | External QC + encoder readers; consumer restart; slow reader / overrun | `tests/tests/mxl/` | T4, fail-open/closed decision |
 | T8–T10 | Discontinuity and 30000/1001 timing; multi-audio and Dolby; SCTE-35 during worker restart | `tests/tests/mxl/input/` and `tests/tests/mxl/` | Clock adapter, multi-audio fix, SCTE timeline decision |
 | T11–T15 | Fabrics TCP then RDMA; hardware encoders; multi-channel soak; host failure; permissions | Later | Second host, NICs, hardware |

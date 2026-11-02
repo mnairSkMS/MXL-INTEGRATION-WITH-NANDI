@@ -44,7 +44,8 @@ export function configToChannelForm(config: EngineConfigDto): ChannelFormValues 
     };
   });
 
-  const outputs: FormOutputItem[] = (config.transcoder?.outputs || []).map((outDto, idx) => {
+  // An output of type 'mxl' (the programme tap) has no form fields; it is kept in the config, not shown here.
+  const outputs: FormOutputItem[] = (config.transcoder?.outputs || []).filter((outDto) => outDto.type !== 'mxl').map((outDto, idx) => {
     const videoStream = outDto.streams?.find((s) => s.type === 'video') as VideoStreamDto | undefined;
     const audioStream = outDto.streams?.find((s) => s.type === 'audio') as AudioStreamDto | undefined;
     const transport = outDto.transports?.[0];

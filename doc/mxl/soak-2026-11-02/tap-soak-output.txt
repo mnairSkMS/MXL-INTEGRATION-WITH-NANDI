@@ -1,0 +1,31 @@
+minute	video_lag_ms	audio_lag_ms	rss_mb	cpu_cores	tap_starts	tap_errors
+RESULT lip-sync at the start: 7 ms (14 pairs)
+1	126.7	305.0	247.6	0.38	2	0
+2	128.3	309.0	247.8	0.37	2	0
+3	121.0	309.7	248.1	0.36	2	0
+4	118.8	332.9	248.3	0.35	2	0
+5	122.1	353.1	248.5	0.34	2	0
+6	121.0	388.2	248.9	0.35	2	0
+7	122.4	307.4	249.0	0.34	2	0
+8	123.0	306.5	249.4	0.33	2	0
+9	124.4	305.1	249.5	0.34	2	0
+10	126.2	307.1	249.7	0.34	2	0
+RESULT lip-sync in the middle (minute 10): 2 ms (14 pairs)
+11	120.5	312.8	250.0	0.34	2	0
+12	125.9	337.2	250.4	0.38	2	0
+13	125.1	352.8	250.6	0.54	2	0
+14	120.9	369.8	250.8	0.35	2	0
+15	123.6	303.4	251.1	0.35	2	0
+16	120.7	303.6	251.3	0.36	2	0
+17	130.2	311.6	251.5	0.44	2	0
+18	122.8	306.7	251.8	0.38	2	0
+19	123.0	332.5	252.0	0.39	2	0
+20	122.9	304.5	252.2	0.36	2	0
+RESULT lip-sync at the end: 7 ms (14 pairs)
+RESULT video flow lag trend:   0.9 ms per hour (mean 123.5 ms)
+RESULT audio flow lag trend:   -21.2 ms per hour (mean 322.9 ms)
+RESULT engine memory trend:    14.8 MB per hour (now 252.2 MB)
+RESULT engine CPU:             mean 0.37 cores
+RESULT tap starts / errors:    2 / 0 (2 starts and 0 errors are what a clean run shows)
+series kept in /tmp/soak/tmp/series.tsv inside the container; copied to /out
+series: /tmp/tmp.XEYE1HbSWg/tap-soak-series.tsv

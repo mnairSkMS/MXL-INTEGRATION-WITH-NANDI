@@ -55,6 +55,7 @@ static const std::map<Codec, std::string> codecsMap = {
     { Codec::MP1,         "MP1" },
     { Codec::MP2,         "MP2" },
     { Codec::MP3,         "MP3" },
+    { Codec::MXL,         "MXL" },
     { Codec::PASSTHROUGH, "PASSTHROUGH" },
     { Codec::SUB_DVB,     "SUB_DVB" },
     { Codec::SUB_TTX,     "SUB_TTX" },

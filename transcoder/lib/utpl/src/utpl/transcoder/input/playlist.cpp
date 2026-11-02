@@ -1463,6 +1463,10 @@ void transcoder::PlaylistInput::probe(ProbeCallback callback) {
             this->_onEos();
         });
 
+        // Kept through the unlink and link of a change of item: one flow for the whole playlist.
+        this->_audioStream->setMxlTap(this->_inputParameters.getMxlTap(), true);
+        this->_videoStream->setMxlTap(this->_inputParameters.getMxlTap(), true);
+
         this->_streams.push_back(std::reinterpret_pointer_cast<InputStream>(this->_audioStream));
         this->_streams.push_back(std::reinterpret_pointer_cast<InputStream>(this->_videoStream));
 
@@ -2179,6 +2183,10 @@ void transcoder::PlaylistInput::_switchToItem(size_t itemNo, bool force) {
                 InputParameters params = this->_inputParameters;
 
                 params.clearUris();
+
+                // The tap belongs to the playlist's own streams, which carry every item in turn.
+                // An item's stream would take the flow for as long as it lasted.
+                params.setMxlTap(MxlTapParameters());
 
                 for (auto &u : this->_playlistItemsInputParameters[itemNo].getUris()) {
                     params.addUri(u);

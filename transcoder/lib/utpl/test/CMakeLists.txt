@@ -196,3 +196,24 @@ add_test(
     NAME utpl_mxl_tap_parameters_test
     COMMAND utpl_mxl_tap_parameters_test
 )
+
+add_executable(utpl_mxl_frame_grid_test
+    src/mxlFrameGrid.cpp
+)
+
+target_include_directories(utpl_mxl_frame_grid_test
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/lib/utpl/include
+)
+
+target_link_libraries(utpl_mxl_frame_grid_test
+    PRIVATE
+    utpl
+    GTest::GTest
+    GTest::Main
+)
+
+add_test(
+    NAME utpl_mxl_frame_grid_test
+    COMMAND utpl_mxl_frame_grid_test
+)

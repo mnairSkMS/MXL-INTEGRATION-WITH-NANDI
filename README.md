@@ -6,7 +6,8 @@ JSON configuration file and controlled at runtime over REST/gRPC.
 **Version:** see [`version.txt`](version.txt)
 
 **This checkout tests integrating MXL (Media eXchange Layer) and MXL Fabrics with Nandi** (this
-engine). Nothing MXL-related is implemented yet. The plan, source-verified integration points, test
+engine). MXL is built into the images, and the engine can publish an input's decoded source and the finished
+programme as MXL flows (built and tested); an MXL input, an external encoder and Fabrics are not yet. The plan, source-verified integration points, test
 plan and open decisions are in [41 MXL integration](doc/codebase/41-mxl-integration.md); the planning
 brief and review deck are in [`doc/mxl/`](doc/mxl/).
 

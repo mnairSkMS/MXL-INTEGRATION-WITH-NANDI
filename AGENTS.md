@@ -1,14 +1,16 @@
 # UTPL / Skandha Transcoder Agent Guide
 
-This checkout has no Git metadata. Treat the directory containing this file as the repository root. The former `sandbox/` experiments tree was removed on 2026-10-16; handbook pages that still describe it are historical.
+This checkout was a plain directory when it was received; since 2026-10-30 it is a local Git repository (the first commit, `Initial import of the tree as received`, is the tree as it came). Treat the directory containing this file as the repository root. The former `sandbox/` experiments tree was removed on 2026-10-16; handbook pages that still describe it are historical.
 
 ## Purpose
 
 This checkout exists to test integrating MXL (Media eXchange Layer) and MXL Fabrics with Nandi (this
 engine). Before any MXL work, read [the MXL integration page](doc/codebase/41-mxl-integration.md). The
 planning brief in `doc/mxl/` describes Nandi from project discussion, not from the code; where the two
-disagree, page 41 and the source win. Nothing MXL-related is implemented: label MXL paths
-**integration gated** until they are built and run here.
+disagree, page 41 and the source win. MXL v1.1.0 is built into the images, and the engine has an input source tap (`inputs[n].mxlTap`) and a programme
+output (`outputs[n].type = "mxl"`), both built and tested. An MXL input, a flow registry and MXL Fabrics are
+not: label those, and any path that needs an unavailable SDK or hardware, **integration gated** until they
+are built and run here.
 
 ## Experiments
 

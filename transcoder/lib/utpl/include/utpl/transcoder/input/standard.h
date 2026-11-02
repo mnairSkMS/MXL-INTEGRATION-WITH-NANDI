@@ -81,6 +81,7 @@ namespace utpl {
                 std::vector<std::unique_ptr<ProbedInput>> _probedInputs;
                 ProbedInput                              *_currentInput;
                 std::vector<std::shared_ptr<InputStream>> _streams;
+                MxlTapParameters                          _mxlTap;
                 
                 pipeline::BinPtr _bin;
                 bool             _prepared;

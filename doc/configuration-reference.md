@@ -29,6 +29,7 @@ transcoder                    object, req
     mxlTap                          { domain, video.flowId, audio.flowId, audio.channels }
   outputs[]                   req, >=1
     type, name, container, scte
+    mxl                             { domain, video.{flowId,width,height,rate}, audio.{flowId,channels} }   (type "mxl" only)
     transports[]                    { uri, srt|udp|hls|s3|file }
     streams[]                 req, >=1
   scte                              { pois }
@@ -122,7 +123,7 @@ An `http(s)://` input is MPEG-DASH when this block is present (even `{}`) or the
 
 | Path | Type | Meaning | Decide | Rule |
 |---|---|---|---|---|
-| `type` | `SINGLE` \| `GROUP` (`SINGLE`) | `GROUP` is a multi-variant HLS parent. Only HLS supports it. | `LLM` | `SINGLE` unless building an HLS ladder. |
+| `type` | `SINGLE` \| `GROUP` \| `MXL` (`SINGLE`) | `GROUP` is a multi-variant HLS parent. Only HLS supports it. `MXL` writes the finished programme to MXL flows; it takes an `mxl` object instead of `transports`, `container` and `streams`, is fail-open and needs the MXL plugin in the image. | `HUMAN` | `SINGLE` unless building an HLS ladder or publishing to MXL. Details: [codebase/05](codebase/05-configuration-reference.md#output-mxl). |
 | `name` | string | Logical id used to link a `SINGLE` into a `GROUP`. | `DERIVED` | Only needed when grouping. Use a stable slug. |
 | `container` | `mpegts` \| `es` \| `fmp4` | Output container. | `LLM` | `mpegts` for TS/SRT/UDP/HLS-TS; `fmp4` for HLS only; `es` for raw. Required when `version` < 1.4.0. |
 | `streams[]` | array, req | Output streams, ≥1. Missing → parse error. | — | — |

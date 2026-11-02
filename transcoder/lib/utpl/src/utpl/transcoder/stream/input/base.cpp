@@ -107,15 +107,26 @@ pipeline::PadPtr transcoder::BaseInputStream::_createPreview(bool encoded) {
     );
 }
 
-void transcoder::BaseInputStream::setMxlTap(const MxlTapParameters &parameters) {
+void transcoder::BaseInputStream::setMxlTap(const MxlTapParameters &parameters, bool keepWhileUnlinked) {
     this->_mxlTapParameters = parameters;
+    this->_mxlTapKept       = keepWhileUnlinked;
 }
 
 // The sink pad of a new MXL tap for this stream, or null when the stream gets none: the input is not
 // configured for it, the stream is neither decoded video nor decoded audio, or its flow is taken.
 pipeline::PadPtr transcoder::BaseInputStream::_createMxlTap() {
-    if (this->_mxlTap || ! this->_mxlTapParameters.isEnabled()) {
+    if (! this->_mxlTapParameters.isEnabled() || this->_mxlTapAttached) {
         return nullptr;
+    }
+
+    // Linked again after an unlink(): the same tap, so the flow goes on.
+    if (this->_mxlTap) {
+        this->_bin->add(this->_mxlTap->getBin());
+        this->_mxlTapAttached = true;
+
+        return std::make_shared<pipeline::Pad>(
+            pipeline::GstPadPtr::wrap(gst_element_get_static_pad((*this->_mxlTap->getBin())->get(), "sink"))
+        );
     }
 
     MxlTap::Kind kind;
@@ -137,6 +148,7 @@ pipeline::PadPtr transcoder::BaseInputStream::_createMxlTap() {
     }
 
     this->_bin->add(this->_mxlTap->getBin());
+    this->_mxlTapAttached = true;
 
     return std::make_shared<pipeline::Pad>(
         pipeline::GstPadPtr::wrap(gst_element_get_static_pad((*this->_mxlTap->getBin())->get(), "sink"))
@@ -182,9 +194,14 @@ void transcoder::BaseInputStream::unlink() {
         this->_splitter = nullptr;
     }
 
-    // Its bin was a tee branch, so the loop above has already stopped and removed it.
-    this->_preview = nullptr;
-    this->_mxlTap  = nullptr;
+    // Their bins were tee branches, so the loop above has already stopped and removed them. A kept
+    // tap stays: its side pipeline goes on, and the next link() hangs its branch on the new tee.
+    this->_preview        = nullptr;
+    this->_mxlTapAttached = false;
+
+    if (! this->_mxlTapKept) {
+        this->_mxlTap = nullptr;
+    }
 }
 
 void transcoder::BaseInputStream::setStreamParameters(const StreamParameters &parameters) {
@@ -276,7 +293,8 @@ void transcoder::BaseInputStream::linkSrcPad(pipeline::PadPtr pad, bool isPastrh
 
                 this->_splitter->releasePad(teePad);
                 this->_bin->remove(this->_mxlTap->getBin());
-                this->_mxlTap = nullptr;
+                this->_mxlTap         = nullptr;
+                this->_mxlTapAttached = false;
             }
         }
 

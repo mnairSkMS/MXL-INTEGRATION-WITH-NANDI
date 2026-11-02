@@ -276,8 +276,9 @@ Float32) for other processes. The branch sits on the same decoded-stream `tee` a
 the conversion and `mxlsink` run in a side pipeline of their own (`MxlTap`, `mxltap.cpp`) that shares
 the channel's clock and base time. A fault there (a missing plugin, a full or unusable domain, an
 unsupported picture) stops only the tap, which retries every 5 s; the channel and its outputs are
-unchanged (measured: same streams, no decode errors, same frame count). Single inputs only; passthrough
-streams are not tapped. Settings: [05](05-configuration-reference.md#input-mxl-tap); design, results
+unchanged (measured: same streams, no decode errors, same frame count). Single, redundant and playlist
+inputs are tapped (for the last two the tap sits on the combined stream, so a failover or a change of
+item does not break the flow); passthrough streams are not tapped. Settings: [05](05-configuration-reference.md#input-mxl-tap); design, results
 and limits: [41](41-mxl-integration.md#source-tap-step-2).
 
 ## Constraints

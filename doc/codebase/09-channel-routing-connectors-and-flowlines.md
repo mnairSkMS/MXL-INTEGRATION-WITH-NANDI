@@ -17,6 +17,8 @@
 
 `Flowline` creates an `encodebin` and can insert conversion, rate, and caps filters before it. It tees encoded output into queues for downstream outputs. This sharing is why a change to one output may affect another output with compatible requirements; inspect flowline matching before adding a per-output element.
 
+An output of type `mxl` gets a different flowline, `MxlFlowline` (`channel/processor/transcoder/mxlflowline.cpp`), chosen by `createFlowLine` when the stream's codec is `Codec::MXL`. It is an `identity` and a pad on the channel bin, with nothing to encode, and `compatible()` always answers no, so each MXL stream has a flowline of its own (it ends in one flow). Its processor is found like any other: an MXL video of the same size and rate as an on-air output shares that output's canvas, and any other size or rate adds a processor with its own compositor. See [41](41-mxl-integration.md#programme-tap-step-3).
+
 ## Media graph shape
 
 ```mermaid

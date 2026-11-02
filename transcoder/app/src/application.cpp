@@ -400,6 +400,13 @@ class Application::Pimpl {
                                 }
                                 break;
 
+                            case transcoder::OutputType::MXL:
+                                // The parser has checked the flows; here only what the channel relies on.
+                                if (! outParams.getMxl().isEnabled() || outParams.getStreams().empty()) {
+                                    throw utpl::InvalidArgumentException("The MXL output has no flow to write");
+                                }
+                                break;
+
                             default:
                                 throw utpl::InvalidArgumentException("Output type is unknown");
                         }

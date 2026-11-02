@@ -95,6 +95,11 @@ void transcoder::StandardInput::prepare(const InputParameters &parameters) {
 
     InputParameters singleParams = parameters;
 
+    // Redundant inputs decode side by side. The tap follows what the switch passes on, so that
+    // a failover does not freeze the MXL flow; no single input may claim it.
+    this->_mxlTap = parameters.getMxlTap();
+    singleParams.setMxlTap(MxlTapParameters());
+
     for (size_t i = 0; i < parameters.getUris().size(); i++) {
         auto input = std::make_shared<SingleInput>(true, "standard-input-" + std::to_string(i));
 
@@ -252,7 +257,7 @@ void transcoder::StandardInput::probe(ProbeCallback callback) {
                             for (size_t streamIndex = 0; streamIndex < streamsCount; streamIndex++) {
                                 auto &stream = input->getStreams()[streamIndex];
 
-                                this->_streams.push_back(std::make_shared<FallbackStream>(
+                                auto fallbackStream = std::make_shared<FallbackStream>(
                                     this->_bin,
                                     stream->getStreamParameters(),
                                     // Pre
@@ -295,7 +300,11 @@ void transcoder::StandardInput::probe(ProbeCallback callback) {
                     
                                         stream->link();
                                     }
-                                ));
+                                );
+
+                                fallbackStream->setMxlTap(this->_mxlTap);
+
+                                this->_streams.push_back(fallbackStream);
                             }
 
                         } else {
