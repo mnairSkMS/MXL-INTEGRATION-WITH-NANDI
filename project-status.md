@@ -219,4 +219,4 @@ Configuration keys: [05, source tap](doc/codebase/05-configuration-reference.md#
 | `65adad6` | Step 2: source tap on single inputs |
 | `d4b0cc6` | Step 2 gaps closed; Step 3 programme output |
 | `12daf1d` | This status file |
-| (next commit) | Step 4: MXL input |
+| `b711685` | Step 4: MXL input |
