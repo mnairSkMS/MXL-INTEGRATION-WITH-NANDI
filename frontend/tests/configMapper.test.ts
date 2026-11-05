@@ -4,7 +4,7 @@ import { configToChannelForm } from '../src/features/channels/mappers/configToCh
 import { ChannelFormValues } from '../src/features/channels/types/form';
 import { EngineConfigDto } from '../src/features/channels/types/api';
 import { CHANNEL_PRESETS } from '../src/features/channels/constants/presets';
-import { channelFormSchema } from '../src/features/channels/schemas/channelSchema';
+import { channelFormSchema, inputItemObject } from '../src/features/channels/schemas/channelSchema';
 
 describe('Configuration Mappers', () => {
   const sampleFormValues: ChannelFormValues = {
@@ -160,6 +160,44 @@ describe('Configuration Mappers', () => {
     const edited = channelFormToConfig(sampleFormValues, base);
     expect(edited.transcoder.inputs[0].transport.uri).toBe('srt://10.0.0.1:8000?mode=caller');
     expect((edited.transcoder.inputs[0] as any).mxlTap).toEqual(tap);
+  });
+
+  it('reads an MXL input into the form and writes it back, with the flows it names', () => {
+    const video = '5fbec3b1-1b0f-417d-9059-8b94a47197ed';
+    const audio = 'b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10';
+    const base = {
+      version: '1.1.0',
+      transcoder: {
+        inputs: [{ transport: { uri: 'mxl:///run/mxl', mxl: { video: { flowId: video }, audio: { flowId: audio } } } }],
+        outputs: [],
+      },
+    } as unknown as EngineConfigDto;
+
+    const form = configToChannelForm(base);
+    expect(form.inputs[0].transportType).toBe('mxl');
+    expect(form.inputs[0].mxlVideoFlowId).toBe(video);
+    expect(form.inputs[0].mxlAudioFlowId).toBe(audio);
+
+    // Saved unedited, the input is what it was, and gains no block of another transport.
+    const saved = channelFormToConfig(form, base);
+    expect(saved.transcoder.inputs[0].transport).toEqual({
+      uri: 'mxl:///run/mxl',
+      mxl: { video: { flowId: video }, audio: { flowId: audio } },
+    });
+
+    // A flow left empty is left out of the block.
+    const videoOnly = channelFormToConfig(
+      { ...form, inputs: [{ ...form.inputs[0], mxlAudioFlowId: '' }] },
+      base
+    );
+    expect(videoOnly.transcoder.inputs[0].transport.mxl).toEqual({ video: { flowId: video } });
+
+    // Changing the transport drops the block.
+    const asSrt = channelFormToConfig(
+      { ...form, inputs: [{ ...form.inputs[0], transportType: 'srt', uri: 'srt://h:1?mode=caller' }] },
+      base
+    );
+    expect(asSrt.transcoder.inputs[0].transport.mxl).toBeUndefined();
   });
 
   it('keeps an output of type mxl (the programme tap) when the form is saved, and does not show it as a form output', () => {
@@ -378,7 +416,7 @@ describe('Configuration Mappers', () => {
     expect(transport.uri).toBe(uri);
     expect(transport.srt).toBeUndefined();
     expect(configToChannelForm(config).inputs[0].transportType).toBe('rtmp');
-    expect(channelFormSchema.shape.inputs.element.shape.transportType.safeParse('rtmp').success).toBe(true);
+    expect(inputItemObject.shape.transportType.safeParse('rtmp').success).toBe(true);
   });
 });
 

@@ -362,6 +362,44 @@ namespace utpl {
                 std::string _urlAddress;
         };
 
+        // An input that reads MXL (Media eXchange Layer) flows written by another process. The input's URI
+        // is the domain, "mxl:///run/mxl"; the flows are named here. One flow carries video (v210) and one
+        // audio (Float32); either may be left out. See doc/codebase/41 and 42.
+        class MxlInputTransportParameters: public InputTransportParameters {
+            public:
+                MxlInputTransportParameters() : InputTransportParameters(Protocol::MXL) {
+                }
+
+                std::unique_ptr<InputTransportParameters> clone() const override {
+                    auto ret = std::make_unique<MxlInputTransportParameters>();
+
+                    ret->_videoFlowId = this->_videoFlowId;
+                    ret->_audioFlowId = this->_audioFlowId;
+
+                    return ret;
+                }
+
+                const std::string &getVideoFlowId() const {
+                    return this->_videoFlowId;
+                }
+
+                void setVideoFlowId(const std::string &id) {
+                    this->_videoFlowId = id;
+                }
+
+                const std::string &getAudioFlowId() const {
+                    return this->_audioFlowId;
+                }
+
+                void setAudioFlowId(const std::string &id) {
+                    this->_audioFlowId = id;
+                }
+
+            private:
+                std::string _videoFlowId;
+                std::string _audioFlowId;
+        };
+
         // Role of an input inside a channel. PRIMARY is the programme source that is on air by
         // default. SECONDARY is a replacement source that something else may cut to - today the
         // SCTE-35 ad switcher, for the duration of an avail. A channel without an explicit role

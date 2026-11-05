@@ -424,9 +424,40 @@ components:
           $ref: '#/components/schemas/DashInputTransportParameters'
         file:
           $ref: '#/components/schemas/FileInputTransportParameters'
+        mxl:
+          $ref: '#/components/schemas/MxlInputTransportParameters'
         
       required:
         - uri    
+
+    MxlInputTransportParameters:
+      type: object
+      description: >
+        The flows of an input whose `uri` is an MXL (Media eXchange Layer) domain, `mxl:///<domain directory>`,
+        for example `mxl:///run/mxl`. Required when the uri is an MXL domain, which must be the input's only uri
+        (a domain on another host needs MXL Fabrics and is refused; so is a redundant MXL input). At least one of
+        `video` and `audio` is required and the two ids must differ. The video flow is read as v210 and converted to I420,
+        the audio flow as Float32. The input waits for flows that are not there yet and reattaches a flow that has
+        had no data for 3 s. The MXL elements (mxlsrc) must be installed. Not available as a playlist item.
+      properties:
+        video:
+          type: object
+          properties:
+            flowId:
+              type: string
+              format: uuid
+              description: The video flow to read.
+          required:
+            - flowId
+        audio:
+          type: object
+          properties:
+            flowId:
+              type: string
+              format: uuid
+              description: The audio flow to read. Its channels are those of the flow.
+          required:
+            - flowId
       
     OutputTransportParameters:
       type: object

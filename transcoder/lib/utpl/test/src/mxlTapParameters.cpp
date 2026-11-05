@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "utpl/common/types.h"
 #include "utpl/transcoder/input.h"
 
 using namespace utpl::transcoder;
@@ -64,4 +65,36 @@ TEST(MxlTapParameters, SurvivesCopyingTheInputParameters) {
         EXPECT_EQ(p->getMxlTap().getVideoFlowId(), "5fbec3b1-1b0f-417d-9059-8b94a47197ed");
         EXPECT_EQ(p->getMxlTap().getAudioChannels(), 6);
     }
+}
+
+TEST(MxlInputTransportParameters, SurvivesCopyingTheInputParameters) {
+    auto mxl = std::make_unique<MxlInputTransportParameters>();
+    mxl->setVideoFlowId("5fbec3b1-1b0f-417d-9059-8b94a47197ed");
+    mxl->setAudioFlowId("b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10");
+
+    std::unique_ptr<InputTransportParameters> base = std::move(mxl);
+
+    InputParameters original;
+    original.addUri("mxl:///run/mxl");
+    original.addTransportParameters(base);
+
+    InputParameters assigned;
+    assigned = original;
+    InputParameters copied(original);
+
+    for (const InputParameters *p : {&original, &assigned, &copied}) {
+        const auto *got = dynamic_cast<const MxlInputTransportParameters *>(p->getTransportParameters(utpl::Protocol::MXL));
+
+        ASSERT_NE(got, nullptr);
+        EXPECT_EQ(got->getProtocol(), utpl::Protocol::MXL);
+        EXPECT_EQ(got->getVideoFlowId(), "5fbec3b1-1b0f-417d-9059-8b94a47197ed");
+        EXPECT_EQ(got->getAudioFlowId(), "b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10");
+    }
+}
+
+TEST(MxlInputTransportParameters, AnMxlUriIsRecognisedByItsScheme) {
+    utpl::Protocol sub;
+
+    EXPECT_EQ(utpl::parseProtocol("mxl:///run/mxl", sub), utpl::Protocol::MXL);
+    EXPECT_EQ(utpl::parseProtocol("MXL:///run/mxl", sub), utpl::Protocol::MXL);
 }

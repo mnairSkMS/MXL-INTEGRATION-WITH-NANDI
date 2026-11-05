@@ -1,6 +1,6 @@
 # MXL integration with Nandi: project status
 
-**As of 2026-11-04, at commit `d4b0cc6`.** This page is a summary for the project owner. The detail,
+**As of 2026-11-05.** Steps 0 to 4 are committed; the commits are listed at the end. This page is a summary for the project owner. The detail,
 the evidence and the numbers sit in [41](doc/codebase/41-mxl-integration.md) (what was built and measured)
 and [42](doc/codebase/42-mxl-implementation-plan.md) (the plan and its steps). Where this page and the source
 disagree, the source wins.
@@ -10,7 +10,7 @@ disagree, the source wins.
 This checkout tests whether MXL (Media eXchange Layer: raw video and audio shared between programs on one
 host through memory) and MXL Fabrics (the same between hosts) can be integrated with Nandi, the UTPL
 transcoder engine. The idea is that Nandi can **publish** its pictures and sound as MXL flows for other
-programs, and later **read** MXL flows as an input. Changing the engine is allowed for this purpose.
+programs, and **read** MXL flows as an input. Changing the engine is allowed for this purpose.
 
 ## At a glance
 
@@ -20,12 +20,12 @@ programs, and later **read** MXL flows as an input. Changing the engine is allow
 | 1 | MXL v1.1.0 built into the existing images; MXL itself tested | **Done** (9 of 9 tests) |
 | 2 | **Source tap**: publish a decoded input as MXL flows (`inputs[n].mxlTap`) | **Done**, gaps closed 2026-11-02 |
 | 3 | **Programme tap**: publish the finished programme as MXL flows (`outputs[n].type = "mxl"`) | **Done** |
-| 4 | **MXL input**: Nandi reads MXL flows as a channel input | **Not started** (the proposed next step) |
+| 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (10 tests; 20-minute soak) |
 | 5 | External encoder worker reading MXL, registry of flows | **Not started** |
 | 6 | MXL Fabrics between two hosts | **Not started** (needs a second host and network cards) |
 
-Test totals on the installed images: **29 of 29** MXL tests (9 SDK, 14 source tap, 6 programme), 12 of 12
-engine unit tests, 66 of 66 front-end tests, 49 of 49 API config tests. Nothing else in the engine changed
+Test totals on the installed images: **39 of 39** MXL tests (9 SDK, 14 source tap, 6 programme, 10 input), 12 of 12
+engine unit tests, 71 of 71 front-end tests, 346 of 346 API tests. Nothing else in the engine changed
 its behaviour (`tests/manual/mxl/engine-smoke.sh` gives the same output on the `:baseline` and `:mxl` images).
 
 ## What has been completed
@@ -55,7 +55,7 @@ Putting MXL into the image changed none of these numbers measurably.
   - The size of a flow's ring is fixed by the plugin (5 frames at 25 and 29.97 fps, 11 at 59.94 fps). A
     1080p59.94 flow takes 60 MB, so two do not fit in Docker's default 64 MiB `/dev/shm`. That is why the
     MXL domain has its own tmpfs.
-  - A reader on a dead flow waits for ever. Any consumer, including a future Nandi MXL input, needs its own
+  - A reader on a dead flow waits for ever. Any consumer, including the Nandi MXL input (Step 4), needs its own
     watchdog.
   - Converting Nandi's BGRA canvas to MXL's v210 costs 7.75 ms per 1080p frame, against 0.72 ms from the
     decoder's YUV. This is why the programme tap is the expensive one.
@@ -88,6 +88,27 @@ before encoding) as flows. It can have its own picture size and frame rate and k
 stops. The UI does not show it but keeps it through a save. Eight different wrong configurations are each
 refused at start with a message naming the key.
 
+### Step 4: MXL input (2026-11-05)
+
+A channel can take MXL flows as its input: `transport.uri = "mxl:///run/mxl"` plus the flow ids in `transport.mxl`. One
+channel's programme output can be another channel's input (the loopback), or any other MXL writer on the host. Tested:
+the loopback, lip-sync through it, a writer that is killed and comes back, a channel started before its flows exist, ten
+kinds of bad configuration, a video-only and an audio-only input, 25 / 29.97 / 50 / 59.94 fps, a writer replaced by one
+with another picture size, CPU against an H.264 UDP input, and an input that is itself tapped and feeds a programme
+output. The channel form can edit an MXL input; the API refuses to probe one.
+
+Two things found while building it matter beyond this step:
+
+1. **`mxlsrc` can deadlock a channel.** It holds its own lock while it pushes its caps, and the engine blocks an input's pads until the
+   input plays; the two wait for each other and the channel never starts. Worked around in the engine (a queue behind the reader
+   and a dropped query). Worth reporting to the MXL project.
+2. **The timestamps of a flow are in the past by the writer's own delay**, about 0.8 s for a programme taken after processing. A
+   channel working on live time took such frames for late, and nothing came out. The input now puts all of its flows on live time
+   plus 300 ms with one shift, which keeps sound and picture as the writer had them.
+
+Also: a reader never notices a new writer, so the input restarts a reader that has had no data for 3 s (this was a Step 1
+finding). And converting the v210 picture to I420 first, then to the canvas, costs 1.4 ms per 1080p frame instead of 7.7 ms.
+
 ### Key measurements (installed engine, shared 28-core host; read differences under about 5 % as noise)
 
 | Measure | Result |
@@ -101,6 +122,10 @@ refused at start with a message naming the key.
 | 20-minute soak, lip-sync through the flows | +7, +2, +7 ms at start, middle and end |
 | 20-minute soak, engine CPU | mean 0.37 core; 0 tap restarts; 0 errors |
 | Largest on-air gap while a reader is killed | 40 ms video, 21 ms audio |
+| MXL input CPU, against the same picture as H.264 over UDP | 720p25 0.25 against 0.36 core; 1080p25 0.57 against 0.77 core (it decodes nothing) |
+| Lip-sync through a loopback (channel A's flows, A's on-air output, channel B's output) | +8, −64 and −53 ms in one run: B is 11 ms from A's on-air output |
+| Writer killed and restarted: time until the reader channel shows it again | 5.9 s after the writer publishes again (3 s idle limit, measured in steps of about 4 s) |
+| 20-minute loopback soak | 0 reattaches, 0 errors; B's memory flat (one 2.4 MB step), B CPU 0.29 core; writer channel's memory +0.3 MB per minute |
 
 The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by the project owner on
 2026-10-30.
@@ -111,7 +136,6 @@ The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by 
 
 | Step | What it needs |
 | --- | --- |
-| 4: MXL input | `mxl` input protocol, parser, schema, API and UI; a `mxlsrc` per flow; a no-data watchdog (see Step 1 finding); `/inputs/probe` using `mxl-info`; tests with discontinuity and writer restart; a loopback test feeding one channel's programme output into another channel's MXL input. Reading into the BGRA canvas costs 8.57 ms per 1080p frame. |
 | 5: encoder worker | A container reading MXL and encoding; moving a channel's outputs to it; how SCTE-35 reaches it; flow registry (one writer per flow, stale-flow cleanup); consumer-restart, slow-reader and multi-audio tests. |
 | 6: Fabrics | Two hosts, TCP first, then RDMA hardware, compared with a compressed SRT feed under load. **Integration gated**: needs a second host and network cards. |
 
@@ -119,8 +143,11 @@ The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by 
 
 Not covered by any test:
 
-- Dolby SDK paths (**integration gated**).
-- A channel with a second input and a tap on either input.
+- Dolby SDK paths (**integration gated**), for the taps and for the MXL input.
+- A channel with a second input and a tap on either input; an MXL input as the second (alternate) input.
+- An MXL input that is redundant or a playlist item (refused), interlaced or data flows, more than one audio flow.
+- End-to-end latency of a loopback (the input adds a 300 ms margin; nothing more was measured), and a channel that stalls for
+  longer than a flow's ring.
 - Hardware decoders (the decoders here are software; a tap holding 30 frames would hold decoder surfaces).
 - More than one audio track (only the first is tapped).
 - A 1080p programme flow (its cost is the case to watch against the CPU limit), a 1080p50 or 59.94
@@ -136,8 +163,12 @@ directly).
 
 ### Open questions about the behaviour seen
 
-- **Memory:** engine memory rose 14.8 MB per hour in the 20-minute soak. That cannot tell a leak from warm-up.
-  A run of several hours is needed.
+- **Memory:** an engine that writes flows rose 14.8 MB per hour in the 20-minute source-tap soak, and the writer
+  channel of the 20-minute loopback soak rose 0.3 MB per minute (18.5 MB per hour) in a straight line. The channel
+  that only reads flows stayed flat. So the growth looks like it is on the writing side, but 20 minutes cannot tell a leak from
+  warm-up. A run of several hours is needed.
+- **Lip-sync step in the loopback soak:** channel B's output read −50 ms at the start and −10 ms in the middle and at the
+  end, a one-frame step with no log line around it. Not explained.
 - **Audio flow lag:** the audio flow's lag behind the clock is mostly 305 ms but has single-minute bursts up
   to about 390 ms. There is no trend; the cause is not known.
 - One earlier failure of `utpl_scte_section_test` was not explained and has not come back.
@@ -167,13 +198,15 @@ directly).
 | What | Command |
 | --- | --- |
 | All MXL tests on the installed images | `tests/run.sh mxl` (inside `utpl/transcoder-test:mxl`, run with `--user $(id -u):$(id -g)`) |
-| One group | `tests/run.sh mxl/tap`, `mxl/programme`, `mxl/sdk` |
+| One group | `tests/run.sh mxl/tap`, `mxl/programme`, `mxl/input`, `mxl/sdk` |
 | Soak of the source tap | `tests/manual/mxl/tap-soak.sh [minutes]` |
+| Soak of the MXL input (a loopback) | `tests/manual/mxl/input-soak.sh [minutes]` |
 | Baseline of the unmodified engine | `tests/manual/mxl/baseline.sh` |
 | Cross-container checks | `tests/manual/mxl/cross-container.sh` |
 
-Configuration keys: [05, source tap](doc/codebase/05-configuration-reference.md#input-mxl-tap) and
-[05, output MXL](doc/codebase/05-configuration-reference.md#output-mxl).
+Configuration keys: [05, source tap](doc/codebase/05-configuration-reference.md#input-mxl-tap),
+[05, output MXL](doc/codebase/05-configuration-reference.md#output-mxl) and
+[05, input MXL](doc/codebase/05-configuration-reference.md#input-mxl).
 
 ## History
 
@@ -185,3 +218,5 @@ Configuration keys: [05, source tap](doc/codebase/05-configuration-reference.md#
 | `6df9e2b` | CPU limit decision and the plugin's clock mapping recorded |
 | `65adad6` | Step 2: source tap on single inputs |
 | `d4b0cc6` | Step 2 gaps closed; Step 3 programme output |
+| `12daf1d` | This status file |
+| (next commit) | Step 4: MXL input |

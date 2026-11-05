@@ -135,6 +135,13 @@ namespace utpl {
                 static void _onPlaylistUpdate(GstElement *element, const gchar* buffer, gint64 currentSequence, GstClockTime currentPosition, SingleInput *input);
                 static bool _restartSrc(SingleInput *self);
 
+                // An MXL input: one mxlsrc and one demuxer per flow, and a watchdog that reattaches a reader whose
+                // writer went away (mxlsrc never ends, errors or notices a new writer on its own).
+                struct MxlWatch;
+
+                void _createMxlFlows(pipeline::BinPtr &srcBin, const std::string &domain, const MxlInputTransportParameters &parameters);
+                void _stopMxlWatch();
+
                 // Exposes the pads of an adaptive streaming demuxer (hlsdemux, dashdemux2), one demuxer
                 // decodebin per pad, and re-targets them when the source is restarted.
                 void _linkAdaptiveDemuxer(pipeline::BinPtr &srcBin, pipeline::ElementPtr &demuxer, bool filterScteFromSegments, bool streamsAware = false);
@@ -188,6 +195,9 @@ namespace utpl {
                 int                   _srcExpectedStreams;
                 std::mutex            _dashEmsgGuard;
                 std::deque<uint32_t>  _dashEmsgIds;
+
+                std::shared_ptr<MxlWatch> _mxlWatch;
+                guint                     _mxlWatchId;
 
                 guint    _srcRestartTimerId;
                 uint32_t _srcRetryAttempt;

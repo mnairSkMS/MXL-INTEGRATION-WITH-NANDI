@@ -285,7 +285,29 @@ Differences from the plan this page first made:
 Measured cost: +0.16 core on a 720p25 channel with a shared canvas ([41](41-mxl-integration.md#programme-tap-step-3)).
 The 1080p cost of an own canvas, a 1080p50 programme flow and Dolby audio were not measured.
 
-### Step 4: MXL input (Phase 2, WS-02)
+### Step 4: MXL input (Phase 2, WS-02) — DONE 2026-11-05
+
+Settings, design, results and findings are on [41, MXL input](41-mxl-integration.md#mxl-input-step-4); the key is
+`transport.mxl` next to an `mxl:///<domain>` uri ([05](05-configuration-reference.md#input-mxl)).
+
+Differences from the plan this page first made:
+
+| Planned | Built |
+| --- | --- |
+| `mxl.videoFlowId` / `audioFlowId` | `transport.mxl.video.flowId` and `audio.flowId`, the shape of the tap and the programme output. The domain is the uri (`mxl:///run/mxl`); a host in it is refused. |
+| Raw pads as input streams, `decodebin` skipped | One `decodebin` demuxer per flow still exposes the raw pad, as `ndisrc` does, so the stream creation and the decode step after it are unchanged. |
+| v210 → BGRA in the compositor | v210 → I420 at the reader, then the ordinary I420 → BGRA: 1.4 ms per 1080p frame against 7.7 ms (measured). |
+| A watchdog (poll `Active`, or a no-data timeout) | A no-data timeout: 3 s, then the reader is stopped and started again, repeating until data returns. |
+| — (not foreseen) | A leaky `queue` behind each reader and a dropped ALLOCATION query, because `mxlsrc` holds its state lock while it pushes caps and deadlocks a channel whose pads are blocked until it plays. |
+| — (not foreseen) | One shift for the flows' timestamps (live time plus 300 ms), because a writer's timestamps are in the past by its own processing delay. |
+| `GET /inputs/probe` describes MXL inputs with `mxl-info` | The probe answers 422 for `mxl` (as for `ndi`): the API image has no MXL tools. |
+| UI | The channel form has an MXL transport with a video and an audio flow id; the probe button is disabled for it. The built UI bundle under `api/src/transcoder_api/static/channel/` was not rebuilt. |
+
+Not planned and not built: data flows (ST 2038), a redundant or playlist MXL input, several audio flows.
+Measured cost: 720p25 0.24 core against 0.36 for an H.264 UDP input; 1080p25 0.63 against 0.77.
+
+The table below is the original plan for the step.
+
 
 | Layer | Change |
 | --- | --- |
@@ -321,7 +343,7 @@ review. Gate E decides, per topology.
 | The MXL build breaks or slows the base image | Every image depends on `utpl/base`. `ENABLE_MXL=0` restores today's build while it is fixed. | Step 1 |
 | BGRA → V210 conversion is too expensive | Move the tap, or change the canvas to a YUV format, which is a wider change affecting graphics | Step 1 measurement, Step 2 |
 | `mxlsink` blocks or waits on the clock unexpectedly | On-air stall unless the leaky queue is in place | Step 1 source reading, Step 2 tests |
-| A reader on a dead flow waits forever (measured, test 07) | A Nandi `mxl` input needs its own watchdog (poll `Active`, or a no-data timeout) or a lost writer freezes the input silently | Step 4 |
+| A reader on a dead flow waits forever (measured, test 07) | A Nandi `mxl` input needs its own watchdog (poll `Active`, or a no-data timeout) or a lost writer freezes the input silently | Step 4 (done: a 3 s no-data timeout reattaches the reader) |
 | A failing `mxlsink` posts a pipeline error (measured: tmpfs full → "No space left on device") | Done for the source tap: the tap runs in a side pipeline, so the error never reaches the channel | Step 2 (done); the same design applies to Step 3 |
 | Only the first audio stream reaches outputs ([27](27-known-gaps-contradictions-and-remediation.md)) | Per-language audio flows are impossible until it is fixed | Before Step 3 audio |
 | No audio during source loss ([27](27-known-gaps-contradictions-and-remediation.md)) | Gaps in the MXL audio flow | Before Step 3 audio |
@@ -365,9 +387,11 @@ yet. There is no history setting: `mxlsink` in v1.1.0 fixes the ring (about 170�
 ```json
 "inputs": [
   { "transport": { "uri": "mxl:///run/mxl",
-                   "mxl": { "videoFlowId": "<uuid>", "audioFlowId": "<uuid>" } } }
+                   "mxl": { "video": { "flowId": "<uuid>" }, "audio": { "flowId": "<uuid>" } } } }
 ]
 ```
+
+(The input as built uses `video.flowId` and `audio.flowId`, as the tap and the output do, not `videoFlowId` and `audioFlowId`.)
 
 The frame rate follows the channel's existing video rate key. The `mxl://` scheme matches MXL's own
 domain URI form (`mxl://[authority[:port]]/domain`).

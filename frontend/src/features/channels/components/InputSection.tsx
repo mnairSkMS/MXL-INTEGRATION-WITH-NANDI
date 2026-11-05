@@ -56,6 +56,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
     { value: 'file', label: 'Local File (file://)' },
     { value: 'ndi', label: 'NDI Network Video' },
     { value: 'rtmp', label: 'RTMP / RTMPS (Encoder Push or Pull)' },
+    { value: 'mxl', label: 'MXL flows (Media eXchange Layer, same host)' },
   ];
 
   return (
@@ -143,6 +144,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
                   else if (val === 'file') setValue(`inputs.${index}.uri`, 'file:///media/clip.mp4');
                   else if (val === 'ndi') setValue(`inputs.${index}.uri`, 'ndi://STUDIO-A');
                   else if (val === 'rtmp') setValue(`inputs.${index}.uri`, rtmpRelayUri(newStreamKey()));
+                  else if (val === 'mxl') setValue(`inputs.${index}.uri`, 'mxl:///run/mxl');
                 }}
               />
 
@@ -171,7 +173,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
                 {...register(`inputs.${index}.uri` as const)}
                 error={errors.inputs?.[index]?.uri?.message}
                 placeholder="srt://hostname:port?mode=caller or udp://interface:port"
-                helperText="Must match scheme (srt://, udp://, hls+file:, pls+file:, file://, ndi://, rtmp://, rtmps://)"
+                helperText="Must match scheme (srt://, udp://, hls+file:, pls+file:, file://, ndi://, rtmp://, rtmps://, mxl:///<domain directory>)"
               />
             </div>
 
@@ -237,6 +239,25 @@ export const InputSection: React.FC<InputSectionProps> = ({
                 </div>
               );
             })()}
+
+            {currentType === 'mxl' && (
+              <div className="grid-2" style={{ padding: '0.75rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
+                <Input
+                  label="Video flow id"
+                  placeholder="5fbec3b1-1b0f-417d-9059-8b94a47197ed"
+                  {...register(`inputs.${index}.mxlVideoFlowId` as const)}
+                  error={errors.inputs?.[index]?.mxlVideoFlowId?.message}
+                  helperText="The UUID of the v210 video flow. Leave empty for an audio-only input"
+                />
+                <Input
+                  label="Audio flow id"
+                  placeholder="b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10"
+                  {...register(`inputs.${index}.mxlAudioFlowId` as const)}
+                  error={errors.inputs?.[index]?.mxlAudioFlowId?.message}
+                  helperText="The UUID of the Float32 audio flow. Leave empty for a video-only input"
+                />
+              </div>
+            )}
 
             {currentType === 'udp' && (
               <div style={{ padding: '0.75rem', background: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-sm)' }}>

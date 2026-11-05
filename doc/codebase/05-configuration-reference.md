@@ -184,6 +184,7 @@ Current format:
 | `pls+file://...` (or a local path resolved through the file subprotocol) | `PlaylistInput` | The outer playlist document is file-only in current runtime source; exactly one URI; cannot use audio/video passthrough. |
 | `ndi://...` | `ndisrc` | Integration gated by NDI SDK/plugin availability. |
 | `rtmp://host[:port]/app/key`, `rtmps://...` | `rtmp2src`, remuxed to MPEG-TS | Live. No transport block. `rtmp://127.0.0.1:1935/live/<key>` reads from the bundled push relay. |
+| `mxl:///<domain directory>` | one `mxlsrc` per flow | Live. Needs a `transport.mxl` block that names the flows; exactly one URI. See [Input MXL](#input-mxl). |
 
 Two live URIs enable redundancy/fallback and require compatible live protocols. File and playlist redundancy are rejected. The runtime also needs the `fallbackswitch` element.
 
@@ -225,6 +226,37 @@ Timing and faults:
 - A flow whose stream delivers nothing for 3 s is closed (and opened again when data returns), so a flow that is not written never looks alive. A gap of 1.5 s does not close it (test `14`).
 - The tap is **fail-open**: it is a leaky side branch with its own pipeline, so a missing `mxlsink`, a full or missing domain, or an unsupported picture stops only the tap, which retries every 5 s. The channel keeps running and its outputs are unchanged.
 - By the plugin's source, an MXL reader (`mxlsrc`) returns an error if it reads a slot that was skipped (it is flagged invalid), so a reader should be ready to start again after a gap in the source. This was read, not measured.
+
+### Input MXL
+
+An input whose URI is `mxl:///<domain directory>` reads [MXL](41-mxl-integration.md) flows that another process writes (another channel's programme output or source tap, or any MXL writer on the same host). It is **Runtime verified** (ten tests, recorded in [41](41-mxl-integration.md#mxl-input-step-4)). Parser: `parser.cpp` (`_parseMxlInput`, next to the NDI block); parameters: `MxlInputTransportParameters` in `input.h`; media graph: `SingleInput::_createMxlFlows` in `input/single.cpp`.
+
+```json
+"transport": {
+  "uri": "mxl:///run/mxl",
+  "mxl": {
+    "video": { "flowId": "5fbec3b1-1b0f-417d-9059-8b94a47197ed" },
+    "audio": { "flowId": "b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10" }
+  }
+}
+```
+
+| JSON path | Type | Default/required | Behavior |
+| --- | --- | --- | --- |
+| `transport.uri` | `mxl:///<directory>` | Required | The MXL domain: a directory (a tmpfs the writers share; `docker-compose.yml` mounts one at `/run/mxl`). Exactly one URI. A name after `mxl://` (`mxl://studio-a/...`) means a domain on another host, which needs MXL Fabrics: refused. |
+| `transport.mxl.video.flowId` | UUID string | Optional | The video flow (v210). The channel gets the picture at the flow's size and frame rate, as I420. |
+| `transport.mxl.audio.flowId` | UUID string | Optional | The audio flow (Float32, 48 kHz). The channel gets the flow's channels. |
+
+At least one flow is required, the two ids must differ, and ids must be canonical UUIDs; a wrong block is refused when the engine starts, with a message that names the key. An `mxlTap` on the same input must not write a flow that the input reads. A playlist cannot hold MXL items (an item has no `mxl` block), and a redundant (two-URI) MXL input is refused.
+
+How it behaves:
+
+- **Live, and not prebuffered.** The flows are written in real time, so the input does not wait for a buffer to fill (the 3 s live prebuffer of UDP inputs is not used). A queue of about a second of media (3 frames of video, 1 s of audio) decouples the readers from the channel.
+- **Waits for its flows.** Started before the writer, the channel waits (as it does for a UDP source that is not sending yet) and starts when the flows appear (test `04`).
+- **A writer that goes away is noticed by the input, not by the reader.** An `mxlsrc` neither fails nor ends when its writer dies, and it never attaches to a new writer by itself ([41](41-mxl-integration.md#phase-1-results), test 07). So a flow that delivers nothing for 3 s has its reader stopped and started again; this repeats every few seconds until data returns, and logs once at info level (`no data on the video flow ... reattaching`). While nothing arrives, the channel behaves as for any live input that has stopped (its fallback picture and silence). A writer that comes back with another picture size is followed after the reattach (test `08`).
+- **Time.** A flow's buffers carry the time at which the writer made them, which is in the past by whatever the writer's own pipeline held them for (a programme taken behind a second of processing arrives a second old). The first buffer to arrive sets one shift that puts the flows on the channel's live time plus 300 ms, the same for every flow of the input so that sound and picture stay as the writer had them. The shift is set again after the writer has been gone and comes back. Lip-sync through a loopback: [41](41-mxl-integration.md#mxl-input-step-4).
+- **Picture.** v210 is converted to I420 once, at the input (about 1.4 ms per 1080p frame for the whole route to the canvas, against 7.7 ms for v210 straight to BGRA). The conversion halves the chroma height of the 4:2:2 flow and keeps 8 of its 10 bits, as every decoded H.264 source is.
+- **Not supported:** interlaced flows (MXL flows are progressive), data (ancillary) flows, more than one audio flow, a redundant or playlist MXL input, an MXL stream in passthrough (there is nothing compressed to pass), SCTE-35 (it does not travel in a flow; decision Q7 is open).
 
 ### Input transport objects
 

@@ -223,6 +223,7 @@ void transcoder::StandardInput::probe(ProbeCallback callback) {
                     case Protocol::HTTP:
                     case Protocol::HLS:
                     case Protocol::DASH:
+                    case Protocol::MXL:
                         inputNode->setProperty<gboolean>("async-handling", true);
                         break;
 

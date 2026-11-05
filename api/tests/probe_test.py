@@ -517,6 +517,17 @@ def test_ndi_is_rejected_with_an_explanation(recorder):
     assert calls == []
 
 
+def test_mxl_is_rejected_with_an_explanation(recorder):
+    calls, _ = recorder
+
+    with pytest.raises(Exception) as caught:
+        probe.probe("mxl:///run/mxl", probe.InputTransportType.mxl)
+
+    assert caught.value.http_code == 422
+    assert "MXL" in caught.value.message
+    assert calls == []
+
+
 def test_an_out_of_range_timeout_is_refused(recorder, media_dir):
     calls, _ = recorder
     (media_dir / "clip.ts").write_bytes(b"x")

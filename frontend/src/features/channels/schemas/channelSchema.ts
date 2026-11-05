@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { DOLBY_AC3_BITRATES_KBPS, DOLBY_SAMPLE_RATE_HZ } from '../constants/schema';
 
-export const inputItemSchema = z.object({
+const FLOW_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// The fields of an input. `inputItemSchema` is this plus the checks that look at more than one field.
+export const inputItemObject = z.object({
   id: z.string(),
   name: z.string().min(1, 'Input name is required'),
-  transportType: z.enum(['srt', 'udp', 'hls', 'dash', 'playlist', 'file', 'ndi', 'rtmp']),
+  transportType: z.enum(['srt', 'udp', 'hls', 'dash', 'playlist', 'file', 'ndi', 'rtmp', 'mxl']),
   uri: z.string().min(1, 'Source URI is required').refine((uri) => {
     // Scheme check
     return uri.includes('://') || uri.startsWith('hls+file:') || uri.startsWith('pls+file:');
@@ -13,6 +16,33 @@ export const inputItemSchema = z.object({
   srtLatency: z.number().min(20, 'Latency must be at least 20ms'),
   udpInterface: z.string().optional(),
   programSelector: z.number().optional(),
+  mxlVideoFlowId: z.string().optional(),
+  mxlAudioFlowId: z.string().optional(),
+});
+
+export const inputItemSchema = inputItemObject.superRefine((input, ctx) => {
+  if (input.transportType !== 'mxl') return;
+
+  // The engine refuses these at start; saying so here keeps the operator from finding out then.
+  if (!input.uri.startsWith('mxl:///') || input.uri.replace(/^mxl:\/+/, '').length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['uri'], message: 'An MXL input is a domain directory: mxl:///run/mxl' });
+  }
+
+  const video = (input.mxlVideoFlowId || '').trim();
+  const audio = (input.mxlAudioFlowId || '').trim();
+
+  if (!video && !audio) {
+    ctx.addIssue({ code: 'custom', path: ['mxlVideoFlowId'], message: 'Name a video flow or an audio flow' });
+  }
+  if (video && !FLOW_ID.test(video)) {
+    ctx.addIssue({ code: 'custom', path: ['mxlVideoFlowId'], message: 'A flow id is a UUID' });
+  }
+  if (audio && !FLOW_ID.test(audio)) {
+    ctx.addIssue({ code: 'custom', path: ['mxlAudioFlowId'], message: 'A flow id is a UUID' });
+  }
+  if (video && video === audio) {
+    ctx.addIssue({ code: 'custom', path: ['mxlAudioFlowId'], message: 'Video and audio need different flows' });
+  }
 });
 
 export const videoLadderSchema = z.object({

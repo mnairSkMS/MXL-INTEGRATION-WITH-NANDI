@@ -53,6 +53,7 @@ export function channelFormToConfig(
     if (inputItem.transportType !== 'file') delete inputDto.transport.file;
     if (inputItem.transportType !== 'playlist') delete inputDto.transport.playlist;
     if (inputItem.transportType !== 'ndi') delete inputDto.transport.ndi;
+    if (inputItem.transportType !== 'mxl') delete inputDto.transport.mxl;
 
     // Attach transport block matching scheme
     switch (inputItem.transportType) {
@@ -100,6 +101,19 @@ export function channelFormToConfig(
           ndiName: inputItem.name,
         };
         break;
+      case 'mxl': {
+        // Flows left empty are left out: the engine reads whichever the block names.
+        const video = (inputItem.mxlVideoFlowId || '').trim();
+        const audio = (inputItem.mxlAudioFlowId || '').trim();
+        inputDto.transport.mxl = {
+          ...(existingInput.transport?.mxl || {}),
+          video: video ? { flowId: video } : undefined,
+          audio: audio ? { flowId: audio } : undefined,
+        };
+        if (!video) delete inputDto.transport.mxl.video;
+        if (!audio) delete inputDto.transport.mxl.audio;
+        break;
+      }
     }
 
     if (inputItem.programSelector !== undefined) {

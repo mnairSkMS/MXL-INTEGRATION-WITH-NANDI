@@ -187,6 +187,7 @@ function mxl_require_engine() {
 #                        the udp uri above), for example '"uri": ["udp://a", "udp://b"]' 
 #   MXL_OUT_SIZE         output picture size, WxH (default 1280x720)
 #   MXL_OUT_AUDIO        output audio channels (default 2)
+#   MXL_OUT_PORT         the udp port the on-air output goes to (default MXL_PORT_OUT)
 #   MXL_EXTRA_OUTPUT     one more output object, for example the result of mxl_programme_json
 function mxl_write_config() {
     local file="$1" tap="$2" extra="" transport size="${MXL_OUT_SIZE:-1280x720}"
@@ -197,7 +198,7 @@ function mxl_write_config() {
   "application": { "logger": { "transcoder": { "level": "trace", "console": { "enable": true, "colors": false, "stderr": false } } } },
   "transcoder": {
     "inputs": [ { "transport": { ${transport} }${extra} } ],
-    "outputs": [ { "transports": [ { "uri": "udp://127.0.0.1:${MXL_PORT_OUT}" } ], "container": "mpegts",
+    "outputs": [ { "transports": [ { "uri": "udp://127.0.0.1:${MXL_OUT_PORT:-$MXL_PORT_OUT}" } ], "container": "mpegts",
       "streams": [
         { "type": "audio", "codec": "aac", "audio": { "rate": 48000, "channels": ${MXL_OUT_AUDIO:-2} },
           "aac": { "encoder": "fdkaacenc", "properties": { "bitrate": "128000" }, "caps": {} } },
@@ -221,6 +222,16 @@ function mxl_programme_json() {
 # mxl_tap_json [domain] [audio channels]: the tap block using the fixed flow ids.
 function mxl_tap_json() {
     echo "{ \"domain\": \"${1:-$MXL_DOMAIN}\", \"video\": { \"flowId\": \"$MXL_FLOW_VIDEO\" }, \"audio\": { \"flowId\": \"$MXL_FLOW_AUDIO\", \"channels\": ${2:-2} } }"
+}
+
+# mxl_input_json [video flow id] [audio flow id] [domain]: the members of an input's "transport" object for an
+# MXL input (use as MXL_INPUT_TRANSPORT). An empty flow id leaves that flow out; the default is both flows
+# with the fixed ids, in the test's domain.
+function mxl_input_json() {
+    local video="${1-$MXL_FLOW_VIDEO}" audio="${2-$MXL_FLOW_AUDIO}" domain="${3:-$MXL_DOMAIN}" flows=""
+    [ -n "$video" ] && flows="\"video\": { \"flowId\": \"$video\" }"
+    [ -n "$audio" ] && flows="${flows:+$flows, }\"audio\": { \"flowId\": \"$audio\" }"
+    echo "\"uri\": \"mxl://${domain}\", \"mxl\": { $flows }"
 }
 
 # mxl_start_source <kind> [size] [rate]: a live MPEG-TS source into the engine's input.
@@ -294,17 +305,26 @@ function mxl_start_source() {
     MXL_SRC_PID=$MXL_LAST_PID
 }
 
-# mxl_start_engine <config>: starts the engine in the background (log: $MXL_TMP/engine.log).
+# mxl_start_engine <config> [tag]: starts the engine in the background (log: $MXL_TMP/engine.log, or engine-<tag>.log
+# for a second engine in the same test). Sets MXL_ENGINE_PID.
 function mxl_start_engine() {
-    mkdir -p "$MXL_TMP/db"; : > "$MXL_TMP/db/e.sqlite"
-    "$MXL_ENGINE" -c "$1" -l "$MXL_LICENSE" -b "$MXL_TMP/db/e.sqlite" > "$MXL_TMP/engine.log" 2>&1 &
+    local tag="${2:+-$2}"
+    mkdir -p "$MXL_TMP/db"; : > "$MXL_TMP/db/e${tag}.sqlite"
+    "$MXL_ENGINE" -c "$1" -l "$MXL_LICENSE" -b "$MXL_TMP/db/e${tag}.sqlite" > "$MXL_TMP/engine${tag}.log" 2>&1 &
     MXL_ENGINE_PID=$!
     MXL_PIDS+=("$MXL_ENGINE_PID")
 }
 
 # mxl_capture_output <seconds> <file>: the engine's output, copied for a while (foreground).
 function mxl_capture_output() {
-    ffmpeg -v error -y -i "udp://127.0.0.1:${MXL_PORT_OUT}?fifo_size=5000000&overrun_nonfatal=1" -t "$1" -c copy "$2" >> "$MXL_LOG" 2>&1
+    # The timeout is for an engine that sends nothing: ffmpeg would wait for the first packet for ever.
+    timeout $(( $1 + 15 )) ffmpeg -v error -y -i "udp://127.0.0.1:${MXL_PORT_OUT}?fifo_size=5000000&overrun_nonfatal=1" -t "$1" -c copy "$2" >> "$MXL_LOG" 2>&1
+}
+
+# mxl_max_gap_ms <file> <stream selector, v:0 or a:0>: the largest spacing between consecutive packets in ms.
+function mxl_max_gap_ms() {
+    ffprobe -v error -select_streams "$2" -show_entries packet=pts_time -of csv=p=0 "$1" | grep -v '^$' | sort -n \
+        | awk 'NR > 1 { d = ($1 - p) * 1000; if (d > m) m = d } { p = $1 } END { printf "%.0f", m }'
 }
 
 # mxl_decode_errors <file>: number of decoder error lines for the whole file.

@@ -47,7 +47,8 @@ namespace utpl {
         S3,
         NDI,
         RTMP,
-        DASH
+        DASH,
+        MXL // Media eXchange Layer: raw flows read from a shared-memory domain (inputs only)
     };
 
     enum class Codec {

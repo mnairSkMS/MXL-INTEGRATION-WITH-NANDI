@@ -18,6 +18,9 @@ export interface FormInputItem {
   srtLatency: number;
   udpInterface?: string;
   programSelector?: number;
+  /** MXL inputs: the flows to read, as UUIDs. Either may be left empty. */
+  mxlVideoFlowId?: string;
+  mxlAudioFlowId?: string;
 }
 
 export interface FormVideoLadder {

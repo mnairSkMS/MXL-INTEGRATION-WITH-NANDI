@@ -11,7 +11,7 @@
 
 export type InputScanType = 'progressive' | 'interlaced' | 'unknown';
 
-export type InputTransportType = 'srt' | 'udp' | 'hls' | 'dash' | 'file' | 'playlist' | 'ndi' | 'rtmp';
+export type InputTransportType = 'srt' | 'udp' | 'hls' | 'dash' | 'file' | 'playlist' | 'ndi' | 'rtmp' | 'mxl';
 
 export interface ProbeVideoStream {
   index: number;

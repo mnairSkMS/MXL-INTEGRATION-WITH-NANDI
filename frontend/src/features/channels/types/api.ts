@@ -67,6 +67,11 @@ export interface InputTransportDto {
     ndiName?: string;
     urlAddress?: string;
   };
+  /** An input whose uri is an MXL domain (`mxl:///run/mxl`) names its flows here. */
+  mxl?: {
+    video?: { flowId: string };
+    audio?: { flowId: string };
+  };
 }
 
 export interface InputItemDto {

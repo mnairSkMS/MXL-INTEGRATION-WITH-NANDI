@@ -181,6 +181,9 @@ Protocol _parseProtocolSimple(const std::string &url) {
 
             } else if (url == "rtmp" || url == "rtmps") {
                 return utpl::Protocol::RTMP;
+
+            } else if (url == "mxl") {
+                return utpl::Protocol::MXL;
             }
     }
 

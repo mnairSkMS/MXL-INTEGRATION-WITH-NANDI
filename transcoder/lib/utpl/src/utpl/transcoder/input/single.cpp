@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <mutex>
 #include <numeric>
@@ -34,6 +35,19 @@ namespace urls = boost::urls;
 constexpr const uint32_t MAX_BACKOFF_TIME = 60 * 10; // 10 minutes
 // An encoder that reconnects must not sit behind a multi-minute backoff
 constexpr const uint32_t RTMP_MAX_BACKOFF_TIME = 5;
+// A writer that restarts is back within seconds
+constexpr const uint32_t MXL_MAX_BACKOFF_TIME = 5;
+// A reader that has seen no data for this long is reattached to its flow
+constexpr const guint    MXL_INPUT_IDLE_SECONDS = 3;
+// Raw frames are large: the queue behind an MXL reader holds a second at most, which is also about what the
+// reader can fall behind before the flow's ring has been overwritten
+constexpr const guint64  MXL_STREAM_QUEUE_MAX_TIME = 1 * GST_SECOND;
+// The flows carry the time at which their pictures and sound were made. This much is added to the time at which
+// the first one arrives (see MxlWatch::Timeline), which is the room the channel gives the flows for the jitter of
+// their writer and for the writer lagging more on one flow than on the other
+constexpr const GstClockTime MXL_INPUT_DELAY = 300 * GST_MSECOND;
+// mxlsrc delivers audio in 1 ms buffers; the rest of the engine works on longer ones
+constexpr const char    *MXL_AUDIO_CHUNK = "1/50";
 constexpr const guint    RTMP_IDLE_TIMEOUT = 5; // seconds without packets before the source errors
 constexpr const guint64 RTMP_SOURCE_QUEUE_MAX_TIME = 1 * GST_SECOND;
 // Must exceed the publisher's keyframe interval, see the demuxer queues in the RTMP branch
@@ -392,6 +406,7 @@ transcoder::SingleInput::SingleInput(bool useBuffering, const std::string &name)
     this->_srcRetryAttempt     = 0;
     this->_srcRestartTimerId   = 0;
     this->_srcErrorSeq         = -1;
+    this->_mxlWatchId          = 0;
 
     if (this->_name.empty()) {
         this->_name = "input-single-" + std::to_string(this->_id.getInt());
@@ -521,6 +536,18 @@ void transcoder::SingleInput::prepare(const InputParameters &parameters) {
                     this->_srcHasAllStreams = true;
                     this->_protocol         = Protocol::NDI;
                     
+                } else if (url->scheme() == "mxl") {
+                    const auto *mxlParameters = reinterpret_cast<const MxlInputTransportParameters *>(parameters.getTransportParameters(Protocol::MXL));
+
+                    if (mxlParameters == nullptr) {
+                        throw InvalidArgumentException("An MXL input needs a transport.mxl block that names its flows: '" + uriString + "'");
+                    }
+
+                    this->_createMxlFlows(srcBin, std::string(url->path()), *mxlParameters);
+
+                    this->_isLive   = true;
+                    this->_protocol = Protocol::MXL;
+
                 } else if (url->scheme() == "udp") {
                     auto src   = srcBin->add(pipeline::Element::make("udpsrc"));
                     auto queue = srcBin->add(pipeline::Element::make("queue"));
@@ -1218,7 +1245,15 @@ void transcoder::SingleInput::prepare(const InputParameters &parameters) {
             // DASH likewise: dashdemux2 already holds the presentation delay (10 s by default) and
             // delivers whole segments in bursts, which made the three-second level flap between
             // underrun and overrun every segment (measured: every 4 s with 2 s segments).
-            if (this->_useBuffering && this->_protocol != Protocol::SRT && this->_protocol != Protocol::DASH) {
+            //
+            // MXL likewise: the flows are written in real time, so there is nothing to prebuffer, and waiting
+            // would only add delay. The queue is bounded by time, not by buffers, because the buffers differ
+            // in size by a factor of thousands (a 1 ms audio chunk and a raw frame).
+            if (this->_protocol == Protocol::MXL) {
+                this->_buffer->setProperty<guint64> ("max-size-time",    MXL_STREAM_QUEUE_MAX_TIME);
+                this->_buffer->setProperty<guint>   ("max-size-buffers", 0);
+
+            } else if (this->_useBuffering && this->_protocol != Protocol::SRT && this->_protocol != Protocol::DASH) {
                 this->_buffer->setProperty<guint64> ("max-size-time",    3 * GST_SECOND);
                 this->_buffer->setProperty<guint>   ("max-size-buffers", 0);
 
@@ -1551,7 +1586,13 @@ pipeline::ElementPtr transcoder::SingleInput::_createDemuxer(bool filterAllScteE
             }
         }
         
-        if (! this->_buffer) {
+        // An MXL input has a queue (to decouple its readers) but no prebuffering, so it is ready as soon as its
+        // flows are attached
+        if (! this->_buffer || this->_protocol == Protocol::MXL) {
+            if (this->_protocol == Protocol::MXL) {
+                this->_state = InputState::BUFFERED;
+            }
+
             if (this->_stateChangeCallback) {
                 this->_stateChangeCallback(InputState::BUFFERED);
             }
@@ -1561,6 +1602,304 @@ pipeline::ElementPtr transcoder::SingleInput::_createDemuxer(bool filterAllScteE
     });
 
     return decoder;
+}
+
+struct transcoder::SingleInput::MxlWatch {
+    // Where the flows' time falls on the channel's. A flow's buffers are stamped with the time of the picture or
+    // the sound, as the writer took it, and the writer's own pipeline has delayed them since (a programme taken
+    // behind a second of processing arrives a second old). A channel works on live time, which is the time at
+    // which things arrive, and would take such a buffer for late and drop it. So the first buffer to arrive sets
+    // one shift, which is the same for every flow of the input and so keeps them in step with each other, and
+    // puts it on live time plus a margin. It holds until the writer has been gone and comes back.
+    struct Timeline {
+        std::mutex          guard;
+        std::atomic<bool>   known { false };
+        std::atomic<int>    generation { 0 };
+        std::atomic<gint64> shift { 0 };
+    };
+
+    struct Flow {
+        ~Flow() {
+            if (this->target) {
+                gst_object_unref(this->target);
+            }
+        }
+
+        std::string                kind;
+        pipeline::ElementPtr       src;
+        GstPad                    *target = nullptr;       // where the shift is applied: the output of the queue behind the reader
+        std::shared_ptr<Timeline>  timeline;
+        GstSegment                 segment;
+        bool                       haveSegment = false;
+        int                        applied     = 0;        // the generation of the timeline last applied to the target
+
+        std::atomic<gint64>        lastData { 0 };         // g_get_monotonic_time() of the last buffer, in microseconds
+        gint64                     reattachedAt = 0;       // of the last reattach
+        int                        reattached   = 0;       // reattaches since the last buffer
+    };
+
+    std::mutex                         guard;
+    SingleInput                       *input = nullptr;       // emptied by _stopMxlWatch() before the input goes
+    std::shared_ptr<Timeline>          timeline = std::make_shared<Timeline>();
+    std::vector<std::shared_ptr<Flow>> flows;
+};
+
+void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const std::string &domain, const MxlInputTransportParameters &parameters) {
+    this->_mxlWatch        = std::make_shared<MxlWatch>();
+    this->_mxlWatch->input = this;
+
+    auto addFlow = [&](const char *kind, const char *property, const std::string &flowId, bool video) {
+        auto src = srcBin->add(pipeline::Element::make(std::string("mxl-") + kind + "-src", "mxlsrc"));
+
+        src->setProperty<const gchar *>("domain", domain.c_str());
+        src->setProperty<const gchar *>(property, flowId.c_str());
+
+        // mxlsrc holds its state lock while it pushes the caps of its flow downstream. The elements behind it
+        // answer that with queries to what is further on, and the pads there are blocked until the input plays;
+        // the change to playing asks mxlsrc for its latency, which needs the same lock. So the reader would wait
+        // for the state change and the state change for the reader (measured: the channel never starts). The
+        // queue ends the reader's thread at once. It drops the oldest buffers rather than block the reader, which
+        // must keep up with the ring of its flow in any case.
+        auto queue = srcBin->add(pipeline::Element::make("queue"));
+
+        queue->setProperty<gboolean>("silent",           true);
+        queue->setProperty<guint>   ("max-size-bytes",   0);
+        queue->setProperty<guint>   ("max-size-buffers", video ? 3 : 0);
+        queue->setProperty<guint64> ("max-size-time",    video ? 0 : MXL_STREAM_QUEUE_MAX_TIME);
+
+        gst_util_set_object_arg(G_OBJECT((*queue)->get()), "leaky", "downstream");
+
+        src->link(queue);
+
+        pipeline::ElementPtr last = queue;
+
+        if (video) {
+            // The flow is v210 (4:2:2, 10 bits). The channel's canvas is BGRA, and v210 to BGRA costs ten times
+            // what I420 to BGRA does (7.7 ms against 0.8 + 0.6 ms for a 1080p frame), which is what a decoded
+            // H.264 source arrives as. So the picture is brought to I420 here, once.
+            auto convert = srcBin->add(pipeline::Element::make("videoconvert"));
+            auto filter  = srcBin->add(pipeline::Element::make("capsfilter"));
+
+            {
+                GstCaps *caps = gst_caps_from_string("video/x-raw,format=I420");
+
+                filter->setProperty<GstCaps *>("caps", caps);
+
+                gst_caps_unref(caps);
+            }
+
+            last->link(convert);
+            convert->link(filter);
+
+            last = filter;
+
+        } else {
+            auto split = srcBin->add(pipeline::Element::make("audiobuffersplit"));
+
+            gst_util_set_object_arg(G_OBJECT((*split)->get()), "output-buffer-duration", MXL_AUDIO_CHUNK);
+
+            last->link(split);
+
+            last = split;
+        }
+
+        auto demuxer = this->_createDemuxer();
+
+        last->link(demuxer);
+
+        auto flow = std::make_shared<MxlWatch::Flow>();
+
+        flow->kind      = kind;
+        flow->src       = src;
+        flow->target    = GST_PAD((*queue->getPad("src"))->get());
+        flow->timeline  = this->_mxlWatch->timeline;
+        flow->lastData  = g_get_monotonic_time();
+
+        gst_object_ref(flow->target);
+        gst_segment_init(&flow->segment, GST_FORMAT_UNDEFINED);
+
+        gst_pad_add_probe(
+            (*src->getPad("src"))->get(),
+            (GstPadProbeType) (GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+            +[](GstPad *srcPad, GstPadProbeInfo *info, gpointer data) -> GstPadProbeReturn {
+                auto &flow = **static_cast<std::shared_ptr<MxlWatch::Flow> *>(data);
+
+                if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
+                    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+
+                    if (GST_EVENT_TYPE(event) == GST_EVENT_SEGMENT) {
+                        gst_event_copy_segment(event, &flow.segment);
+
+                        flow.haveSegment = flow.segment.format == GST_FORMAT_TIME;
+                    }
+
+                    return GST_PAD_PROBE_OK;
+                }
+
+                flow.lastData = g_get_monotonic_time();
+
+                auto &timeline = *flow.timeline;
+
+                if (! timeline.known) {
+                    GstClockTime pts = GST_BUFFER_PTS(GST_PAD_PROBE_INFO_BUFFER(info));
+
+                    if (! flow.haveSegment || ! GST_CLOCK_TIME_IS_VALID(pts)) {
+                        return GST_PAD_PROBE_OK;
+                    }
+
+                    std::lock_guard lock(timeline.guard);
+
+                    if (! timeline.known) {
+                        GstClockTime now = gst_element_get_current_running_time(GST_ELEMENT(GST_PAD_PARENT(srcPad)));
+                        GstClockTime at  = gst_segment_to_running_time(&flow.segment, GST_FORMAT_TIME, pts);
+
+                        if (! GST_CLOCK_TIME_IS_VALID(now) || ! GST_CLOCK_TIME_IS_VALID(at)) {
+                            return GST_PAD_PROBE_OK;
+                        }
+
+                        timeline.shift = GST_CLOCK_DIFF(at, now) + (gint64) MXL_INPUT_DELAY;
+                        timeline.generation++;
+                        timeline.known = true;
+                    }
+                }
+
+                if (flow.applied != timeline.generation) {
+                    flow.applied = timeline.generation;
+
+                    gst_pad_set_offset(flow.target, timeline.shift);
+                }
+
+                return GST_PAD_PROBE_OK;
+            },
+            new std::shared_ptr<MxlWatch::Flow>(flow),
+            +[](gpointer data) {
+                delete static_cast<std::shared_ptr<MxlWatch::Flow> *>(data);
+            }
+        );
+
+        src->getPad("src")->addProbe({ GST_PAD_PROBE_TYPE_BUFFER }, [this](GstPadProbeInfo *info) {
+            this->_clearRetry();
+
+            return false;
+        });
+
+        // The same lock is held while mxlsrc negotiates with the elements behind it, with an ALLOCATION query that
+        // would wait in the same way. A reader has no use for a buffer pool, so the query is not sent on.
+        gst_pad_add_probe(
+            (*src->getPad("src"))->get(),
+            GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
+            +[](GstPad *, GstPadProbeInfo *info, gpointer) -> GstPadProbeReturn {
+                if (GST_QUERY_TYPE(GST_PAD_PROBE_INFO_QUERY(info)) == GST_QUERY_ALLOCATION) {
+                    return GST_PAD_PROBE_DROP;
+                }
+
+                return GST_PAD_PROBE_OK;
+            },
+            nullptr,
+            nullptr
+        );
+
+        this->_mxlWatch->flows.push_back(flow);
+    };
+
+    int flows = 0;
+
+    if (! parameters.getVideoFlowId().empty()) {
+        addFlow("video", "video-flow-id", parameters.getVideoFlowId(), true);
+
+        flows++;
+    }
+
+    if (! parameters.getAudioFlowId().empty()) {
+        addFlow("audio", "audio-flow-id", parameters.getAudioFlowId(), false);
+
+        flows++;
+    }
+
+    this->_srcStreamsCount  = flows;
+    this->_srcHasAllStreams = true;
+
+    // A reader keeps waiting on a flow whose writer has gone: it does not end, fail, or notice that a new
+    // writer has taken the flow's id. So a reader that has seen no data for a while is stopped and started
+    // again, which attaches it to whatever the flow is now. This also covers a flow that is not there yet.
+    this->_mxlWatchId = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT, 1, +[](gpointer data) -> gboolean {
+        auto &watch = *static_cast<std::shared_ptr<MxlWatch> *>(data);
+
+        std::lock_guard lock(watch->guard);
+
+        if (! watch->input) {
+            return G_SOURCE_CONTINUE;
+        }
+
+        const gint64 now     = g_get_monotonic_time();
+        const gint64 limit   = MXL_INPUT_IDLE_SECONDS * G_USEC_PER_SEC;
+        const bool   playing = watch->input->_bin && GST_STATE((*watch->input->_bin)->get()) == GST_STATE_PLAYING;
+
+        bool allQuiet = playing;
+
+        for (auto &flow : watch->flows) {
+            if (now - std::max<gint64>(flow->lastData, flow->reattachedAt) <= limit) {
+                allQuiet = false;
+            }
+        }
+
+        // With every flow silent the writer is gone, and the one that comes back may lag differently: its first
+        // buffer sets the shift again
+        if (allQuiet) {
+            watch->timeline->known = false;
+        }
+
+        for (auto &flow : watch->flows) {
+            // A reader that is not running (an input that is not on air yet) is not idle
+            if (! playing) {
+                flow->lastData = now;
+
+                continue;
+            }
+
+            if (flow->lastData > flow->reattachedAt) {
+                flow->reattached = 0;
+            }
+
+            if (now - std::max<gint64>(flow->lastData, flow->reattachedAt) > limit) {
+                if (flow->reattached++ == 0) {
+                    logger.log("MXL input '{}': no data on the {} flow for {} s; reattaching it", watch->input->getName(), flow->kind, MXL_INPUT_IDLE_SECONDS);
+
+                } else {
+                    DBG(("MXL input '{}': still no data on the {} flow; reattaching it again", watch->input->getName(), flow->kind));
+                }
+
+                flow->reattachedAt = now;
+
+                GstElement *element = (*flow->src)->get();
+
+                gst_element_set_state(element, GST_STATE_NULL);
+                gst_element_sync_state_with_parent(element);
+            }
+        }
+
+        return G_SOURCE_CONTINUE;
+    }, new std::shared_ptr<MxlWatch>(this->_mxlWatch), +[](gpointer data) {
+        delete static_cast<std::shared_ptr<MxlWatch> *>(data);
+    });
+}
+
+void transcoder::SingleInput::_stopMxlWatch() {
+    if (this->_mxlWatch) {
+        {
+            std::lock_guard lock(this->_mxlWatch->guard);
+
+            this->_mxlWatch->input = nullptr;
+        }
+
+        this->_mxlWatch = nullptr;
+    }
+
+    if (this->_mxlWatchId) {
+        g_source_remove(this->_mxlWatchId);
+
+        this->_mxlWatchId = 0;
+    }
 }
 
 void utpl::transcoder::SingleInput::_onPlaylistUpdate(GstElement *element, const gchar *buffer, gint64 currentSequence, GstClockTime currentPosition, SingleInput *input) {
@@ -2167,7 +2506,16 @@ uint32_t utpl::transcoder::SingleInput::_calculateBackoffDelay(uint32_t attempt)
     }
     
     // Cap at maximum delay
-    return std::min(delay, this->_protocol == Protocol::RTMP ? RTMP_MAX_BACKOFF_TIME : MAX_BACKOFF_TIME);
+    switch (this->_protocol) {
+        case Protocol::RTMP:
+            return std::min(delay, RTMP_MAX_BACKOFF_TIME);
+
+        case Protocol::MXL:
+            return std::min(delay, MXL_MAX_BACKOFF_TIME);
+
+        default:
+            return std::min(delay, MAX_BACKOFF_TIME);
+    }
 }
 
 void utpl::transcoder::SingleInput::_clearRetry() {
@@ -2186,6 +2534,8 @@ void transcoder::SingleInput::probe(ProbeCallback callback) {
 }
 
 void transcoder::SingleInput::cleanup() {
+    this->_stopMxlWatch();
+
     this->_buffer           = nullptr;
     this->_bin              = nullptr;
     this->_isLive           = false;

@@ -146,6 +146,26 @@ def test_an_inputs_mxl_tap_block_survives_a_write(env):
     assert engine_config.read()["transcoder"]["inputs"][0]["mxlTap"] == tap
 
 
+def test_an_mxl_inputs_transport_block_survives_a_write(env):
+    """transport.mxl names the flows of an input whose uri is an MXL domain.
+
+    The engine reads it; the API has no model for it, so a save must carry it through.
+    """
+    mxl = {
+        "video": {"flowId": "5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c01"},
+        "audio": {"flowId": "5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c02"},
+    }
+    document = _document()
+    document["transcoder"]["inputs"][0]["transport"] = {"uri": "mxl:///run/mxl", "mxl": mxl}
+
+    engine_config.validate(document)
+    engine_config.write(document)
+
+    saved = engine_config.read()["transcoder"]["inputs"][0]["transport"]
+    assert saved["uri"] == "mxl:///run/mxl"
+    assert saved["mxl"] == mxl
+
+
 # ---------------------------------------------------------------------------
 # Reading
 # ---------------------------------------------------------------------------

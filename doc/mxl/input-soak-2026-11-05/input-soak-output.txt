@@ -1,0 +1,30 @@
+minute	b_rss_mb	a_rss_mb	b_cpu_cores	a_cpu_cores	b_reattaches	a_tap_starts	errors
+RESULT lip-sync of B's output at the start: -50 ms (14 pairs)
+1	200.1	359.3	0.29	0.42	0	2	0
+2	200.1	359.4	0.29	0.42	0	2	0
+3	200.1	359.8	0.31	0.44	0	2	0
+4	200.1	360.1	0.29	0.42	0	2	0
+5	200.1	360.5	0.29	0.42	0	2	0
+6	200.1	360.7	0.29	0.42	0	2	0
+7	202.5	361.0	0.30	0.42	0	2	0
+8	202.5	361.3	0.29	0.42	0	2	0
+9	202.5	361.7	0.29	0.42	0	2	0
+10	202.5	361.9	0.29	0.42	0	2	0
+RESULT lip-sync of B's output in the middle (minute 10): -10 ms (14 pairs)
+11	202.5	362.2	0.29	0.42	0	2	0
+12	202.5	362.6	0.29	0.42	0	2	0
+13	202.5	362.9	0.29	0.42	0	2	0
+14	202.5	363.3	0.29	0.42	0	2	0
+15	202.5	363.5	0.30	0.43	0	2	0
+16	202.5	363.8	0.29	0.42	0	2	0
+17	202.5	364.2	0.29	0.42	0	2	0
+18	202.5	364.4	0.29	0.42	0	2	0
+19	202.5	364.7	0.29	0.42	0	2	0
+20	202.5	365.0	0.29	0.42	0	2	0
+RESULT lip-sync of B's output at the end: -10 ms (13 pairs)
+RESULT channel B memory trend: 9.1 MB per hour (now 202.5 MB)
+RESULT channel A memory trend: 18.5 MB per hour (now 365.0 MB)
+RESULT channel B CPU: mean 0.29 cores; channel A CPU: mean 0.42 cores
+RESULT reattaches in B / tap starts in A / errors: 0 / 2 / 0 (0 / 2 / 0 are what a clean run shows)
+series kept in /tmp/soak/tmp/series.tsv inside the container; copied to /out
+series: /tmp/tmp.o4kap5T8s1/input-soak-series.tsv

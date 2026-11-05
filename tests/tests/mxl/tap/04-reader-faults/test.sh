@@ -37,11 +37,7 @@ timeout 20 gst-launch-1.0 -q mxlsrc video-flow-id=$MXL_FLOW_VIDEO domain=$MXL_DO
     || mxl_fail "a new reader could not join after the faults"
 wait $capture 2>/dev/null || true
 
-gap() {  # gap <stream selector>: the largest spacing between consecutive packets, in ms
-    ffprobe -v error -select_streams $1 -show_entries packet=pts_time -of csv=p=0 $MXL_TMP/out.ts | grep -v '^$' | sort -n \
-        | awk 'NR > 1 { d = ($1 - p) * 1000; if (d > m) m = d } { p = $1 } END { printf "%.0f", m }'
-}
-vgap=$(gap v:0); agap=$(gap a:0)
+vgap=$(mxl_max_gap_ms $MXL_TMP/out.ts v:0); agap=$(mxl_max_gap_ms $MXL_TMP/out.ts a:0)
 echo "RESULT largest gap between video packets: ${vgap} ms, audio packets: ${agap} ms"
 mxl_log "gaps: video ${vgap} ms, audio ${agap} ms"
 awk -v g="$vgap" 'BEGIN { exit !(g <= 120) }' || mxl_fail "the on-air video has a ${vgap} ms gap"

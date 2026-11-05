@@ -90,6 +90,10 @@ export const CreateChannelPage: React.FC = () => {
         return 'NDI sources cannot be probed: this build of ffmpeg has no NDI input protocol.';
       }
 
+      if (input.transportType === 'mxl') {
+        return 'MXL flows cannot be probed here: an MXL flow is read from shared memory, not opened by ffprobe. Check the flows with mxl-info on the host.';
+      }
+
       if (engineIsUp && isHeldBy(input.uri, heldUris)) {
         return 'This is the source the engine is currently running. Probing it would reopen the socket and can interrupt the live channel. Edit the URI, or stop the engine first.';
       }

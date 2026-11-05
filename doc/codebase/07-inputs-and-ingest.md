@@ -281,6 +281,20 @@ inputs are tapped (for the last two the tap sits on the combined stream, so a fa
 item does not break the flow); passthrough streams are not tapped. Settings: [05](05-configuration-reference.md#input-mxl-tap); design, results
 and limits: [41](41-mxl-integration.md#source-tap-step-2).
 
+## MXL input
+
+An input whose URI is `mxl:///<domain directory>` reads MXL flows written by another process (another channel's
+programme output or source tap, or any MXL writer on the host). `SingleInput::prepare` builds, for each flow named
+in `transport.mxl`, an `mxlsrc`, a leaky `queue`, a conversion (video: `videoconvert` to I420; audio:
+`audiobuffersplit` to 20 ms buffers) and a `decodebin` demuxer of its own, which exposes the raw pad; from there it is an
+ordinary live input (`SingleInputStream`, tee, processors, `StandardInput` selection). It differs from the network
+inputs in four ways: it is not prebuffered (the 3 s live prebuffer is skipped, as for SRT and DASH); a watchdog stops and
+restarts a reader that has had no data for 3 s, because `mxlsrc` neither fails nor attaches to a new writer by itself;
+one shift, the same for all flows of the input, puts the writer's timestamps on the channel's live time plus 300 ms; and
+the reader's queue and a dropped ALLOCATION query keep `mxlsrc` from deadlocking a channel whose pads are blocked until it
+plays. A flow that is not there yet is waited for. Settings: [05](05-configuration-reference.md#input-mxl); design,
+results and limits: [41](41-mxl-integration.md#mxl-input-step-4).
+
 ## Constraints
 
 The application rejects empty URI sets, more than two URIs, redundant file/playlist input, and playlist with passthrough. See [configuration](05-configuration-reference.md) and [playlist switching](08-playlists-buffering-and-switching.md).

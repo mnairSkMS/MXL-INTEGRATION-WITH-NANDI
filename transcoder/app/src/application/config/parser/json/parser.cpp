@@ -138,6 +138,85 @@ static utpl::transcoder::VideoParameters _parseMxlVideo(const nlohmann::json &vi
     return params;
 }
 
+// An MXL input: the uri names the domain ("mxl:///run/mxl", no authority: a domain on another host needs MXL
+// Fabrics) and the "mxl" block names the flows. `where` names the input in the messages.
+static std::unique_ptr<utpl::transcoder::MxlInputTransportParameters> _parseMxlInput(
+    const nlohmann::json &json, const std::vector<std::string> &uris, const std::string &where
+) {
+    if (uris.size() != 1) {
+        throw utpl::InvalidArgumentException(where + ".uri must be one \"mxl:///<domain directory>\" (a redundant MXL input is not supported)");
+    }
+
+    {
+        const std::string &uri = uris[0];
+        const std::string  scheme = "mxl://";
+
+        if (utpl::utils::toLower(uri.substr(0, scheme.size())) != scheme) {
+            throw utpl::InvalidArgumentException(where + ".uri '" + uri + "' must start with mxl:// when the transport has an \"mxl\" block");
+        }
+
+        const std::string rest = uri.substr(scheme.size());
+
+        if (rest.empty() || rest[0] != '/') {
+            throw utpl::InvalidArgumentException(where + ".uri '" + uri + "' names a host: a domain on another host needs MXL Fabrics, which is not supported; use mxl:///<domain directory>");
+        }
+
+        if (rest.find_first_not_of('/') == std::string::npos) {
+            throw utpl::InvalidArgumentException(where + ".uri '" + uri + "' needs the domain directory after mxl://, for example mxl:///run/mxl");
+        }
+    }
+
+    if (! json.is_object()) {
+        throw utpl::InvalidArgumentException(where + ".mxl must be an object");
+    }
+
+    auto ret = std::make_unique<utpl::transcoder::MxlInputTransportParameters>();
+
+    auto parseFlowId = [&](const char *key) -> std::string {
+        if (! json.contains(key) || json[key].is_null()) {
+            return std::string();
+        }
+
+        const auto &keyJson = json[key];
+
+        if (! keyJson.is_object() || ! keyJson.contains("flowId") || ! keyJson["flowId"].is_string()) {
+            throw utpl::InvalidArgumentException(where + ".mxl." + key + ".flowId is required");
+        }
+
+        const auto flowId = keyJson["flowId"].get<std::string>();
+
+        if (! utpl::transcoder::MxlTapParameters::isValidFlowId(flowId)) {
+            throw utpl::InvalidArgumentException(where + ".mxl." + key + ".flowId '" + flowId + "' is not a UUID");
+        }
+
+        return flowId;
+    };
+
+    ret->setVideoFlowId(parseFlowId("video"));
+    ret->setAudioFlowId(parseFlowId("audio"));
+
+    if (ret->getVideoFlowId().empty() && ret->getAudioFlowId().empty()) {
+        throw utpl::InvalidArgumentException(where + ".mxl needs a video or an audio flow");
+    }
+
+    if (ret->getVideoFlowId() == ret->getAudioFlowId()) {
+        throw utpl::InvalidArgumentException(where + ".mxl video and audio need different flow ids");
+    }
+
+    return ret;
+}
+
+// The path of an "mxl://" uri: the domain directory.
+static std::string _mxlDomainOfUri(const std::string &uri) {
+    std::string path = uri.substr(std::string("mxl://").size());
+
+    while (path.size() > 1 && path.back() == '/') {
+        path.pop_back();
+    }
+
+    return path;
+}
+
 static void _checkOutputPids(const utpl::transcoder::OutputParameters &outputParams, const nlohmann::json &output) {
     std::set<utpl::Pid> used;
     bool                hasPid = false;
@@ -684,6 +763,22 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
 
                                     base = std::move(t); inputParams.addTransportParameters(base);
                                 }
+
+                                {
+                                    const std::string where = "transcoder.inputs[" + std::to_string(inputIndex) + "].transport";
+
+                                    const bool mxlUri = ! inputParams.getUris().empty() &&
+                                        utpl::utils::toLower(inputParams.getUris()[0].substr(0, 6)) == "mxl://";
+
+                                    if (transportJson.contains("mxl")) {
+                                        auto t = _parseMxlInput(transportJson["mxl"], inputParams.getUris(), where);
+
+                                        base = std::move(t); inputParams.addTransportParameters(base);
+
+                                    } else if (mxlUri) {
+                                        throw utpl::InvalidArgumentException(where + ".uri is an MXL domain: " + where + ".mxl must name the flows");
+                                    }
+                                }
                             }
 
                             if (input.contains("selector")) {
@@ -730,6 +825,21 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
                             const auto tap = _parseMxlFlows(tapJson, "transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap");
 
                             inputParams.setMxlTap(tap);
+
+                            // A tap and an input on the same flow would have the engine write what it reads.
+                            const auto *mxlInput = dynamic_cast<const utpl::transcoder::MxlInputTransportParameters *>(
+                                inputParams.getTransportParameters(utpl::Protocol::MXL)
+                            );
+
+                            if (mxlInput && ! inputParams.getUris().empty() && _mxlDomainOfUri(inputParams.getUris()[0]) == tap.getDomain()) {
+                                for (const auto &flowId : { tap.getVideoFlowId(), tap.getAudioFlowId() }) {
+                                    if (! flowId.empty() && (flowId == mxlInput->getVideoFlowId() || flowId == mxlInput->getAudioFlowId())) {
+                                        throw utpl::InvalidArgumentException(
+                                            "transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap writes flow " + flowId + ", which the same input reads"
+                                        );
+                                    }
+                                }
+                            }
                         }
 
                         if (inputIndex == 0) {

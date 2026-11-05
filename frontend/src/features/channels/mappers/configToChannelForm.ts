@@ -27,6 +27,7 @@ export function configToChannelForm(config: EngineConfigDto): ChannelFormValues 
     else if (uri.startsWith('file://')) transportType = 'file';
     else if (uri.startsWith('ndi://')) transportType = 'ndi';
     else if (uri.startsWith('rtmp://') || uri.startsWith('rtmps://')) transportType = 'rtmp';
+    else if (uri.startsWith('mxl://')) transportType = 'mxl';
 
     const srtMode = inDto.transport?.srt?.mode || (uri.includes('mode=listener') ? 'listener' : 'caller');
     const srtLatency = inDto.transport?.srt?.latency || 120;
@@ -41,6 +42,8 @@ export function configToChannelForm(config: EngineConfigDto): ChannelFormValues 
       srtLatency,
       udpInterface,
       programSelector: inDto.selector?.program,
+      mxlVideoFlowId: inDto.transport?.mxl?.video?.flowId,
+      mxlAudioFlowId: inDto.transport?.mxl?.audio?.flowId,
     };
   });
 

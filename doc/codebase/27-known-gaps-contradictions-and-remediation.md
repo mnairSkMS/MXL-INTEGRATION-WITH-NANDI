@@ -239,8 +239,19 @@ Details in [41](41-mxl-integration.md#findings-made-while-closing-the-gaps-2026-
 - **P3: the MXL reader `mxlsrc` errors on a skipped slot** (read in the plugin's source, not measured), so a reader of a tapped flow has to be ready to start again after a source gap.
 - **P3: `tsp -P spliceinject` hangs when more than 12 events are queued from one file**, and `ffmpeg -c copy` loses SCTE-35 sections (it re-wraps them as PES). The test source avoids both.
 - **P3: the programme audio flow's head advanced 13 % faster than real time for part of a source outage** (test `programme/05`). The silence is produced by the channel.
-- **P3 (UI): an output of type `mxl` is not shown in the channel form**; it is kept through a save (tested), but cannot be edited there.
+- **P3 (UI): an output of type `mxl` is not shown in the channel form**; it is kept through a save (tested), but cannot be edited there. (An MXL **input** can be edited there, 2026-11-05.)
 - **Observation: this host varies by 0.1 to 0.2 core between runs of the same CPU measurement**, so tap costs are given as ranges.
+
+## MXL input findings (2026-11-05)
+
+Details in [41](41-mxl-integration.md#mxl-input-step-4).
+
+- **P2 (worked around in the engine): `mxlsrc` can deadlock a channel whose pads are blocked until it plays.** It holds its state lock while it pushes its caps downstream; the change to playing asks it for its latency, which needs the lock. The engine puts a leaky queue behind the reader and drops the reader's ALLOCATION query. Upstream, `mxlsrc` should not hold its state lock across a push; not reported yet.
+- **P2 (handled in the engine): a reader never notices a new writer.** Same as the Phase 1 finding, now covered by the input's 3 s no-data reattach (test `03`).
+- **P3: the MXL input adds 300 ms to the writer's lag on purpose** (`MXL_INPUT_DELAY`, a constant, not a setting). It is not measured against any limit (Gate A not agreed) and not configurable.
+- **P3 (UI): the built channel UI under `api/src/transcoder_api/static/channel/` was not rebuilt** for the MXL input (nor for the earlier programme-output keep-through). The sources in `frontend/` and their tests are current.
+- **P3: an MXL input cannot be probed** (`GET /inputs/probe` answers 422 for transport `mxl`; the API image has no MXL tools).
+- **P3: `mxl_write_video` in the test framework needs a fraction for the frame rate** (`25/1`); `25` produces invalid caps and a writer that dies silently.
 
 ## Maintenance rule
 

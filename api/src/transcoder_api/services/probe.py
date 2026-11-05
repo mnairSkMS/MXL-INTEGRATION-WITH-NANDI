@@ -719,6 +719,12 @@ def probe(
             "NDI inputs cannot be probed: ffmpeg has no NDI input protocol in this build"
         )
 
+    if transport is InputTransportType.mxl:
+        raise UnprocessableException(
+            "MXL inputs cannot be probed: an MXL flow is read from shared memory, not opened by ffprobe. "
+            "Check the flows with mxl-info on the host that runs them"
+        )
+
     waited_for_caller = False
     is_listener = False
 

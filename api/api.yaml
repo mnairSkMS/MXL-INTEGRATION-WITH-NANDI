@@ -457,12 +457,15 @@ components:
 
     InputTransportType:
       type: string
-      enum: [ srt, udp, hls, dash, file, playlist, ndi, rtmp ]
+      enum: [ srt, udp, hls, dash, file, playlist, ndi, rtmp, mxl ]
       description: |
         The transport the input will be configured with. Matches the values the engine's JSON
         configuration parser accepts. `ndi` is listed so the API can reject it with a clear
         message: ffmpeg has no NDI input protocol, so an NDI source cannot be probed.
         `rtmp` covers both `rtmp://` and `rtmps://` URIs; the stream key is the last path segment.
+        `mxl` is an MXL (Media eXchange Layer) domain, `mxl:///run/mxl`, with its flows named in the
+        configuration's `transport.mxl` block. It is listed so the API can reject a probe with a clear
+        message: an MXL flow is not a stream ffprobe can open, so it cannot be probed here.
         `dash` is an MPEG-DASH manifest (`http(s)://.../x.mpd`). A live MPD whose server refuses
         not-yet-available segments (HTTP 404/425) can time out: ffmpeg's DASH demuxer requests the
         live-edge segment without a presentation delay.
