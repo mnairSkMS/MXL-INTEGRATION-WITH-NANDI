@@ -375,6 +375,7 @@ namespace utpl {
 
                     ret->_videoFlowId = this->_videoFlowId;
                     ret->_audioFlowId = this->_audioFlowId;
+                    ret->_delayMs     = this->_delayMs;
 
                     return ret;
                 }
@@ -395,9 +396,26 @@ namespace utpl {
                     this->_audioFlowId = id;
                 }
 
+                // The flows carry the time at which their pictures and sound were made, and the writer's own
+                // processing has delayed them since. The channel plays them this many milliseconds after they
+                // arrive: the room it gives the writer for jitter. It is added to the end-to-end delay of the input.
+                // The default is the largest movement of lag seen between a Nandi programme output's picture and sound
+                // (358 ms, with every core of the host busy; 185 to 260 ms otherwise) plus a margin: see 41-mxl-integration.md
+                static constexpr uint32_t DEFAULT_DELAY_MS = 500;
+                static constexpr uint32_t MAX_DELAY_MS     = 2000;
+
+                uint32_t getDelayMs() const {
+                    return this->_delayMs;
+                }
+
+                void setDelayMs(uint32_t delayMs) {
+                    this->_delayMs = delayMs;
+                }
+
             private:
                 std::string _videoFlowId;
                 std::string _audioFlowId;
+                uint32_t    _delayMs = DEFAULT_DELAY_MS;
         };
 
         // Role of an input inside a channel. PRIMARY is the programme source that is on air by

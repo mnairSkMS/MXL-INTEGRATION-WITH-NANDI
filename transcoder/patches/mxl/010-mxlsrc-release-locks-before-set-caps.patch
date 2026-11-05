@@ -1,0 +1,63 @@
+mxlsrc: release the settings and context locks before pushing the caps downstream
+
+set_flow_caps() kept both mutexes locked while set_caps() pushed the CAPS event
+downstream. If an element behind mxlsrc blocks that event until the pipeline is
+PLAYING (the Nandi transcoder does: it holds an input's pads until the input is
+switched in), the PAUSED->PLAYING transition sends mxlsrc a latency query,
+live_latency() waits for the same `context` mutex, and the pipeline never starts.
+
+Read the flow description under the locks, drop them, then set the caps.
+
+Applies to MXL v1.1.0 (rust/gst-mxl-rs); the function is unchanged on main as of
+01e9918. Upstream: https://github.com/dmf-mxl/mxl
+
+--- a/rust/gst-mxl-rs/src/mxlsrc/imp.rs
++++ b/rust/gst-mxl-rs/src/mxlsrc/imp.rs
+@@ -620,22 +620,31 @@
+ 
+ impl MxlSrc {
+     fn set_flow_caps(&self) -> Result<(), gst::LoggableError> {
+-        let settings = self
+-            .settings
+-            .lock()
+-            .map_err(|e| gst::loggable_error!(CAT, "Failed to lock settings mutex {}", e))?;
+-        let context = self
+-            .context
+-            .lock()
+-            .map_err(|e| gst::loggable_error!(CAT, "Failed to lock context mutex {}", e))?;
+-        let instance = &context
+-            .state
+-            .as_ref()
+-            .ok_or(gst::loggable_error!(CAT, "Failed to get state"))?
+-            .instance;
+-        let flow_id = mxl_helper::get_flow_type_id(&settings)?;
+-        let json_flow_description = mxl_helper::get_mxl_flow_json(instance, flow_id)?;
+-        let flow_description = mxl_helper::get_flow_def(self, json_flow_description)?;
++        // Read the flow description while holding the locks, then release them
++        // BEFORE set_json_caps(). set_caps() pushes the CAPS event downstream and
++        // does not return until every element behind this one has handled it. An
++        // element that answers by blocking until the pipeline reaches PLAYING
++        // would then wait on a state change that sends this element a latency
++        // query, and live_latency() needs `context`: with the lock still held here
++        // that is a deadlock, and the pipeline never starts.
++        let flow_description = {
++            let settings = self
++                .settings
++                .lock()
++                .map_err(|e| gst::loggable_error!(CAT, "Failed to lock settings mutex {}", e))?;
++            let context = self
++                .context
++                .lock()
++                .map_err(|e| gst::loggable_error!(CAT, "Failed to lock context mutex {}", e))?;
++            let instance = &context
++                .state
++                .as_ref()
++                .ok_or(gst::loggable_error!(CAT, "Failed to get state"))?
++                .instance;
++            let flow_id = mxl_helper::get_flow_type_id(&settings)?;
++            let json_flow_description = mxl_helper::get_mxl_flow_json(instance, flow_id)?;
++            mxl_helper::get_flow_def(self, json_flow_description)?
++        };
+         mxl_helper::set_json_caps(self, flow_description)
+     }
+ 

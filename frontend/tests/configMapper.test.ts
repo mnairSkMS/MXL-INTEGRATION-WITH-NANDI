@@ -185,6 +185,21 @@ describe('Configuration Mappers', () => {
       mxl: { video: { flowId: video }, audio: { flowId: audio } },
     });
 
+    // The delay is read, kept, and left out of the file when the field is emptied.
+    const withDelay = {
+      ...base,
+      transcoder: { ...base.transcoder, inputs: [{ transport: { uri: 'mxl:///run/mxl', mxl: { video: { flowId: video }, delayMs: 750 } } }] },
+    } as unknown as EngineConfigDto;
+    const delayForm = configToChannelForm(withDelay);
+    expect(delayForm.inputs[0].mxlDelayMs).toBe(750);
+    expect(channelFormToConfig(delayForm, withDelay).transcoder.inputs[0].transport.mxl).toEqual({ video: { flowId: video }, delayMs: 750 });
+    expect(
+      channelFormToConfig({ ...delayForm, inputs: [{ ...delayForm.inputs[0], mxlDelayMs: undefined }] }, withDelay).transcoder.inputs[0].transport.mxl
+    ).toEqual({ video: { flowId: video } });
+    expect(
+      channelFormToConfig({ ...delayForm, inputs: [{ ...delayForm.inputs[0], mxlDelayMs: 0 }] }, withDelay).transcoder.inputs[0].transport.mxl
+    ).toEqual({ video: { flowId: video }, delayMs: 0 });
+
     // A flow left empty is left out of the block.
     const videoOnly = channelFormToConfig(
       { ...form, inputs: [{ ...form.inputs[0], mxlAudioFlowId: '' }] },

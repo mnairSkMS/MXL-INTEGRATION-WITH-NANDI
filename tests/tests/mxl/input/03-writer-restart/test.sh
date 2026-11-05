@@ -28,12 +28,15 @@ probe() {
     rm -f $MXL_TMP/$1.ts
     timeout 12 ffmpeg -v error -y -i "udp://127.0.0.1:${MXL_PORT_OUT}?fifo_size=5000000&overrun_nonfatal=1" -t 2 -c copy $MXL_TMP/$1.ts >> $MXL_LOG 2>&1 || true
     [ -s $MXL_TMP/$1.ts ] || { echo no; return; }
-    local pics tone
-    pics=$(ffmpeg -v error -y -i $MXL_TMP/$1.ts -an -vf "fps=10,scale=160:90,format=gray" -f framemd5 - 2>/dev/null | awk '!/^#/ { print $NF }' | sort -u | wc -l)
+    # A capture starts wherever the output is in its 2 s group of pictures, and ffmpeg drops what comes before the first
+    # keyframe, so the capture holds between nothing and 2 s of picture. The picture moves if most of the ones it holds
+    # differ (a frozen or black one gives one).
+    local total pics tone
+    read -r total pics <<< "$(ffmpeg -v error -y -i $MXL_TMP/$1.ts -an -vf "fps=10,scale=160:90,format=gray" -f framemd5 - 2>/dev/null | awk '!/^#/ { n++; seen[$NF] = 1 } END { c = 0; for (k in seen) c++; print n + 0, c }')"
     ffmpeg -v error -y -i $MXL_TMP/$1.ts -vn -ac 1 $MXL_TMP/$1.wav >> $MXL_LOG 2>&1 || true
     tone=$(mxl_tone_db $MXL_TMP/$1.wav 1000)
-    mxl_log "probe $1: $pics pictures, tone ${tone:-none} dB"
-    if [ "$pics" -ge 10 ] && awk -v t="${tone:--99}" 'BEGIN { exit !(t > -35) }'; then echo yes; else echo no; fi
+    mxl_log "probe $1: ${pics:-0} different pictures of ${total:-0} sampled, tone ${tone:-none} dB"
+    if [ "${total:-0}" -ge 5 ] && [ $(( ${pics:-0} * 2 )) -ge "${total:-0}" ] && awk -v t="${tone:--99}" 'BEGIN { exit !(t > -35) }'; then echo yes; else echo no; fi
 }
 
 [ "$(probe before)" = "yes" ] || mxl_abort "channel B shows no picture and tone before the writer is killed"

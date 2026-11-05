@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DOLBY_AC3_BITRATES_KBPS, DOLBY_SAMPLE_RATE_HZ } from '../constants/schema';
+import { DOLBY_AC3_BITRATES_KBPS, DOLBY_SAMPLE_RATE_HZ, MXL_MAX_DELAY_MS } from '../constants/schema';
 
 const FLOW_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -18,6 +18,7 @@ export const inputItemObject = z.object({
   programSelector: z.number().optional(),
   mxlVideoFlowId: z.string().optional(),
   mxlAudioFlowId: z.string().optional(),
+  mxlDelayMs: z.number().optional(),
 });
 
 export const inputItemSchema = inputItemObject.superRefine((input, ctx) => {
@@ -42,6 +43,11 @@ export const inputItemSchema = inputItemObject.superRefine((input, ctx) => {
   }
   if (video && video === audio) {
     ctx.addIssue({ code: 'custom', path: ['mxlAudioFlowId'], message: 'Video and audio need different flows' });
+  }
+
+  const delay = input.mxlDelayMs;
+  if (delay !== undefined && (!Number.isInteger(delay) || delay < 0 || delay > MXL_MAX_DELAY_MS)) {
+    ctx.addIssue({ code: 'custom', path: ['mxlDelayMs'], message: `Delay is a whole number of milliseconds from 0 to ${MXL_MAX_DELAY_MS}` });
   }
 });
 

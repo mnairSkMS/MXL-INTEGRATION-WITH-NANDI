@@ -48,6 +48,10 @@ export function audioEncoderFor(codec: string, sampleRateHz: number, bitrateKbps
   }
 }
 
+/** An MXL input plays its flows this long after they arrive unless told otherwise, and at most this long (the engine refuses more). */
+export const MXL_DEFAULT_DELAY_MS = 500;
+export const MXL_MAX_DELAY_MS = 2000;
+
 /** Reads back what audioEncoderFor wrote: "<kbps>k" for dlbpatenc, bits/s otherwise. */
 export function audioBitrateKbpsFrom(bitrate: string | undefined): number | undefined {
   if (!bitrate) return undefined;

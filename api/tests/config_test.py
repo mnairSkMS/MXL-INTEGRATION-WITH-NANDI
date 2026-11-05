@@ -154,6 +154,7 @@ def test_an_mxl_inputs_transport_block_survives_a_write(env):
     mxl = {
         "video": {"flowId": "5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c01"},
         "audio": {"flowId": "5fbec3b1-1b0b-4fd4-8f76-1d6a3c5a0c02"},
+        "delayMs": 500,
     }
     document = _document()
     document["transcoder"]["inputs"][0]["transport"] = {"uri": "mxl:///run/mxl", "mxl": mxl}

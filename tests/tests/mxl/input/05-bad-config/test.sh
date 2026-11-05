@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # A wrong MXL input is refused when the engine starts, with a message that names the key: a uri that is not
 # an MXL domain, a domain on another host, no flows, flows that are not UUIDs, the same flow twice, two uris,
-# a tap that writes a flow the input reads. A correct input starts and keeps running.
+# a delay that is negative, too long, fractional or not a number, a tap that writes a flow the input reads. A correct
+# input starts and keeps running.
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 . ${SCRIPT_DIR}/../../../../framework/mxl.sh
@@ -33,12 +34,23 @@ check_refused not-a-uuid    "\"uri\": \"mxl://$D\", \"mxl\": {\"video\": {\"flow
 check_refused no-flowid     "\"uri\": \"mxl://$D\", \"mxl\": {\"audio\": {}}"                                          "flowId is required"
 check_refused same-flow     "\"uri\": \"mxl://$D\", \"mxl\": {\"video\": {\"flowId\": \"$U1\"}, \"audio\": {\"flowId\": \"$U1\"}}" "different flow ids"
 check_refused two-uris      "\"uri\": [\"mxl://$D\", \"mxl://$D\"], \"mxl\": {\"video\": {\"flowId\": \"$U1\"}}"       "redundant MXL input is not supported"
+check_refused delay-negative "\"uri\": \"mxl://$D\", \"mxl\": {\"video\": {\"flowId\": \"$U1\"}, \"delayMs\": -1}"        "delayMs must be a whole number of milliseconds from 0 to 2000"
+check_refused delay-too-long "\"uri\": \"mxl://$D\", \"mxl\": {\"video\": {\"flowId\": \"$U1\"}, \"delayMs\": 2001}"      "delayMs must be a whole number of milliseconds from 0 to 2000"
+check_refused delay-fraction "\"uri\": \"mxl://$D\", \"mxl\": {\"video\": {\"flowId\": \"$U1\"}, \"delayMs\": 12.5}"      "delayMs must be a whole number of milliseconds from 0 to 2000"
+check_refused delay-text     "\"uri\": \"mxl://$D\", \"mxl\": {\"video\": {\"flowId\": \"$U1\"}, \"delayMs\": \"fast\"}"   "delayMs must be a whole number of milliseconds from 0 to 2000"
 check_refused tap-on-input  "$(mxl_input_json "$U1" "$U2" "$D")" "which the same input reads" "{\"domain\": \"$D\", \"video\": {\"flowId\": \"$U1\"}}"
 
-# A correct input starts and keeps running (its flows are not there yet: the channel waits for them).
+# A correct input starts and keeps running (its flows are not there yet: the channel waits for them), with the
+# default delay and with the longest allowed.
 MXL_INPUT_TRANSPORT="$(mxl_input_json)" mxl_write_config $MXL_TMP/good.json ""
-mxl_start_engine $MXL_TMP/good.json
+mxl_start_engine $MXL_TMP/good.json good
 sleep 6
 mxl_alive $MXL_ENGINE_PID || mxl_fail "a correct MXL input was refused"
+mxl_stop $MXL_ENGINE_PID
+
+MXL_INPUT_TRANSPORT="$(MXL_INPUT_DELAY_MS=2000 mxl_input_json)" mxl_write_config $MXL_TMP/good-delay.json ""
+mxl_start_engine $MXL_TMP/good-delay.json good-delay
+sleep 6
+mxl_alive $MXL_ENGINE_PID || mxl_fail "a correct MXL input with a delay of 2000 ms was refused"
 
 mxl_test_end

@@ -226,11 +226,12 @@ function mxl_tap_json() {
 
 # mxl_input_json [video flow id] [audio flow id] [domain]: the members of an input's "transport" object for an
 # MXL input (use as MXL_INPUT_TRANSPORT). An empty flow id leaves that flow out; the default is both flows
-# with the fixed ids, in the test's domain.
+# with the fixed ids, in the test's domain. MXL_INPUT_DELAY_MS, when set, adds "delayMs".
 function mxl_input_json() {
     local video="${1-$MXL_FLOW_VIDEO}" audio="${2-$MXL_FLOW_AUDIO}" domain="${3:-$MXL_DOMAIN}" flows=""
     [ -n "$video" ] && flows="\"video\": { \"flowId\": \"$video\" }"
     [ -n "$audio" ] && flows="${flows:+$flows, }\"audio\": { \"flowId\": \"$audio\" }"
+    [ -n "$MXL_INPUT_DELAY_MS" ] && flows="${flows:+$flows, }\"delayMs\": ${MXL_INPUT_DELAY_MS}"
     echo "\"uri\": \"mxl://${domain}\", \"mxl\": { $flows }"
 }
 

@@ -42,7 +42,9 @@ RUN \
 RUN \
     DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt build-dep -y --no-install-recommends --no-install-suggests gstreamer1.0-plugins-bad 
 # Copy sources
-COPY transcoder/patches /tmp/transcoder/patches
+# Only the patches this stage applies: a patch for another stage (transcoder/patches/mxl) must not rebuild the GStreamer packages
+COPY transcoder/patches/gstreamer1.0-plugins-bad /tmp/transcoder/patches/gstreamer1.0-plugins-bad
+COPY transcoder/patches/gst-plugins-rs /tmp/transcoder/patches/gst-plugins-rs
 
 RUN \
     mkdir -p /tmp/deb_build && \
@@ -141,6 +143,15 @@ RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
 
 RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${MXL_RUST_TOOLCHAIN} --no-modify-path
+
+# Patches to the MXL Rust plugin (transcoder/patches/mxl). Applied after the C++ build, because they
+# only touch rust/, so a changed patch does not rebuild libmxl.
+COPY transcoder/patches/mxl /tmp/mxl-patches
+RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
+    cd /opt/mxl-src && \
+    for patchFile in $(find /tmp/mxl-patches -type f -name '*.patch' | sort); do \
+        echo "Patching MXL with: $patchFile" && git apply --verbose "$patchFile" || exit 1; \
+    done
 
 RUN [ "${ENABLE_MXL}" = "1" ] || exit 0; \
     cd /opt/mxl-src/rust && \

@@ -44,6 +44,7 @@ export function configToChannelForm(config: EngineConfigDto): ChannelFormValues 
       programSelector: inDto.selector?.program,
       mxlVideoFlowId: inDto.transport?.mxl?.video?.flowId,
       mxlAudioFlowId: inDto.transport?.mxl?.audio?.flowId,
+      mxlDelayMs: inDto.transport?.mxl?.delayMs,
     };
   });
 

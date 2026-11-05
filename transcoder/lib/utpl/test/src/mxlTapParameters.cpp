@@ -71,6 +71,7 @@ TEST(MxlInputTransportParameters, SurvivesCopyingTheInputParameters) {
     auto mxl = std::make_unique<MxlInputTransportParameters>();
     mxl->setVideoFlowId("5fbec3b1-1b0f-417d-9059-8b94a47197ed");
     mxl->setAudioFlowId("b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10");
+    mxl->setDelayMs(750);
 
     std::unique_ptr<InputTransportParameters> base = std::move(mxl);
 
@@ -89,7 +90,16 @@ TEST(MxlInputTransportParameters, SurvivesCopyingTheInputParameters) {
         EXPECT_EQ(got->getProtocol(), utpl::Protocol::MXL);
         EXPECT_EQ(got->getVideoFlowId(), "5fbec3b1-1b0f-417d-9059-8b94a47197ed");
         EXPECT_EQ(got->getAudioFlowId(), "b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10");
+        EXPECT_EQ(got->getDelayMs(), 750u);
     }
+}
+
+TEST(MxlInputTransportParameters, TheDelayIsFiveHundredMillisecondsUnlessSet) {
+    MxlInputTransportParameters mxl;
+
+    EXPECT_EQ(mxl.getDelayMs(), MxlInputTransportParameters::DEFAULT_DELAY_MS);
+    EXPECT_EQ(mxl.getDelayMs(), 500u);
+    EXPECT_LE(mxl.getDelayMs(), MxlInputTransportParameters::MAX_DELAY_MS);
 }
 
 TEST(MxlInputTransportParameters, AnMxlUriIsRecognisedByItsScheme) {

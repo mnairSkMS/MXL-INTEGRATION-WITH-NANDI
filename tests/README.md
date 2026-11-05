@@ -6,7 +6,7 @@
 * `tests/tests/mxl/sdk` tests need only GStreamer and the MXL plugin (`tests/framework/mxl.sh`).
   They return `Skipped` if the image was built with `ENABLE_MXL=0`.
 * `tests/tests/mxl/tap` (14 tests of the input source tap, `inputs[n].mxlTap`), `tests/tests/mxl/programme`
-  (6 tests of the programme output, `outputs[n].type = "mxl"`) and `tests/tests/mxl/input` (10 tests of the MXL
+  (6 tests of the programme output, `outputs[n].type = "mxl"`) and `tests/tests/mxl/input` (11 tests of the MXL
   input, `transport.uri = "mxl:///..."`; most run two engines, one publishing and one reading) start the real engine on a generated UDP source,
   so they need the licence at `/tmp/transcoder.lic` (present in `utpl/transcoder-test`) and report `Skipped`
   without it. To test a build made in a scratch directory instead of the engine in the image, mount it and set
@@ -15,7 +15,7 @@
   the runner takes a directory, not a glob. Some print `RESULT` lines with measurements.
 * `tests/manual/mxl/*.sh` need Docker on the host and are not collected by `run.sh`. `tap-soak.sh [minutes]` is
   a long run of the source tap (drift of the flows against the clock, lip-sync, memory, CPU); `input-soak.sh [minutes]`
-  is the same for the MXL input (a channel reading another channel's programme output).
+  is the same for the MXL input (a channel reading another channel's programme output); `input-jitter.sh [seconds]` measures how far the writer's lag moves, which is what the input's `delayMs` has to cover.
 
 # Configuration environment variables
 

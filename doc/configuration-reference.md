@@ -60,7 +60,7 @@ One entry per source. Multiple entries are alternative sources for failover.
 | `transport` | object, req | The source endpoint. Missing → parse error. | — | — |
 | `transport.uri` | string \| string[], req | Source endpoint. An array is an ordered failover list. | `HUMAN` | Never invent a host, port or path. |
 | `selector.program` | int | MPEG-TS program number to pick from a multi-program stream. | `HUMAN` | Only for multi-program TS; omit otherwise. |
-| `transport.mxl` | object | The flows of an input whose uri is `mxl:///<domain directory>`: `video.flowId` and/or `audio.flowId`. | `HUMAN` | Required with an `mxl://` uri, forbidden without. UUIDs, different; one uri only; no host after `mxl://`. Not for playlist items. Details: [codebase/05](codebase/05-configuration-reference.md#input-mxl). |
+| `transport.mxl` | object | The flows of an input whose uri is `mxl:///<domain directory>`: `video.flowId` and/or `audio.flowId`, and optionally `delayMs` (0–2000, default 500). | `HUMAN` | Required with an `mxl://` uri, forbidden without. UUIDs, different; one uri only; no host after `mxl://`. Not for playlist items. Details: [codebase/05](codebase/05-configuration-reference.md#input-mxl). |
 | `mxlTap` | object | Copies the decoded source to MXL flows (other processes read them). Fail-open: a broken tap never affects the channel. | `HUMAN` | Needs the MXL plugin in the image and a shared tmpfs domain. `domain` and at least one `video.flowId`/`audio.flowId` (UUIDs, different) are required; `audio.channels` 1–8, default 2. Details: [codebase/05](codebase/05-configuration-reference.md#input-mxl-tap). |
 
 **URI schemes:** `file://` `udp://` `srt://` `http://` `https://` (HLS, or DASH for `.mpd` / `transport.dash`) `hls+file://`

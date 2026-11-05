@@ -20,12 +20,13 @@ programs, and **read** MXL flows as an input. Changing the engine is allowed for
 | 1 | MXL v1.1.0 built into the existing images; MXL itself tested | **Done** (9 of 9 tests) |
 | 2 | **Source tap**: publish a decoded input as MXL flows (`inputs[n].mxlTap`) | **Done**, gaps closed 2026-11-02 |
 | 3 | **Programme tap**: publish the finished programme as MXL flows (`outputs[n].type = "mxl"`) | **Done** |
-| 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (10 tests; 20-minute soak) |
+| 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (11 tests; 20-minute soak) |
 | 5 | External encoder worker reading MXL, registry of flows | **Not started** |
 | 6 | MXL Fabrics between two hosts | **Not started** (needs a second host and network cards) |
 
-Test totals on the installed images: **39 of 39** MXL tests (9 SDK, 14 source tap, 6 programme, 10 input), 12 of 12
-engine unit tests, 71 of 71 front-end tests, 346 of 346 API tests. Nothing else in the engine changed
+Test totals on the installed images: **40 of 40** MXL tests (9 SDK, 14 source tap, 6 programme, 11 input), 12 of 12
+engine unit tests, 72 of 72 front-end tests, 346 of 346 API tests. (A first full run of the day had one failure that did not come back; see
+"Open questions".) Nothing else in the engine changed
 its behaviour (`tests/manual/mxl/engine-smoke.sh` gives the same output on the `:baseline` and `:mxl` images).
 
 ## What has been completed
@@ -92,19 +93,24 @@ refused at start with a message naming the key.
 
 A channel can take MXL flows as its input: `transport.uri = "mxl:///run/mxl"` plus the flow ids in `transport.mxl`. One
 channel's programme output can be another channel's input (the loopback), or any other MXL writer on the host. Tested:
-the loopback, lip-sync through it, a writer that is killed and comes back, a channel started before its flows exist, ten
-kinds of bad configuration, a video-only and an audio-only input, 25 / 29.97 / 50 / 59.94 fps, a writer replaced by one
+the loopback, lip-sync through it, a writer that is killed and comes back, a channel started before its flows exist, fourteen
+kinds of bad configuration, the delay setting, a video-only and an audio-only input, 25 / 29.97 / 50 / 59.94 fps, a writer replaced by one
 with another picture size, CPU against an H.264 UDP input, and an input that is itself tapped and feeds a programme
 output. The channel form can edit an MXL input; the API refuses to probe one.
 
 Two things found while building it matter beyond this step:
 
 1. **`mxlsrc` can deadlock a channel.** It holds its own lock while it pushes its caps, and the engine blocks an input's pads until the
-   input plays; the two wait for each other and the channel never starts. Worked around in the engine (a queue behind the reader
-   and a dropped query). Worth reporting to the MXL project.
+   input plays; the two wait for each other and the channel never starts. **Fixed in the plugin** by a patch
+   (`transcoder/patches/mxl/010-mxlsrc-release-locks-before-set-caps.patch`, applied when the image is built), and still worked around in
+   the engine (a queue behind the reader and a dropped query) so that a stock plugin works too. Proved by taking the engine's
+   measures out: with the stock plugin the loopback test fails and channel B stops at "switching to PLAYING"; with the patched plugin the
+   same engine passes with the same numbers. **Not yet reported to the MXL project.**
 2. **The timestamps of a flow are in the past by the writer's own delay**, about 0.8 s for a programme taken after processing. A
    channel working on live time took such frames for late, and nothing came out. The input now puts all of its flows on live time
-   plus 300 ms with one shift, which keeps sound and picture as the writer had them.
+   plus a **delay with one shift**, which keeps sound and picture as the writer had them. The delay is the setting
+   `transport.mxl.delayMs`, **default 500 ms**, chosen from measurements (below); it was a fixed 300 ms, which one measurement
+   exceeded. The engine warns, naming the setting, when a flow arrives later than the delay allows.
 
 Also: a reader never notices a new writer, so the input restarts a reader that has had no data for 3 s (this was a Step 1
 finding). And converting the v210 picture to I420 first, then to the canvas, costs 1.4 ms per 1080p frame instead of 7.7 ms.
@@ -122,9 +128,10 @@ finding). And converting the v210 picture to I420 first, then to the canvas, cos
 | 20-minute soak, lip-sync through the flows | +7, +2, +7 ms at start, middle and end |
 | 20-minute soak, engine CPU | mean 0.37 core; 0 tap restarts; 0 errors |
 | Largest on-air gap while a reader is killed | 40 ms video, 21 ms audio |
-| MXL input CPU, against the same picture as H.264 over UDP | 720p25 0.25 against 0.36 core; 1080p25 0.57 against 0.77 core (it decodes nothing) |
-| Lip-sync through a loopback (channel A's flows, A's on-air output, channel B's output) | +8, −64 and −53 ms in one run: B is 11 ms from A's on-air output |
-| Writer killed and restarted: time until the reader channel shows it again | 5.9 s after the writer publishes again (3 s idle limit, measured in steps of about 4 s) |
+| MXL input CPU, against the same picture as H.264 over UDP | 720p25 0.25 against 0.37 core; 1080p25 0.59 against 0.80 core (it decodes nothing) |
+| Lip-sync through a loopback (channel A's flows, A's on-air output, channel B's output) | −7, −43 and −61 ms in one run: B is 18 ms from A's on-air output |
+| Writer killed and restarted: time until the reader channel shows it again | 5.3 s after the writer publishes again in four runs, 15.8 s in one (3 s idle limit, measured in steps of about 4 s) |
+| How far an MXL writer's lag moves (a Nandi programme output into an MXL input; `input-jitter.sh`) | Each flow alone moves 10 to 74 ms. The picture is a constant 160 to 180 ms later than the sound, so the two flows together spread 185 to 260 ms in three-minute runs and 358 ms in one 25 s run with every core busy. Default delay 500 ms. |
 | 20-minute loopback soak | 0 reattaches, 0 errors; B's memory flat (one 2.4 MB step), B CPU 0.29 core; writer channel's memory +0.3 MB per minute |
 
 The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by the project owner on
@@ -146,7 +153,7 @@ Not covered by any test:
 - Dolby SDK paths (**integration gated**), for the taps and for the MXL input.
 - A channel with a second input and a tap on either input; an MXL input as the second (alternate) input.
 - An MXL input that is redundant or a playlist item (refused), interlaced or data flows, more than one audio flow.
-- End-to-end latency of a loopback (the input adds a 300 ms margin; nothing more was measured), and a channel that stalls for
+- End-to-end latency of a loopback (the input adds its delay, 500 ms unless set; nothing more was measured), and a channel that stalls for
   longer than a flow's ring.
 - Hardware decoders (the decoders here are software; a tap holding 30 frames would hold decoder surfaces).
 - More than one audio track (only the first is tapped).
@@ -171,6 +178,14 @@ directly).
   end, a one-frame step with no log line around it. Not explained.
 - **Audio flow lag:** the audio flow's lag behind the clock is mostly 305 ms but has single-minute bursts up
   to about 390 ms. There is no trend; the cause is not known.
+- **Two intermittent test failures on 2026-11-05.** `input/11-delay` exited without a message in the first full run (it captures B's output
+  with `ffmpeg`; a failed capture ended the script silently) and passed in all 8 later runs; the test now reports a failed capture in words.
+  `input/03-writer-restart` failed once because its 2 s probe sometimes holds less than a second of usable picture (a capture starts mid-GOP and
+  ffmpeg drops what comes before the first keyframe); the probe now judges the share of distinct pictures. The first is unexplained.
+- **Writer-restart recovery time varies:** 5.3 s in four runs, 15.8 s in one.
+- **Picture later than sound in the programme output:** the programme output writes its video flow 160 to 180 ms later than its
+  audio flow, measured against their media times. It is why the MXL input needs a delay of several hundred milliseconds. Not
+  looked into; a smaller difference at the writer would allow a smaller delay.
 - One earlier failure of `utpl_scte_section_test` was not explained and has not come back.
 - About 9 s of audio silence in one muxer-based reader was not explained.
 
@@ -179,6 +194,8 @@ directly).
 | Decision | Current state |
 | --- | --- |
 | Gate A numeric limits (lip-sync, drops, latency, CPU) | Not agreed. The tests print results and use provisional limits (for example 80 ms lip-sync from the source). |
+| Default delay of an MXL input (500 ms) | Chosen from measurements, 140 ms above the worst spread seen; not agreed against a latency limit. A smarter shift (learn the constant difference between the flows) would allow about 100 ms; not built. |
+| Report the `mxlsrc` deadlock to the MXL project | The patch is ready; reporting is outward-facing and not done. |
 | Fail-open for a failed tap | Assumed and built; never confirmed. |
 | Where the SCTE-35 timeline lives (Q7) | Open. SCTE-35 does not travel in an MXL flow. |
 | Stop condition for the project (Q18) | Proposed in [42, section 7](doc/codebase/42-mxl-implementation-plan.md#7-proposed-defaults-for-the-open-decisions), not approved. |

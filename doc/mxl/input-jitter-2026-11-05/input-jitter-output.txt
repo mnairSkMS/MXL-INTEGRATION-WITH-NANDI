@@ -1,0 +1,20 @@
+tests/manual/mxl/input-jitter.sh 180   (scratch build, 2026-11-05; channel A programme output -> channel B MXL input with a 1000 ms delay)
+The per-second samples behind these lines were not kept (the temporary directory was lost); the RESULT lines are the script's own output.
+
+RESULT 720p25 idle host, video flow: 180 s sampled; room over the run 808 to 882 ms, so the lag moved 74 ms; widest single second 73 ms
+RESULT 720p25 idle host, audio flow: 180 s sampled; room over the run 1037 to 1061 ms, so the lag moved 24 ms; widest single second 24 ms
+RESULT 720p25 idle host: B reattached a flow 0 times
+RESULT 720p25 all cores busy, video flow: 180 s sampled; room over the run 805 to 862 ms, so the lag moved 57 ms; widest single second 50 ms
+RESULT 720p25 all cores busy, audio flow: 180 s sampled; room over the run 1025 to 1065 ms, so the lag moved 40 ms; widest single second 39 ms
+RESULT 720p25 all cores busy: B reattached a flow 0 times
+RESULT 1080p25 idle host, video flow: 180 s sampled; room over the run 873 to 883 ms, so the lag moved 10 ms; widest single second 10 ms
+RESULT 1080p25 idle host, audio flow: 180 s sampled; room over the run 1036 to 1058 ms, so the lag moved 22 ms; widest single second 22 ms
+RESULT 1080p25 idle host: B reattached a flow 0 times
+
+First pass, 25 s per condition (same script, `input-jitter.sh 25`):
+RESULT 720p25 idle host, video flow: 25 s sampled; room over the run 867 to 871 ms, so the lag moved 4 ms; widest single second 4 ms
+RESULT 720p25 idle host, audio flow: 25 s sampled; room over the run 1035 to 1059 ms, so the lag moved 24 ms; widest single second 24 ms
+RESULT 720p25 all cores busy, video flow: 25 s sampled; room over the run 703 to 880 ms, so the lag moved 177 ms; widest single second 167 ms
+RESULT 720p25 all cores busy, audio flow: 25 s sampled; room over the run 894 to 1061 ms, so the lag moved 167 ms; widest single second 166 ms
+RESULT 1080p25 idle host, video flow: 25 s sampled; room over the run 810 to 820 ms, so the lag moved 10 ms; widest single second 8 ms
+RESULT 1080p25 idle host, audio flow: 25 s sampled; room over the run 1037 to 1060 ms, so the lag moved 23 ms; widest single second 23 ms

@@ -57,7 +57,7 @@ they are measurements of this host, not guarantees.
 
 | Item | Where | Notes |
 | --- | --- | --- |
-| MXL SDK, tools, `gst-mxl-rs`, `gst-avsynctest-rs` | `docker/utpl-base/Dockerfile`, stage `mxl-builder` | `ENABLE_MXL=0` builds an empty stage and restores the image as it was (verified: no MXL files, 0.14 MB larger than `:baseline`; the SDK tests then report Skipped). `MXL_TAG`, `MXL_RUST_TOOLCHAIN` (1.90.0) and `MXL_JOBS` are build arguments. |
+| MXL SDK, tools, `gst-mxl-rs`, `gst-avsynctest-rs` | `docker/utpl-base/Dockerfile`, stage `mxl-builder` | `ENABLE_MXL=0` builds an empty stage and restores the image as it was (verified: no MXL files, 0.14 MB larger than `:baseline`; the SDK tests then report Skipped). `MXL_TAG`, `MXL_RUST_TOOLCHAIN` (1.90.0) and `MXL_JOBS` are build arguments. Patches in `transcoder/patches/mxl/` are applied to the MXL source after the C++ build and before the Rust build, so changing one does not rebuild the SDK. |
 | Runtime install | stage `base` | Libraries and tools in `/usr/local`; `libgstmxl.so` in the GStreamer plugin directory; no `LD_LIBRARY_PATH` or `GST_PLUGIN_PATH` needed. |
 | Tools present | `mxl-info`, `mxl-gst-testsrc`, `mxl-gst-sink`, `mxl-gst-looping-filesrc`, `mxl-data-probe` | **`mxl-video-probe` does not exist in v1.1.0**; the docs describe a later tool. Video is checked with `ffprobe`/`ffmpeg` frame checksums instead. |
 | Domain volume | `docker-compose.yml`, volume `mxl-domain` at `/run/mxl` | tmpfs, `MXL_DOMAIN_SIZE` (default 256m). |
@@ -362,7 +362,7 @@ alongside the MXL output; runs of hours.
 
 An input whose URI is `mxl:///<domain directory>` ([05](05-configuration-reference.md#input-mxl)) reads MXL flows into a
 channel: one `mxlsrc` per named flow (video v210, audio Float32), brought to the shapes the rest of the engine already
-handles. It was built and tested on 2026-11-05. **Runtime verified** by `tests/tests/mxl/input/` against a scratch build; see
+handles. It was built and tested on 2026-11-05. **Runtime verified** by `tests/tests/mxl/input/` against a scratch build and again against the rebuilt images; see
 [the image check](#mxl-input-verification-against-the-installed-engine). The loopback of the plan (one channel's programme output as
 another channel's input) is test `01`.
 
@@ -370,10 +370,10 @@ another channel's input) is test `01`.
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| Settings | `Protocol::MXL` (`common/types.h`, scheme `mxl`); `MxlInputTransportParameters` (`input.h`); parser `_parseMxlInput` in `parser.cpp`; `openapi.yaml` `MxlInputTransportParameters` | `transport.uri = "mxl:///<domain>"` and `transport.mxl.{video,audio}.flowId`. The parser refuses a uri that is not an MXL domain, one with a host, a missing `mxl` block, flows that are not UUIDs, equal flows, two uris, and an `mxlTap` that writes a flow the input reads. |
+| Settings | `Protocol::MXL` (`common/types.h`, scheme `mxl`); `MxlInputTransportParameters` (`input.h`); parser `_parseMxlInput` in `parser.cpp`; `openapi.yaml` `MxlInputTransportParameters` | `transport.uri = "mxl:///<domain>"`, `transport.mxl.{video,audio}.flowId` and `transport.mxl.delayMs`. The parser refuses a uri that is not an MXL domain, one with a host, a missing `mxl` block, flows that are not UUIDs, equal flows, two uris, a delay that is not a whole number from 0 to 2000, and an `mxlTap` that writes a flow the input reads. |
 | Reader chain | `SingleInput::_createMxlFlows` (`input/single.cpp`) | Per flow: `mxlsrc` → `queue` (leaky, 3 frames of video or 1 s of audio) → video: `videoconvert` → I420; audio: `audiobuffersplit` (1 ms buffers to 20 ms) → a `decodebin` demuxer of its own, which exposes the raw pad like any decoded stream. The input then looks like any other live input to the channel: `SingleInputStream`, tee, processors. |
 | No prebuffer | `SingleInput::prepare` | The 3 s live prebuffer is not used (as for SRT and DASH); the queue between demuxer and streams holds up to 1 s of media. The input reports itself buffered as soon as its flows are attached, so a `StandardInput` selects it. |
-| Time | `MxlWatch::Timeline` | One shift, shared by the flows of the input, puts the writer's timestamps on the channel's live time plus 300 ms (`MXL_INPUT_DELAY`). Applied with `gst_pad_set_offset` on the queue's output, as the RTMP input does for its sessions. |
+| Time | `MxlWatch::Timeline` | One shift, shared by the flows of the input, puts the writer's timestamps on the channel's live time plus the input's delay (`transport.mxl.delayMs`, 500 ms unless set). Each flow tracks how much room its buffers had, for the log (see [the delay](#the-delay-of-an-mxl-input)). Applied with `gst_pad_set_offset` on the queue's output, as the RTMP input does for its sessions. |
 | Watchdog | `MxlWatch`, a 1 s timer | A flow with no buffer for 3 s has its `mxlsrc` set to NULL and back to the parent's state. Logged once at info level, then at debug level; the shift is recomputed when every flow has been silent. Back-off for the input's own error restarts is capped at 5 s (as RTMP). |
 | Units | `MxlInputTransportParameters` in `utpl_mxl_tap_parameters_test` | Copying the parameters (an `InputParameters` is copied by value) keeps the flows; `mxl` is recognised as a scheme. |
 
@@ -383,27 +383,53 @@ another channel's input) is test `01`.
 | --- | --- |
 | Loopback (`01`) | A (UDP source → programme output) → B (MXL input → x264/AAC over UDP): B's output is 1280×720 at 25/1 H.264 with AAC, 56 or 57 of 60 sampled pictures different, the 1 kHz tone at −21.1 dB (4 kHz at −58.9 dB), largest gap 40 ms video and 21 ms audio, no decode errors, no errors in the log. |
 | Lip-sync (`02`) | Flash-to-beep offset: A's programme flows **−5 ms**, A's on-air output −42 ms, B's output **−56 ms** (14 ms more than A's on-air output; both channels' encoders add their own delay). Limit: 80 ms from A's on-air offset (provisional, Gate A). |
-| Writer killed and restarted (`03`) | A is killed with SIGKILL while B reads it; B keeps running, shows nothing of A's while it is dead, logs the reattach (once at info level, again at debug level every few seconds), and shows A's picture and tone again after A publishes again. The time to recover was 5.9 s after A published again on the installed engine, 11 s on the scratch build in a first version of the test that also counted A's start-up (steps of about 4 s). |
+| Writer killed and restarted (`03`) | A is killed with SIGKILL while B reads it; B keeps running, shows nothing of A's while it is dead, logs the reattach (once at info level, again at debug level every few seconds), and shows A's picture and tone again after A publishes again. The time to recover was 5.3 s after A published again in four runs on the installed engine and 15.8 s in one, 11 s on the scratch build in a first version of the test that also counted A's start-up (steps of about 4 s). |
 | Flows missing at start (`04`) | B started 10 s before any flow exists runs and waits; A is started, and B then shows A's moving picture (39 of 40 samples different) and tone. |
-| Wrong configuration (`05`) | Ten wrong inputs are each refused at start with a message that names the key; a correct input starts. |
+| Wrong configuration (`05`) | Fourteen wrong inputs (ten of uri, flows and tap, four of the delay) are each refused at start with a message that names the key; a correct input starts, with the default delay and with 2000 ms. |
 | One flow (`06`) | Video flow only: the output has a video stream and no audio stream, picture moving (33 of 40). Audio flow only: audio stream only, a 1 kHz tone at −6.0 dB on the left channel and −91 dB on the right. (A UDP input without audio gives the same video-only output.) |
 | Frame rates (`07`) | Flows at 25, 30000/1001, 50 and 60000/1001: the output has the same rate (25.000, 29.970, 50.000, 59.940 frames per second measured), no gap over 40, 33, 20 and 17 ms, moving picture. |
 | Writer replaced (`08`) | A red 640×360 flow is replaced by a blue 1280×720 one with the same id: the output stays 1280×720 without decode errors, red before and blue after. |
 | CPU (`09`) | Same picture, same output: 720p25 **0.36 core** with an H.264 UDP input and **0.24 core** with an MXL input; 1080p25 **0.77** and **0.63**. The MXL input costs less: it converts v210 (about 1.4 ms per frame to the canvas) and decodes nothing. |
 | Republished (`10`) | An MXL input with its own `mxlTap` and a programme output: both pairs of flows carry A's moving picture (50 of 50 frames different) and tone. |
+| Delay (`11`) | B is run with no delay set, 1000 ms, 2000 ms and 0 ms. The log names the delay each time. With 500 (default), 1000 and 2000 ms the output is continuous (largest gap 40 ms) and no flow is reported late. With 0 ms the engine reports that a flow arrived later than the delay allows and names `transport.mxl.delayMs`. |
 
 ### Findings
 
-- **`mxlsrc` can deadlock a channel that blocks its pads.** `mxlsrc` holds its state lock while it pushes the flow's caps downstream, and the elements behind it answer with queries to what is further on. The input's pads are blocked until the input plays, and the change to playing asks `mxlsrc` for its latency, which needs the same lock: the engine logged the change to PLAYING and the pipeline never finished it (measured with gdb: the video reader waiting in a downstream query while pushing its caps, the state-change thread waiting for the reader's lock). Fixed in the engine, not in the plugin: a leaky `queue` straight behind `mxlsrc` ends the reader's thread at once, and a probe drops the reader's own ALLOCATION query. The probe alone was not enough, because the elements behind the reader make queries of their own when the caps arrive. This is worth reporting upstream: a source should not hold its state lock across a push.
+- **`mxlsrc` can deadlock a channel that blocks its pads.** `mxlsrc` holds its state lock while it pushes the flow's caps downstream, and the elements behind it answer with queries to what is further on. The input's pads are blocked until the input plays, and the change to playing asks `mxlsrc` for its latency, which needs the same lock: the engine logged the change to PLAYING and the pipeline never finished it (measured with gdb: the video reader waiting in a downstream query while pushing its caps, the state-change thread waiting for the reader's lock). Fixed twice. In the plugin: `transcoder/patches/mxl/010-mxlsrc-release-locks-before-set-caps.patch` makes `set_flow_caps` read the flow description under its locks and release them before it pushes the caps (applied to the MXL source in the `mxl-builder` stage; the function is the same in v1.1.0 and on MXL main at `01e9918`). In the engine: a leaky `queue` straight behind `mxlsrc` ends the reader's thread at once, and a probe drops the reader's own ALLOCATION query, so a stock `mxlsrc` still works. The probe alone was not enough, because the elements behind the reader make queries of their own when the caps arrive. **Proved by taking the engine's measures out in a scratch build** (queue replaced by `identity`, no dropped query): with the stock plugin the loopback test fails and channel B's log ends at `Switching state from CHANNEL_PREPARE to PLAYING`; with the patched plugin the same engine passes with the same numbers as with the measures in (285 frames in 12 s, largest gap 40 ms video / 21 ms audio). Not reported upstream yet.
 - **The reader does not notice a new writer.** A reader attached to a flow whose writer has died neither errors nor ends, and does not attach to the writer that takes the id afterwards (confirmed again here: a reader stayed silent from the end of the first writer for as long as the second one ran). Without the watchdog an MXL input would freeze silently. A reader waiting for a flow that does not exist yet needs no restart: it starts when the flow appears.
-- **The timestamps of a flow are the writer's, not arrival times.** `mxlsrc` stamps a buffer with its time in the reader's pipeline (the grain's time minus a once-sampled offset to the pipeline clock and its base time), so two readers of one pipeline agree. But a programme tap writes its frames behind the processing delay of its channel. In the first version of the input the live fallback switch logged the programme's buffers as 830 ms past their time, and nothing came out of the channel (where the buffers were dropped was not traced). With the shift the output is complete. The 300 ms margin is a choice, not a measurement: it has to cover the writer's jitter and any difference between how late the writer writes its video and its audio (about 200 ms for a source tap).
+- **The timestamps of a flow are the writer's, not arrival times.** `mxlsrc` stamps a buffer with its time in the reader's pipeline (the grain's time minus a once-sampled offset to the pipeline clock and its base time), so two readers of one pipeline agree. But a programme tap writes its frames behind the processing delay of its channel. In the first version of the input the live fallback switch logged the programme's buffers as 830 ms past their time, and nothing came out of the channel (where the buffers were dropped was not traced). With the shift the output is complete. The margin is the setting `transport.mxl.delayMs`; [the delay](#the-delay-of-an-mxl-input) says how big it has to be and how its default was chosen.
 - **v210 straight to the canvas costs 7.7 ms per 1080p frame; through I420 it costs 1.4 ms** (0.82 ms v210 → I420, 0.57 ms I420 → BGRA; measured with `videoconvert` on one thread). The input converts once, at the reader.
 - **The 1 ms audio buffers of `mxlsrc` are too small for the rest of the engine** (1000 buffers a second through a demuxer, a queue and the stream); `audiobuffersplit` makes them 20 ms.
 - **The test source: `mxl_write_video` wants a fraction** (`25/1`). `framerate=25` is not valid caps, `videoconvert` cannot link, and the writer dies silently; an input started on its flow then waits for ever, as designed.
 
+### The delay of an MXL input
+
+The first buffer to arrive sets one shift for all flows of the input: live time minus that buffer's time, plus the delay (`transport.mxl.delayMs`, 500 ms unless set). One shift, not one per flow, because the flows' timestamps are the writer's media time and a shared shift keeps picture and sound as the writer had them. A later buffer is late if it arrives later than the first did by more than the delay. The delay is added to the input's end-to-end delay one for one.
+
+What the engine says about it: an info line each time the shift is set (`the video flow reaches the channel N ms after the time it carries; the channel plays it D ms after it arrives`), a debug line once a second per flow with the least and the most room its buffers had (`had X to Y ms to spare`), and a warning, at most every 30 s per flow, when a buffer arrived later than the delay allows (`raise transport.mxl.delayMs`).
+
+**How big it has to be.** Measured with `tests/manual/mxl/input-jitter.sh` (scratch build, 2026-11-05; output in [`doc/mxl/input-jitter-2026-11-05/`](../mxl/input-jitter-2026-11-05/), without the raw per-second samples, which were lost): channel A's programme output into channel B with a 1000 ms delay, so that nothing is late, the first 20 s left out. "Room" is the delay minus how much later than the first buffer a buffer arrived; the spread is the highest room of either flow minus the lowest.
+
+| Condition | Video room, ms | Audio room, ms | Spread |
+| --- | --- | --- | --- |
+| 720p25, idle host, 180 s | 808–882 (moves 74, usually 2) | 1037–1061 (moves 24) | 253 |
+| 720p25, every core busy (28 busy loops), 180 s | 805–862 (57) | 1025–1065 (40) | 260 |
+| 1080p25, idle host, 180 s | 873–883 (10) | 1036–1058 (22) | 185 |
+| 720p25, idle host, 25 s (first pass) | 867–871 | 1035–1059 | 192 |
+| 720p25, every core busy, 25 s (first pass) | 703–880 (177) | 894–1061 (167) | **358** |
+| 1080p25, idle host, 25 s (first pass) | 810–820 | 1037–1060 | 250 |
+
+What it says:
+
+- Each flow is steady by itself: the video lag moves by a few milliseconds with rare dips of 50 to 70 ms, and the audio lag runs in a regular 21 ms saw-tooth (the writer commits audio in 20 ms chunks). No reader was reattached in any run.
+- **The two flows of a Nandi programme output differ by a constant 160 to 180 ms** (the video is later). The shared shift has to absorb that, so most of the delay goes to a property of the writer, not to jitter. Another writer will differ; the log says by how much.
+- If the first buffer is the least late of all, the delay has to be at least the spread. The worst spread seen is 358 ms (every core busy, 25 s run); the three-minute runs read 185 to 260 ms. **The default of 500 ms is 140 ms above the worst, a margin chosen here, not an agreed limit (Gate A).** It was 300 ms before, which the 358 ms run exceeded.
+- A delay of 0 is reported as too small within seconds (test `11`); 2000 ms, the largest allowed, gives a continuous output (largest gap 40 ms).
+- **What would lower it, not built:** wait for the first buffer of every flow (a second at most) and take the largest lag among them, so the constant difference between the flows is learned and the delay only has to cover the movement, about 100 ms here instead of 360. The cost is dropping the first few buffers of the flow that arrives first, and a rule for a flow that never delivers.
+
 ### Not covered
 
-Dolby-processed audio (**integration gated**); interlaced flows (MXL flows are progressive); more than one audio flow; data flows; a redundant or playlist MXL input (refused); an MXL input as the second (alternate) input of a channel with SCTE ad insertion; a flow with more than two audio channels (the code does not care, nothing here was fed one); a 4K flow; hardware encoders; end-to-end latency (the shift adds 300 ms to whatever the writer's lag is, nothing more was measured); a channel that stalls for longer than the ring of a flow (about 170 ms at 25 fps; the leaky queue drops, but this was not provoked); a domain on another host (MXL Fabrics, **integration gated**); and runs of hours (the soak below is 20 minutes).
+Dolby-processed audio (**integration gated**); interlaced flows (MXL flows are progressive); more than one audio flow; data flows; a redundant or playlist MXL input (refused); an MXL input as the second (alternate) input of a channel with SCTE ad insertion; a flow with more than two audio channels (the code does not care, nothing here was fed one); a 4K flow; hardware encoders; end-to-end latency (the delay adds `delayMs` to whatever the writer's lag is; nothing more was measured); a channel that stalls for longer than the ring of a flow (about 170 ms at 25 fps; the leaky queue drops, but this was not provoked); a domain on another host (MXL Fabrics, **integration gated**); and runs of hours (the soak below is 20 minutes).
 
 ### Soak result
 
@@ -426,15 +452,16 @@ into `/opt/utpl/bin/transcoder`) and the suites were run with **no scratch build
 
 | Suite (2026-11-05) | Result |
 | --- | --- |
-| `tests/run.sh mxl` (SDK + tap + programme + input) | **39 of 39 pass**: 9 SDK, 14 tap, 6 programme, 10 input. |
-| Loopback (`input/01`) | 282 frames in 12 s, 56 of 60 pictures different, tone −21.1 dB, largest gap 40 ms video and 21 ms audio. |
-| Lip-sync through the loopback (`input/02`) | A's programme flows **+8 ms**, A's on-air output −64 ms, B's output **−53 ms** (11 ms from A's on-air output). |
-| Writer killed and restarted (`input/03`) | B shows A's picture and tone again **5.9 s** after A publishes again (measured in steps of about 4 s). |
+| `tests/run.sh mxl` (SDK + tap + programme + input) | **40 of 40 pass**: 9 SDK, 14 tap, 6 programme, 11 input (the images carry the patched `mxlsrc`). The first full run of the day had 39 of 40: `input/11-delay` exited without a message while capturing B's output, and did not do so again in 8 further runs (cause unknown, see [27](27-known-gaps-contradictions-and-remediation.md)). |
+| Loopback (`input/01`) | 273 frames in 12 s, 55 of 60 pictures different, tone −20.5 dB, largest gap 40 ms video and 21 ms audio. |
+| Lip-sync through the loopback (`input/02`) | A's programme flows **−7 ms**, A's on-air output −43 ms, B's output **−61 ms** (18 ms from A's on-air output). |
+| Writer killed and restarted (`input/03`) | B shows A's picture and tone again **5.3 s** after A publishes again in four runs and **15.8 s** in one (measured in steps of about 4 s; the earlier runs read 5.9 s). The spread is not explained; it is one more reattach cycle or three. |
 | Frame rates (`input/07`) | 25.000, 29.970, 50.000 and 59.940 frames per second measured; largest gaps 40, 33, 20 and 17 ms. |
-| CPU, MXL input against H.264 UDP input (`input/09`) | 720p25: **0.25** against 0.36 core; 1080p25: **0.57** against 0.77 core. |
+| CPU, MXL input against H.264 UDP input (`input/09`) | 720p25: **0.25** against 0.37 core; 1080p25: **0.59** against 0.80 core. |
 | Single flow (`input/06`) | Video only: 39 of 40 pictures different, no audio stream. Audio only: tone −5.4 dB left, −91 dB right, no video stream. |
 | C++ CTest (scratch build) | 12 of 12 pass; the MXL input parameters are covered in `utpl_mxl_tap_parameters_test`. |
-| Front-end tests | 71 of 71 (66 before: the mapper test for an MXL input and four schema tests). |
+| Delay (`input/11`) | Default 500 ms, 1000 ms and 2000 ms: continuous output (largest gap 40 ms), the log names the delay, no flow late. 0 ms: reported late, naming `transport.mxl.delayMs`. |
+| Front-end tests | 72 of 72 (66 before the MXL input: the mapper test for an MXL input, five schema tests). |
 | API tests | 346 of 346, including the config round trip of `transport.mxl` and the 422 of a probe of an MXL input. |
 | `engine-smoke.sh` on the rebuilt `:mxl` image | AC-3 5.1 and a 640×360 H.264 stream at 25 fps, as before. |
 
@@ -552,7 +579,7 @@ implemented and pass; the rest are planned.
 | T2 | Standalone `mxlsink` → `mxlsrc`, V210 and Float32, 30000/1001, checked with `ffprobe` | `tests/tests/mxl/sdk/01…09` (**9 of 9 pass**), run in `utpl/transcoder-test`; cross-container and read-only checks in `tests/manual/mxl/cross-container.sh`. MXL is built into `utpl/base`; there is no separate image. | Done |
 | T3–T4 | Nandi publishes CP1 (source) / CP2 (programme) | `tests/tests/mxl/tap/` (CP1, 14 tests) and `tests/tests/mxl/programme/` (CP2, 6 tests), both implemented and passing | Done for the cases listed in their sections; Gate A limits not agreed |
 | T5–T7 | External QC + encoder readers; consumer restart; slow reader / overrun | `tests/tests/mxl/` | T4, fail-open/closed decision |
-| T8 | MXL input: 30000/1001 timing, writer restart, discontinuity, loopback | `tests/tests/mxl/input/` (10 tests), implemented and passing | Done for the cases listed in its section; Gate A limits not agreed |
+| T8 | MXL input: 30000/1001 timing, writer restart, discontinuity, loopback | `tests/tests/mxl/input/` (11 tests), implemented and passing | Done for the cases listed in its section; Gate A limits not agreed |
 | T9–T10 | Multi-audio and Dolby; SCTE-35 during worker restart | `tests/tests/mxl/` | Multi-audio fix, SCTE timeline decision |
 | T11–T15 | Fabrics TCP then RDMA; hardware encoders; multi-channel soak; host failure; permissions | Later | Second host, NICs, hardware |
 

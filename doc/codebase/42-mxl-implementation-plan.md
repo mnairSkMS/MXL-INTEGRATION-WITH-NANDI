@@ -299,7 +299,7 @@ Differences from the plan this page first made:
 | v210 → BGRA in the compositor | v210 → I420 at the reader, then the ordinary I420 → BGRA: 1.4 ms per 1080p frame against 7.7 ms (measured). |
 | A watchdog (poll `Active`, or a no-data timeout) | A no-data timeout: 3 s, then the reader is stopped and started again, repeating until data returns. |
 | — (not foreseen) | A leaky `queue` behind each reader and a dropped ALLOCATION query, because `mxlsrc` holds its state lock while it pushes caps and deadlocks a channel whose pads are blocked until it plays. |
-| — (not foreseen) | One shift for the flows' timestamps (live time plus 300 ms), because a writer's timestamps are in the past by its own processing delay. |
+| — (not foreseen) | One shift for the flows' timestamps (live time plus `transport.mxl.delayMs`, default 500 ms), because a writer's timestamps are in the past by its own processing delay. |
 | `GET /inputs/probe` describes MXL inputs with `mxl-info` | The probe answers 422 for `mxl` (as for `ndi`): the API image has no MXL tools. |
 | UI | The channel form has an MXL transport with a video and an audio flow id; the probe button is disabled for it. The built UI bundle under `api/src/transcoder_api/static/channel/` was not rebuilt. |
 

@@ -71,6 +71,8 @@ export interface InputTransportDto {
   mxl?: {
     video?: { flowId: string };
     audio?: { flowId: string };
+    /** Milliseconds the channel plays the flows after they arrive, for the jitter of their writer. Engine default 300. */
+    delayMs?: number;
   };
 }
 

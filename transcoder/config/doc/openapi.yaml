@@ -458,6 +458,18 @@ components:
               description: The audio flow to read. Its channels are those of the flow.
           required:
             - flowId
+        delayMs:
+          type: integer
+          minimum: 0
+          maximum: 2000
+          default: 500
+          description: >
+            Milliseconds the channel plays the flows after they arrive. A flow carries the time at which its
+            pictures and sound were made, and the writer's own processing has delayed them since, by a different
+            amount for the picture and the sound and by an amount that moves; the channel takes the lag of the first
+            buffer to arrive and plays everything this much later than that. It must cover how far the writer's lag
+            moves, or buffers are late and are lost (the engine logs a warning that names this setting). It is added
+            to the end-to-end delay of the input.
       
     OutputTransportParameters:
       type: object

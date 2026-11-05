@@ -203,6 +203,17 @@ static std::unique_ptr<utpl::transcoder::MxlInputTransportParameters> _parseMxlI
         throw utpl::InvalidArgumentException(where + ".mxl video and audio need different flow ids");
     }
 
+    if (json.contains("delayMs") && ! json["delayMs"].is_null()) {
+        const auto &delay = json["delayMs"];
+        const auto  max   = utpl::transcoder::MxlInputTransportParameters::MAX_DELAY_MS;
+
+        if (! delay.is_number_integer() || delay.get<int64_t>() < 0 || delay.get<int64_t>() > static_cast<int64_t>(max)) {
+            throw utpl::InvalidArgumentException(where + ".mxl.delayMs must be a whole number of milliseconds from 0 to " + std::to_string(max));
+        }
+
+        ret->setDelayMs(delay.get<uint32_t>());
+    }
+
     return ret;
 }
 

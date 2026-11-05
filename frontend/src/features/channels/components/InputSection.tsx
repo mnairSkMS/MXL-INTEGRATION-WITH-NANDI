@@ -1,6 +1,7 @@
 import React from 'react';
 import { UseFormReturn, useFieldArray } from 'react-hook-form';
 import { ChannelFormValues } from '../types/form';
+import { MXL_DEFAULT_DELAY_MS, MXL_MAX_DELAY_MS } from '../constants/schema';
 import { FormSection } from '../../../components/FormSection/FormSection';
 import { Input } from '../../../components/Input/Input';
 import { Select } from '../../../components/Select/Select';
@@ -255,6 +256,16 @@ export const InputSection: React.FC<InputSectionProps> = ({
                   {...register(`inputs.${index}.mxlAudioFlowId` as const)}
                   error={errors.inputs?.[index]?.mxlAudioFlowId?.message}
                   helperText="The UUID of the Float32 audio flow. Leave empty for a video-only input"
+                />
+                <Input
+                  label="Delay (ms)"
+                  type="number"
+                  placeholder={String(MXL_DEFAULT_DELAY_MS)}
+                  {...register(`inputs.${index}.mxlDelayMs` as const, {
+                    setValueAs: (v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+                  })}
+                  error={errors.inputs?.[index]?.mxlDelayMs?.message}
+                  helperText={`How long after they arrive the flows are played: room for the writer's jitter, added to this input's delay. Empty is ${MXL_DEFAULT_DELAY_MS} ms; at most ${MXL_MAX_DELAY_MS}`}
                 />
               </div>
             )}

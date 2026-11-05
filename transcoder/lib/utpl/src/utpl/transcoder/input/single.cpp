@@ -42,10 +42,8 @@ constexpr const guint    MXL_INPUT_IDLE_SECONDS = 3;
 // Raw frames are large: the queue behind an MXL reader holds a second at most, which is also about what the
 // reader can fall behind before the flow's ring has been overwritten
 constexpr const guint64  MXL_STREAM_QUEUE_MAX_TIME = 1 * GST_SECOND;
-// The flows carry the time at which their pictures and sound were made. This much is added to the time at which
-// the first one arrives (see MxlWatch::Timeline), which is the room the channel gives the flows for the jitter of
-// their writer and for the writer lagging more on one flow than on the other
-constexpr const GstClockTime MXL_INPUT_DELAY = 300 * GST_MSECOND;
+// A flow that arrives later than its input's delay allows is reported at most this often
+constexpr const gint64   MXL_LATE_WARNING_INTERVAL = 30 * G_USEC_PER_SEC;
 // mxlsrc delivers audio in 1 ms buffers; the rest of the engine works on longer ones
 constexpr const char    *MXL_AUDIO_CHUNK = "1/50";
 constexpr const guint    RTMP_IDLE_TIMEOUT = 5; // seconds without packets before the source errors
@@ -1610,8 +1608,12 @@ struct transcoder::SingleInput::MxlWatch {
     // behind a second of processing arrives a second old). A channel works on live time, which is the time at
     // which things arrive, and would take such a buffer for late and drop it. So the first buffer to arrive sets
     // one shift, which is the same for every flow of the input and so keeps them in step with each other, and
-    // puts it on live time plus a margin. It holds until the writer has been gone and comes back.
+    // puts it on live time plus the input's delay (transport.mxl.delayMs), which is the room the channel gives the
+    // flows for the jitter of their writer and for the writer lagging more on one flow than on the other. It holds
+    // until the writer has been gone and comes back.
     struct Timeline {
+        std::string         input;                      // the name of the input, for the log
+        GstClockTime        delay = 0;
         std::mutex          guard;
         std::atomic<bool>   known { false };
         std::atomic<int>    generation { 0 };
@@ -1636,6 +1638,13 @@ struct transcoder::SingleInput::MxlWatch {
         std::atomic<gint64>        lastData { 0 };         // g_get_monotonic_time() of the last buffer, in microseconds
         gint64                     reattachedAt = 0;       // of the last reattach
         int                        reattached   = 0;       // reattaches since the last buffer
+
+        // The least and the most room, since the timer last looked, that a buffer had before the time at which the
+        // channel is due to play it (the input's delay when it arrives as late as the first one did); below nought it
+        // is late. The difference between the two is how much the writer's lag moves, which the delay has to cover.
+        std::atomic<gint64>        minHeadroom { G_MAXINT64 };
+        std::atomic<gint64>        maxHeadroom { G_MININT64 };
+        gint64                     warnedAt = 0;           // of the last report of a late buffer
     };
 
     std::mutex                         guard;
@@ -1647,6 +1656,9 @@ struct transcoder::SingleInput::MxlWatch {
 void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const std::string &domain, const MxlInputTransportParameters &parameters) {
     this->_mxlWatch        = std::make_shared<MxlWatch>();
     this->_mxlWatch->input = this;
+
+    this->_mxlWatch->timeline->input = this->getName();
+    this->_mxlWatch->timeline->delay = (GstClockTime) parameters.getDelayMs() * GST_MSECOND;
 
     auto addFlow = [&](const char *kind, const char *property, const std::string &flowId, bool video) {
         auto src = srcBin->add(pipeline::Element::make(std::string("mxl-") + kind + "-src", "mxlsrc"));
@@ -1740,26 +1752,35 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
 
                 auto &timeline = *flow.timeline;
 
-                if (! timeline.known) {
-                    GstClockTime pts = GST_BUFFER_PTS(GST_PAD_PROBE_INFO_BUFFER(info));
+                // The time the buffer carries, and the time at which it arrived, both on the channel's running time
+                const GstClockTime pts = GST_BUFFER_PTS(GST_PAD_PROBE_INFO_BUFFER(info));
 
-                    if (! flow.haveSegment || ! GST_CLOCK_TIME_IS_VALID(pts)) {
+                GstClockTime now = GST_CLOCK_TIME_NONE;
+                GstClockTime at  = GST_CLOCK_TIME_NONE;
+
+                if (flow.haveSegment && GST_CLOCK_TIME_IS_VALID(pts)) {
+                    now = gst_element_get_current_running_time(GST_ELEMENT(GST_PAD_PARENT(srcPad)));
+                    at  = gst_segment_to_running_time(&flow.segment, GST_FORMAT_TIME, pts);
+                }
+
+                const bool measured = GST_CLOCK_TIME_IS_VALID(now) && GST_CLOCK_TIME_IS_VALID(at);
+
+                if (! timeline.known) {
+                    if (! measured) {
                         return GST_PAD_PROBE_OK;
                     }
 
                     std::lock_guard lock(timeline.guard);
 
                     if (! timeline.known) {
-                        GstClockTime now = gst_element_get_current_running_time(GST_ELEMENT(GST_PAD_PARENT(srcPad)));
-                        GstClockTime at  = gst_segment_to_running_time(&flow.segment, GST_FORMAT_TIME, pts);
-
-                        if (! GST_CLOCK_TIME_IS_VALID(now) || ! GST_CLOCK_TIME_IS_VALID(at)) {
-                            return GST_PAD_PROBE_OK;
-                        }
-
-                        timeline.shift = GST_CLOCK_DIFF(at, now) + (gint64) MXL_INPUT_DELAY;
+                        timeline.shift = GST_CLOCK_DIFF(at, now) + (gint64) timeline.delay;
                         timeline.generation++;
                         timeline.known = true;
+
+                        logger.log(
+                            "MXL input '{}': the {} flow reaches the channel {} ms after the time it carries; the channel plays it {} ms after it arrives",
+                            timeline.input, flow.kind, GST_CLOCK_DIFF(at, now) / (gint64) GST_MSECOND, timeline.delay / GST_MSECOND
+                        );
                     }
                 }
 
@@ -1767,6 +1788,19 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
                     flow.applied = timeline.generation;
 
                     gst_pad_set_offset(flow.target, timeline.shift);
+                }
+
+                if (measured) {
+                    const gint64 headroom = GST_CLOCK_DIFF(now, at) + timeline.shift;
+
+                    gint64 least = flow.minHeadroom;
+                    gint64 most  = flow.maxHeadroom;
+
+                    while (headroom < least && ! flow.minHeadroom.compare_exchange_weak(least, headroom)) {
+                    }
+
+                    while (headroom > most && ! flow.maxHeadroom.compare_exchange_weak(most, headroom)) {
+                    }
                 }
 
                 return GST_PAD_PROBE_OK;
@@ -1859,6 +1893,22 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
 
             if (flow->lastData > flow->reattachedAt) {
                 flow->reattached = 0;
+            }
+
+            // How late the writer has been at its worst since the last look, against the room the delay gives it
+            const gint64 headroom     = flow->minHeadroom.exchange(G_MAXINT64);
+            const gint64 bestHeadroom = flow->maxHeadroom.exchange(G_MININT64);
+
+            if (headroom != G_MAXINT64) {
+                const gint64 delayMs = watch->timeline->delay / GST_MSECOND;
+
+                DBG(("MXL input '{}': the {} flow's buffers had {} to {} ms to spare (delay {} ms)", watch->input->getName(), flow->kind, headroom / (gint64) GST_MSECOND, bestHeadroom / (gint64) GST_MSECOND, delayMs));
+
+                if (headroom < 0 && now - flow->warnedAt > MXL_LATE_WARNING_INTERVAL) {
+                    flow->warnedAt = now;
+
+                    WARN(("MXL input '{}': the {} flow arrived {} ms later than the {} ms delay allows; raise transport.mxl.delayMs if pictures or sound are being lost", watch->input->getName(), flow->kind, -headroom / (gint64) GST_MSECOND, delayMs));
+                }
             }
 
             if (now - std::max<gint64>(flow->lastData, flow->reattachedAt) > limit) {

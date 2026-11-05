@@ -21,6 +21,8 @@ export interface FormInputItem {
   /** MXL inputs: the flows to read, as UUIDs. Either may be left empty. */
   mxlVideoFlowId?: string;
   mxlAudioFlowId?: string;
+  /** MXL inputs: the delay, in milliseconds. Empty leaves the engine's default. */
+  mxlDelayMs?: number;
 }
 
 export interface FormVideoLadder {

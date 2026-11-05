@@ -112,6 +112,12 @@ export function channelFormToConfig(
         };
         if (!video) delete inputDto.transport.mxl.video;
         if (!audio) delete inputDto.transport.mxl.audio;
+        // Empty leaves the engine's own default out of the file, so a later change of the default reaches this input
+        if (typeof inputItem.mxlDelayMs === 'number' && Number.isFinite(inputItem.mxlDelayMs)) {
+          inputDto.transport.mxl.delayMs = inputItem.mxlDelayMs;
+        } else {
+          delete inputDto.transport.mxl.delayMs;
+        }
         break;
       }
     }

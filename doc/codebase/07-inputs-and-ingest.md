@@ -290,9 +290,9 @@ in `transport.mxl`, an `mxlsrc`, a leaky `queue`, a conversion (video: `videocon
 ordinary live input (`SingleInputStream`, tee, processors, `StandardInput` selection). It differs from the network
 inputs in four ways: it is not prebuffered (the 3 s live prebuffer is skipped, as for SRT and DASH); a watchdog stops and
 restarts a reader that has had no data for 3 s, because `mxlsrc` neither fails nor attaches to a new writer by itself;
-one shift, the same for all flows of the input, puts the writer's timestamps on the channel's live time plus 300 ms; and
-the reader's queue and a dropped ALLOCATION query keep `mxlsrc` from deadlocking a channel whose pads are blocked until it
-plays. A flow that is not there yet is waited for. Settings: [05](05-configuration-reference.md#input-mxl); design,
+one shift, the same for all flows of the input, puts the writer's timestamps on the channel's live time plus the input's
+`delayMs` (500 ms unless set); and the reader's queue and a dropped ALLOCATION query keep a stock `mxlsrc` from
+deadlocking a channel whose pads are blocked until it plays (the plugin in our images is patched against it as well). A flow that is not there yet is waited for. Settings: [05](05-configuration-reference.md#input-mxl); design,
 results and limits: [41](41-mxl-integration.md#mxl-input-step-4).
 
 ## Constraints

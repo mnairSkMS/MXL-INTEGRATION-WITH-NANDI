@@ -40,6 +40,16 @@ describe('an MXL input in the channel form', () => {
     expect(problems(mxlInput({ uri: 'mxl:///' }))).toEqual(['uri: An MXL input is a domain directory: mxl:///run/mxl']);
   });
 
+  it('takes a delay of whole milliseconds from 0 to 2000, or none', () => {
+    expect(problems(mxlInput({ mxlDelayMs: undefined }))).toEqual([]);
+    expect(problems(mxlInput({ mxlDelayMs: 0 }))).toEqual([]);
+    expect(problems(mxlInput({ mxlDelayMs: 2000 }))).toEqual([]);
+    const refusal = ['mxlDelayMs: Delay is a whole number of milliseconds from 0 to 2000'];
+    expect(problems(mxlInput({ mxlDelayMs: -1 }))).toEqual(refusal);
+    expect(problems(mxlInput({ mxlDelayMs: 2001 }))).toEqual(refusal);
+    expect(problems(mxlInput({ mxlDelayMs: 12.5 }))).toEqual(refusal);
+  });
+
   it('does not ask the flows of an input of another transport', () => {
     expect(problems(mxlInput({ transportType: 'srt', uri: 'srt://h:1?mode=caller', mxlVideoFlowId: '', mxlAudioFlowId: '' }))).toEqual([]);
   });
