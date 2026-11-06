@@ -1,6 +1,7 @@
 # MXL integration with Nandi: project status
 
-**As of 2026-11-05.** Steps 0 to 4 are committed; the commits are listed at the end. This page is a summary for the project owner. The detail,
+**As of 2026-11-06.** Steps 0 to 4 are committed (the last commit is `2ce01ad`); the commits are listed at the end. Nothing is uncommitted. The
+next work is planned under [What to do next](#what-to-do-next-in-order) and has **not been started**. This page is a summary for the project owner. The detail,
 the evidence and the numbers sit in [41](doc/codebase/41-mxl-integration.md) (what was built and measured)
 and [42](doc/codebase/42-mxl-implementation-plan.md) (the plan and its steps). Where this page and the source
 disagree, the source wins.
@@ -105,7 +106,10 @@ Two things found while building it matter beyond this step:
    (`transcoder/patches/mxl/010-mxlsrc-release-locks-before-set-caps.patch`, applied when the image is built), and still worked around in
    the engine (a queue behind the reader and a dropped query) so that a stock plugin works too. Proved by taking the engine's
    measures out: with the stock plugin the loopback test fails and channel B stops at "switching to PLAYING"; with the patched plugin the
-   same engine passes with the same numbers. **Not yet reported to the MXL project.**
+   same engine passes with the same numbers. **Not yet reported to the MXL project.** A report that names no product or company is prepared
+   outside this checkout, in `../experiments/mxlsrc-report/` (the text, a 104-line reproduction that needs only GStreamer and `mxlsrc`, and the
+   change as a diff). The reproduction was run 4 times: the stock plugin blocks every time, the patched one answers every time. Its `README.md` has
+   the checklist to go through before posting. **Nothing has been posted; that is the project owner's call.**
 2. **The timestamps of a flow are in the past by the writer's own delay**, about 0.8 s for a programme taken after processing. A
    channel working on live time took such frames for late, and nothing came out. The input now puts all of its flows on live time
    plus a **delay with one shift**, which keeps sound and picture as the writer had them. The delay is the setting
@@ -139,6 +143,30 @@ The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by 
 
 ## What is left
 
+### What to do next, in order
+
+Job 1 is done. Job 2 was started on 2026-11-06 at 10:44 and is running (its result is not in yet). The rest has not been started. The times are rough estimates from how long the earlier steps took, not measurements.
+
+| # | Job | Why | Estimate | Needs from the owner |
+| --- | --- | --- | --- | --- |
+| 1 | **Rebuild the built channel UI** (`api/src/transcoder_api/static/channel/`; sources are in `frontend/`) | **Done 2026-11-06, not yet committed.** Built as the Dockerfile does (type check, 72 of 72 front-end tests, build); the new bundle carries the MXL transport and `delayMs`, the old one carried neither; API suite 346 of 346. See [27](doc/codebase/27-known-gaps-contradictions-and-remediation.md). | Took about 15 minutes | Nothing |
+| 2 | **Long soak, 4 to 8 hours** (`tests/manual/mxl/input-soak.sh <minutes>`, a loopback; 4 hours = 240) | The channel that writes flows grew 0.3 MB per minute in a 20-minute run. Twenty minutes cannot tell a leak from warm-up. | 4 to 8 hours, unattended | **Running since 2026-11-06 10:44 as a 240-minute run** (expected end about 14:50; log outside the repo in `../experiments/mxl-soak-2026-11-06/`). No builds or other tests meanwhile. |
+| 3 | **Smarter delay**: wait for the first buffer of every flow, learn the constant gap between picture and sound, and set the shift from that | Would allow a delay of about 100 ms instead of 500 ms, so less latency. | 3 to 5 hours | Whether lower latency is wanted before Step 5 |
+| 4 | **Find why the programme output writes its picture 160 to 180 ms after its sound** | Fixing it at the writer also allows a smaller delay. | 1 to 3 hours; the cause may not be found | Nothing |
+| 5 | **Look at the two oddities**: `input/11-delay` exiting silently once in 9 runs, and writer-restart recovery taking 5.3 s four times and 15.8 s once | Both are rare, so a fix may not be possible. | 2 to 6 hours | Nothing |
+| 6 | **Step 5, the external encoder worker** (below) | The next planned step. | 2 to 4 working days | The three decisions below |
+| 7 | **Step 6, Fabrics** (below) | Needs a second host and network cards. | About 1 to 2 days once the hardware exists | Hardware |
+
+Jobs 1 to 5 are about one working day of work. Jobs 1 to 6 are about 3 to 5 working days. Job 7 cannot be estimated until the hardware exists.
+
+Order and rules:
+
+- Do 1, then start 2. The soak needs a quiet host, so **do not build images or run other test suites while it runs**; code can be
+  written for job 3 in the meantime, but built and tested only after the soak ends. Jobs 4 and 5 also need a quiet host for measuring.
+- Do not start 6 before the owner has decided: where the SCTE-35 timeline lives (Q7), what happens when an output fails, per output type
+  (Q8), and the numeric pass/fail limits for lip-sync, drops, latency and CPU (Gate A). They are in "Decisions waiting" below.
+- Posting the `mxlsrc` report is independent of all of this and can happen at any time.
+
 ### Planned steps not started
 
 | Step | What it needs |
@@ -168,6 +196,8 @@ clock offset over hours.
 Not done in Step 1: the `--build-arg` pass-through in `docker/build-docker.sh` (pass it to `docker build`
 directly).
 
+The built channel UI bundle was stale after Step 4; it was rebuilt on 2026-11-06 (job 1 above).
+
 ### Open questions about the behaviour seen
 
 - **Memory:** an engine that writes flows rose 14.8 MB per hour in the 20-minute source-tap soak, and the writer
@@ -195,7 +225,7 @@ directly).
 | --- | --- |
 | Gate A numeric limits (lip-sync, drops, latency, CPU) | Not agreed. The tests print results and use provisional limits (for example 80 ms lip-sync from the source). |
 | Default delay of an MXL input (500 ms) | Chosen from measurements, 140 ms above the worst spread seen; not agreed against a latency limit. A smarter shift (learn the constant difference between the flows) would allow about 100 ms; not built. |
-| Report the `mxlsrc` deadlock to the MXL project | The patch is ready; reporting is outward-facing and not done. |
+| Report the `mxlsrc` deadlock to the MXL project | The patch is in the images. A neutral report, reproduction and diff are ready in `../experiments/mxlsrc-report/` (no product or company named); reporting is outward-facing and **not done**. Before posting: check the GitHub profile, add nothing from the project, and check the employer's open-source policy before sending code (the report can describe the change in words instead). |
 | Fail-open for a failed tap | Assumed and built; never confirmed. |
 | Where the SCTE-35 timeline lives (Q7) | Open. SCTE-35 does not travel in an MXL flow. |
 | Stop condition for the project (Q18) | Proposed in [42, section 7](doc/codebase/42-mxl-implementation-plan.md#7-proposed-defaults-for-the-open-decisions), not approved. |
@@ -237,3 +267,5 @@ Configuration keys: [05, source tap](doc/codebase/05-configuration-reference.md#
 | `d4b0cc6` | Step 2 gaps closed; Step 3 programme output |
 | `12daf1d` | This status file |
 | `b711685` | Step 4: MXL input |
+| `7cd9bbf` | This status file names the Step 4 commit |
+| `2ce01ad` | `mxlsrc` deadlock patch in the images; the MXL input's delay is a setting (`transport.mxl.delayMs`, default 500 ms) |

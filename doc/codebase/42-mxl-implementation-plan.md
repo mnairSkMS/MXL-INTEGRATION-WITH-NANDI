@@ -301,7 +301,7 @@ Differences from the plan this page first made:
 | — (not foreseen) | A leaky `queue` behind each reader and a dropped ALLOCATION query, because `mxlsrc` holds its state lock while it pushes caps and deadlocks a channel whose pads are blocked until it plays. |
 | — (not foreseen) | One shift for the flows' timestamps (live time plus `transport.mxl.delayMs`, default 500 ms), because a writer's timestamps are in the past by its own processing delay. |
 | `GET /inputs/probe` describes MXL inputs with `mxl-info` | The probe answers 422 for `mxl` (as for `ndi`): the API image has no MXL tools. |
-| UI | The channel form has an MXL transport with a video and an audio flow id; the probe button is disabled for it. The built UI bundle under `api/src/transcoder_api/static/channel/` was not rebuilt. |
+| UI | The channel form has an MXL transport with a video and an audio flow id; the probe button is disabled for it. The built UI bundle under `api/src/transcoder_api/static/channel/` was rebuilt on 2026-11-06 and carries the MXL transport and the delay field. |
 
 Not planned and not built: data flows (ST 2038), a redundant or playlist MXL input, several audio flows.
 Measured cost: 720p25 0.24 core against 0.36 for an H.264 UDP input; 1080p25 0.63 against 0.77.
