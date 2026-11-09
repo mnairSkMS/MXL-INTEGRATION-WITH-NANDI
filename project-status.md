@@ -20,9 +20,9 @@ programs, and **read** MXL flows as an input. Changing the engine is allowed for
 | 0 | Baseline: what the engine costs today, with no MXL | **Done** (one reference workload) |
 | 1 | MXL v1.1.0 built into the existing images; MXL itself tested | **Done** (9 of 9 tests) |
 | 2 | **Source tap**: publish a decoded input as MXL flows (`inputs[n].mxlTap`) | **Done**, gaps closed 2026-11-02 |
-| 3 | **Programme tap**: publish the finished programme as MXL flows (`outputs[n].type = "mxl"`) | **Done** |
-| 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (11 tests; 20-minute soak) |
-| 5 | External encoder worker reading MXL, registry of flows | **Not started** |
+| 3 | **Smarter delay**: learn each flow's age, set the shift from that, relearn when late | Would allow a delay of about 100 ms instead of 500 ms. | 3 to 5 hours | **Built and tested 2026-11-08.** The input learns the oldest age of the flows (250 ms to 1 s), relearns when buffers are persistently late for 3 s, and retries a lost writer every 900 ms. Measured: 720p idle 4 ms, 720p busy 52 ms, 1080p idle 669 ms (one stalled second). **The default stays 500 ms** because of the 1080p result and the busy-host spread; owner decision on the latency limit still open. Tests `input/03`, `11` and the new `12-relearn` pass. |
+| 4 | **Why the programme output writes its picture 160 to 180 ms after its sound** | Fixing it at the writer also allows a smaller delay. | 1 to 3 hours | **Explained, not changed.** Decoder latency: B-frame reordering (about 80 ms) plus frame-threaded decoding (about 80 ms). The threading share was not isolated by an experiment. |
+| 5 | **The two oddities**: `input/11-delay` exiting silently once, and writer-restart recovery of 5.3 s / 15.8 s | Both rare. | 2 to 6 hours | **Partly done.** Writer-restart: the figures came from a slow probe step; by the logs recovery takes about 0.3 to 1 s (test 03 passes). `input/11-delay`: an error trap now names the failing line; the 20 repeats were **not run**. |
 | 6 | MXL Fabrics between two hosts | **Not started** (needs a second host and network cards) |
 
 Test totals on the installed images: **40 of 40** MXL tests (9 SDK, 14 source tap, 6 programme, 11 input), 12 of 12
@@ -137,6 +137,7 @@ finding). And converting the v210 picture to I420 first, then to the canvas, cos
 | Writer killed and restarted: time until the reader channel shows it again | 5.3 s after the writer publishes again in four runs, 15.8 s in one (3 s idle limit, measured in steps of about 4 s) |
 | How far an MXL writer's lag moves (a Nandi programme output into an MXL input; `input-jitter.sh`) | Each flow alone moves 10 to 74 ms. The picture is a constant 160 to 180 ms later than the sound, so the two flows together spread 185 to 260 ms in three-minute runs and 358 ms in one 25 s run with every core busy. Default delay 500 ms. |
 | 20-minute loopback soak | 0 reattaches, 0 errors; B's memory flat (one 2.4 MB step), B CPU 0.29 core; writer channel's memory +0.3 MB per minute |
+| 4-hour loopback soak (2026-11-06, installed images) | 0 reattaches, 0 errors, nothing restarted. Reader B: memory flat at 198.8 MB (−0.4 MB per hour after the first hour), CPU 0.28 core. Writer A: memory 259.6 to 335.7 MB, a straight line of **17.9 MB per hour** (not tapering). Lip-sync of B's output **−93 ms** at start, middle and end: no drift. |
 
 The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by the project owner on
 2026-10-30.
@@ -145,19 +146,20 @@ The CPU limit of about 0.18 core for a programme tap at 1080p25 was accepted by 
 
 ### What to do next, in order
 
-Job 1 is done. Job 2 was started on 2026-11-06 at 10:44 and is running (its result is not in yet). The rest has not been started. The times are rough estimates from how long the earlier steps took, not measurements.
+Jobs 1 to 5 are done or closed (2026-11-06 to 2026-11-09); the small repeat checks listed under them are not. Job 2 found a straight-line memory growth in the engine that writes flows; job 2b found its cause and it is fixed. Jobs 6 and 7 have not been started. The times in the table are rough estimates from how long the earlier steps took, not measurements.
 
 | # | Job | Why | Estimate | Needs from the owner |
 | --- | --- | --- | --- | --- |
 | 1 | **Rebuild the built channel UI** (`api/src/transcoder_api/static/channel/`; sources are in `frontend/`) | **Done 2026-11-06, not yet committed.** Built as the Dockerfile does (type check, 72 of 72 front-end tests, build); the new bundle carries the MXL transport and `delayMs`, the old one carried neither; API suite 346 of 346. See [27](doc/codebase/27-known-gaps-contradictions-and-remediation.md). | Took about 15 minutes | Nothing |
-| 2 | **Long soak, 4 to 8 hours** (`tests/manual/mxl/input-soak.sh <minutes>`, a loopback; 4 hours = 240) | The channel that writes flows grew 0.3 MB per minute in a 20-minute run. Twenty minutes cannot tell a leak from warm-up. | 4 to 8 hours, unattended | **Running since 2026-11-06 10:44 as a 240-minute run** (expected end about 14:50; log outside the repo in `../experiments/mxl-soak-2026-11-06/`). No builds or other tests meanwhile. |
+| 2 | **Long soak, 240 minutes** (`tests/manual/mxl/input-soak.sh <minutes>`, a loopback) | The channel that writes flows grew 0.3 MB per minute in a 20-minute run; 20 minutes cannot tell a leak from warm-up. | Took 4 hours, unattended | **Done 2026-11-06.** The reader (the new MXL input) is flat. The writer grows 17.9 MB per hour in a straight line: **not warm-up**. Results in [41](doc/codebase/41-mxl-integration.md#four-hour-soak-result) and `doc/mxl/input-soak-2026-11-06/`. |
+| 2b | **Find the cause of the writer's memory growth** | Job 2 showed 17.9 MB per hour on the writing side. | Took about two days of runs | **Done 2026-11-09.** It is not MXL: the H.264 decoder in Ubuntu's gst-libav 1.24.1 leaks a 104-byte `AVPacket` for every picture (about 17 MB per hour at 720p25) in any channel that decodes H.264. Fixed by `transcoder/patches/gst-libav1.0/010-avviddec-free-the-av-packet.patch`, built into the base image. Checked with valgrind (112,720 bytes in 52 blocks before, none after) and flat footprints in the runs afterwards. See [27](doc/codebase/27-known-gaps-contradictions-and-remediation.md) and [41](doc/codebase/41-mxl-integration.md). |
 | 3 | **Smarter delay**: wait for the first buffer of every flow, learn the constant gap between picture and sound, and set the shift from that | Would allow a delay of about 100 ms instead of 500 ms, so less latency. | 3 to 5 hours | Whether lower latency is wanted before Step 5 |
 | 4 | **Find why the programme output writes its picture 160 to 180 ms after its sound** | Fixing it at the writer also allows a smaller delay. | 1 to 3 hours; the cause may not be found | Nothing |
 | 5 | **Look at the two oddities**: `input/11-delay` exiting silently once in 9 runs, and writer-restart recovery taking 5.3 s four times and 15.8 s once | Both are rare, so a fix may not be possible. | 2 to 6 hours | Nothing |
 | 6 | **Step 5, the external encoder worker** (below) | The next planned step. | 2 to 4 working days | The three decisions below |
 | 7 | **Step 6, Fabrics** (below) | Needs a second host and network cards. | About 1 to 2 days once the hardware exists | Hardware |
 
-Jobs 1 to 5 are about one working day of work. Jobs 1 to 6 are about 3 to 5 working days. Job 7 cannot be estimated until the hardware exists.
+Job 6 is about 2 to 4 working days. Job 7 cannot be estimated until the hardware exists.
 
 Order and rules:
 
@@ -188,7 +190,7 @@ Not covered by any test:
 - A 1080p programme flow (its cost is the case to watch against the CPU limit), a 1080p50 or 59.94
   programme flow, an interlaced programme output, graphics overlays in the programme picture, HLS or DASH
   outputs alongside an MXL output.
-- Runs of hours.
+- Runs of more than four hours (the longest soak is 4 hours).
 
 Not measured: write-to-read latency (p50/p95/p99); memory bandwidth; drift of the plugin's once-sampled
 clock offset over hours.
@@ -200,23 +202,24 @@ The built channel UI bundle was stale after Step 4; it was rebuilt on 2026-11-06
 
 ### Open questions about the behaviour seen
 
-- **Memory:** an engine that writes flows rose 14.8 MB per hour in the 20-minute source-tap soak, and the writer
-  channel of the 20-minute loopback soak rose 0.3 MB per minute (18.5 MB per hour) in a straight line. The channel
-  that only reads flows stayed flat. So the growth looks like it is on the writing side, but 20 minutes cannot tell a leak from
-  warm-up. A run of several hours is needed.
-- **Lip-sync step in the loopback soak:** channel B's output read −50 ms at the start and −10 ms in the middle and at the
-  end, a one-frame step with no log line around it. Not explained.
+- **Memory (fixed, found by the 4-hour soak):** the engine that writes flows grew 17.9 MB per hour in a straight line. The cause is not MXL: the
+  H.264 decoder in Ubuntu's gst-libav 1.24.1 leaks one 104-byte `AVPacket` per picture, in any channel that decodes H.264. The patch is in the base
+  image. One thing is left unexplained: under heavy host load a patched channel showed a one-off step of 20 to 360 MB early in the run (larger with
+  the MXL output), after which it stayed flat; it was not seen on a quiet host and its buffers were not identified. A full quiet-host hour of a
+  programme channel with MXL output has not been run.
+- **Lip-sync in the loopback soak:** the 20-minute run read −50 ms at the start and −10 ms in the middle and at the end, a one-frame step. The
+  4-hour run read −93 ms at the start, in the middle and at the end: no step. Why the two runs differ in the absolute value (and from −61 ms in
+  test `02`) is not known; the planned five repeats of test `02` were not run.
 - **Audio flow lag:** the audio flow's lag behind the clock is mostly 305 ms but has single-minute bursts up
-  to about 390 ms. There is no trend; the cause is not known.
+  to about 390 ms. There is no trend; the cause is not known. The planned 20-minute check that the bursts happen only in the first 30 s was not run.
 - **Two intermittent test failures on 2026-11-05.** `input/11-delay` exited without a message in the first full run (it captures B's output
   with `ffmpeg`; a failed capture ended the script silently) and passed in all 8 later runs; the test now reports a failed capture in words.
   `input/03-writer-restart` failed once because its 2 s probe sometimes holds less than a second of usable picture (a capture starts mid-GOP and
-  ffmpeg drops what comes before the first keyframe); the probe now judges the share of distinct pictures. The first is unexplained.
-- **Writer-restart recovery time varies:** 5.3 s in four runs, 15.8 s in one.
-- **Picture later than sound in the programme output:** the programme output writes its video flow 160 to 180 ms later than its
-  audio flow, measured against their media times. It is why the MXL input needs a delay of several hundred milliseconds. Not
-  looked into; a smaller difference at the writer would allow a smaller delay.
-- One earlier failure of `utpl_scte_section_test` was not explained and has not come back.
+  ffmpeg drops what comes before the first keyframe); the probe now judges the share of distinct pictures. The first is unexplained and has not repeated; its 20-run check was not done.
+- **Writer-restart recovery time (explained):** the 5.3 s and 15.8 s figures came from the probe step; recovery by the logs is about 0.3 to 1 s.
+- **Picture later than sound in the programme output (explained):** the video flow is written 160 to 180 ms after the audio flow, measured against
+  their media times. It is decoder latency (B-frame reordering about 80 ms, frame-threaded decoding about 80 ms). The input's delay setting copes with it.
+- The `utpl_scte_section_test` failure (fixed): `ScteEvent` left its `in` and `out` flags uninitialised; they are now set, and the test passed 400 of 400 runs.
 - About 9 s of audio silence in one muxer-based reader was not explained.
 
 ### Decisions waiting for the project owner
@@ -224,7 +227,7 @@ The built channel UI bundle was stale after Step 4; it was rebuilt on 2026-11-06
 | Decision | Current state |
 | --- | --- |
 | Gate A numeric limits (lip-sync, drops, latency, CPU) | Not agreed. The tests print results and use provisional limits (for example 80 ms lip-sync from the source). |
-| Default delay of an MXL input (500 ms) | Chosen from measurements, 140 ms above the worst spread seen; not agreed against a latency limit. A smarter shift (learn the constant difference between the flows) would allow about 100 ms; not built. |
+| Default delay of an MXL input (500 ms) | Chosen from measurements, 140 ms above the worst spread seen; not agreed against a latency limit. The learning shift is built (job 3), but 1080p measured 669 ms once, so 500 ms stays. |
 | Report the `mxlsrc` deadlock to the MXL project | The patch is in the images. A neutral report, reproduction and diff are ready in `../experiments/mxlsrc-report/` (no product or company named); reporting is outward-facing and **not done**. Before posting: check the GitHub profile, add nothing from the project, and check the employer's open-source policy before sending code (the report can describe the change in words instead). |
 | Fail-open for a failed tap | Assumed and built; never confirmed. |
 | Where the SCTE-35 timeline lives (Q7) | Open. SCTE-35 does not travel in an MXL flow. |

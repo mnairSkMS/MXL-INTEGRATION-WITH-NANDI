@@ -257,8 +257,8 @@ a steady live source.
 Passthrough streams (never tapped); more than one audio track (only the first is tapped); the Dolby SDK
 paths (**integration gated**); a channel with a second input (the alternate source of SCTE ad insertion)
 with a tap on either input; hardware decoders (the decoders here are software: a tap that holds up to 30
-frames would hold decoder surfaces); and a run of hours (the 20-minute soak is in [the soak result](#soak-result); the
-memory trend of +14.8 MB per hour needs a longer run to judge).
+frames would hold decoder surfaces); and a run of more than four hours (the 20-minute and 4-hour soaks are in [the soak result](#soak-result) and
+[the four-hour soak result](#four-hour-soak-result); the writer's memory grew 17.9 MB per hour in a straight line; the cause was the H.264 decoder of Ubuntu's gst-libav, not MXL, and is patched; see the soak result).
 
 ### Source tap verification against the installed engine
 
@@ -356,7 +356,7 @@ Dolby-processed audio (the equivalent tap on the Dolby connector; **integration 
 audio stream; interlaced programme output (the canvas is progressive); graphics overlays in the picture
 (the tap is after the compositor, so it should carry them, but this was not looked at); 1080p50 or
 59.94 programme flows; SCTE-35 (it does not travel in a flow; decision Q7 is open); HLS or DASH outputs
-alongside the MXL output; runs of hours.
+alongside the MXL output; runs of more than four hours.
 
 ## MXL input (Step 4)
 
@@ -425,11 +425,11 @@ What it says:
 - **The two flows of a Nandi programme output differ by a constant 160 to 180 ms** (the video is later). The shared shift has to absorb that, so most of the delay goes to a property of the writer, not to jitter. Another writer will differ; the log says by how much.
 - If the first buffer is the least late of all, the delay has to be at least the spread. The worst spread seen is 358 ms (every core busy, 25 s run); the three-minute runs read 185 to 260 ms. **The default of 500 ms is 140 ms above the worst, a margin chosen here, not an agreed limit (Gate A).** It was 300 ms before, which the 358 ms run exceeded.
 - A delay of 0 is reported as too small within seconds (test `11`); 2000 ms, the largest allowed, gives a continuous output (largest gap 40 ms).
-- **What would lower it, not built:** wait for the first buffer of every flow (a second at most) and take the largest lag among them, so the constant difference between the flows is learned and the delay only has to cover the movement, about 100 ms here instead of 360. The cost is dropping the first few buffers of the flow that arrives first, and a rule for a flow that never delivers.
+- **How the input lowers it (built, `input/single.cpp`):** it waits 250 ms to 1 s for the first buffer of every flow and takes the largest age among them, so the constant difference between the flows is learned and the delay only has to cover the movement. It relearns when buffers are late for 3 s in a row (at most every 10 s) and retries a lost writer every 900 ms. Measured with `tests/manual/mxl/input-jitter.sh`: 720p idle 4 ms, 720p busy 52 ms, 1080p idle 669 ms (one stalled second). The default stays 500 ms because of the 1080p result. The cost is dropping the first few buffers of the flow that arrives first. Tests `input/11-delay` and `input/12-relearn`.
 
 ### Not covered
 
-Dolby-processed audio (**integration gated**); interlaced flows (MXL flows are progressive); more than one audio flow; data flows; a redundant or playlist MXL input (refused); an MXL input as the second (alternate) input of a channel with SCTE ad insertion; a flow with more than two audio channels (the code does not care, nothing here was fed one); a 4K flow; hardware encoders; end-to-end latency (the delay adds `delayMs` to whatever the writer's lag is; nothing more was measured); a channel that stalls for longer than the ring of a flow (about 170 ms at 25 fps; the leaky queue drops, but this was not provoked); a domain on another host (MXL Fabrics, **integration gated**); and runs of hours (the soak below is 20 minutes).
+Dolby-processed audio (**integration gated**); interlaced flows (MXL flows are progressive); more than one audio flow; data flows; a redundant or playlist MXL input (refused); an MXL input as the second (alternate) input of a channel with SCTE ad insertion; a flow with more than two audio channels (the code does not care, nothing here was fed one); a 4K flow; hardware encoders; end-to-end latency (the delay adds `delayMs` to whatever the writer's lag is; nothing more was measured); a channel that stalls for longer than the ring of a flow (about 170 ms at 25 fps; the leaky queue drops, but this was not provoked); a domain on another host (MXL Fabrics, **integration gated**); and runs of more than four hours (the longest soak below is 4 hours).
 
 ### Soak result
 
@@ -444,6 +444,30 @@ x264/AAC to UDP) for 20 minutes on a scratch build, 2026-11-05 (series and outpu
 | A's memory | 359.3 MB at minute 1 to 365.0 MB at minute 20, a steady **0.3 MB per minute** (18.5 MB per hour). The earlier source-tap soak read +14.8 MB per hour in an engine that writes flows. B, which reads them and writes none, does not grow. So the growth sits on the writer side (the tap or programme-output path), which is a hint, not a finding: 20 minutes cannot tell a leak from warm-up. |
 | CPU | B mean **0.29 core**, A mean 0.42 core, flat. |
 | Lip-sync of B's output | **−50 ms** at the start, **−10 ms** in the middle and **−10 ms** at the end (14, 14 and 13 pairs); A's on-air output read −42 ms in test `02`. A one-frame (40 ms) step between the start and the middle is not explained; there was no reattach or log line at that time. |
+
+### Four-hour soak result
+
+`tests/manual/mxl/input-soak.sh 240` ran the same loopback (A: flash-and-beep source, programme output to MXL; B: MXL input, x264/AAC to
+UDP, `delayMs` at its 500 ms default) for 240 minutes on the **installed images**, 2026-11-06 10:44 to 14:37 (series and output in
+[`doc/mxl/input-soak-2026-11-06/`](../mxl/input-soak-2026-11-06/)). No builds or other tests ran on the host meanwhile; another container (an
+idle engine, about 3 % of one core) was running beside it.
+
+| Measure | Result |
+| --- | --- |
+| Reattaches in B, tap starts in A, errors | **0**, 2 (one per flow), **0** over the 4 hours: no reader was reattached, nothing restarted, both engines stayed alive. |
+| B's memory | 182 MB at minute 1, up to 216 MB at most, 211 MB at minute 30, then **198.8 MB from about minute 90 to the end**. Over minutes 61 to 240 the slope is **−0.4 MB per hour**: flat. The rise in the first 30 minutes is start-up. |
+| A's memory | 259.6 MB at minute 1, 335.7 MB at minute 240. After the first hour a **straight line of 17.9 MB per hour** (17.1, 18.1 and 18.0 MB per hour in the three following windows; no tapering). The script's fit over all 240 minutes says 16.6 MB per hour. It matches the 20-minute run (18.5 MB per hour), so it is not warm-up. Extended as a straight line it is about 430 MB per day (an extrapolation, not measured). |
+| CPU | B mean **0.28 core**, A mean 0.41 core, flat from minute 1 to minute 240. |
+| Lip-sync of B's output | **−93 ms** at the start, in the middle (minute 120) and at the end (14 pairs each): no step and no drift over 4 hours. The −50 to −10 ms step of the 20-minute run did not come back. The absolute value differs from the 20-minute run (−50 and −10 ms, scratch build) and from test `02` (−61 ms); why is not known. |
+
+What this settles: B, which reads flows and writes none, holds still, so the new MXL **input** does not leak. The growth in A was **not MXL's**.
+The follow-up (2026-11-07, `../experiments/writer-memory-2026-11-07/`) took the channel apart: a channel with no MXL at all grew the same, and so did a
+plain `udpsrc ! tsdemux ! h264parse ! avdec_h264 ! fakesink`; the audio decoder, the demuxer and the GStreamer objects (leaks tracer) were flat; neither
+the number of decoder threads, `MALLOC_ARENA_MAX=1` nor B-frames changed it; FFmpeg's own command-line decoder, given the same stream, was flat. Valgrind
+then showed one lost 104-byte `AVPacket` per decoded frame, allocated in `gstavviddec.c` of gst-libav 1.24.1 (about 190 bytes per frame with the
+allocator's rounding, 17 MB per hour at 720p25). `transcoder/patches/gst-libav1.0/010-avviddec-free-the-av-packet.patch` frees it, and the base image
+builds and installs the patched package. With the patch, 62-minute runs of a plain decode, a channel without MXL and a channel with the programme output
+are flat in their clean window (see [27](27-known-gaps-contradictions-and-remediation.md)).
 
 ### MXL input verification against the installed engine
 
