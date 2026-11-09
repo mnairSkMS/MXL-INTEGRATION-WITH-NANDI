@@ -42,8 +42,14 @@ docker run --rm --user "$(id -u):$(id -g)" --entrypoint bash \
     ffmpeg -v error -f lavfi -i testsrc=size=640x360:rate=25 -f lavfi -i sine=frequency=440:sample_rate=48000 \
         -t 10 -c:v libx264 -g 25 -c:a aac -ac 2 -f mpegts /work/in.ts || exit 90
     mkdir -p /tmp/db && : > /tmp/db/e.sqlite
-    timeout 60 /opt/utpl/bin/transcoder -c /work/config.json -l /lic/offline.lic -b /tmp/db/e.sqlite > /work/engine.log 2>&1
-    echo "engine exit status: $?"
+    # The engine keeps running after the end of its input, so the script stops it; that is status 124 and is the expected end.
+    timeout 40 /opt/utpl/bin/transcoder -c /work/config.json -l /lic/offline.lic -b /tmp/db/e.sqlite > /work/engine.log 2>&1
+    status=$?
+    if [ "$status" = 124 ]; then
+        echo "engine: still running when the script stopped it after 40 s (the expected end; its input is 10 s long)"
+    else
+        echo "engine exit status: $status (it should still be running when the script stops it)"
+    fi
     echo "--- last engine log lines"; tail -n 6 /work/engine.log | cut -c1-200
     echo "--- ffprobe of the output"
     ffprobe -v error -show_entries stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels -of compact /work/out.ts

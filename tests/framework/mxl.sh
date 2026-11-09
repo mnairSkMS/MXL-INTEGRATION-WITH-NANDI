@@ -51,6 +51,9 @@ function mxl_test_begin() {
     mkdir -p "$MXL_DOMAIN"
 
     trap mxl_cleanup EXIT
+
+    # A test runs under `bash -e`, which ends it at the first failing command without a word. Say which one failed.
+    trap 'echo "FAIL: a command failed (status $?) at ${BASH_SOURCE[0]##*/}:${LINENO}: ${BASH_COMMAND}" | tee -a "$MXL_LOG" >&2' ERR
 }
 
 function mxl_cleanup() {
@@ -115,8 +118,11 @@ function mxl_wait_flow() {
 # Real-time v210 writer in the background (MXL_LAST_PID). The default bar pattern is static (smpte is animated), so
 # every frame is identical and a reader can be compared against a reference frame.
 function mxl_write_video() {
+    # A frame rate is a fraction in caps; a bare 25 is not valid caps and the writer would die silently.
+    local rate="$2"
+    [[ "$rate" == */* ]] || rate="$rate/1"
     mxl_bg gst-launch-1.0 -q videotestsrc is-live=true do-timestamp=true pattern="${6:-bar}" num-buffers="$5" \
-        ! videoconvert ! "video/x-raw,format=v210,width=$3,height=$4,framerate=$2" \
+        ! videoconvert ! "video/x-raw,format=v210,width=$3,height=$4,framerate=$rate" \
         ! queue ! mxlsink flow-id="$1" domain="$MXL_DOMAIN"
 }
 

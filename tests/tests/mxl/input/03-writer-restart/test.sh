@@ -60,10 +60,27 @@ for i in $(seq 1 12); do
     if [ "$(probe after)" = "yes" ]; then recovered=yes; break; fi
 done
 secs=$(mxl_seconds_since $t0)
-echo "RESULT B shows A's picture and tone again ${secs} s after channel A publishes again (measured in steps of about 4 s): ${recovered}"
+echo "RESULT B's probe shows A's picture and tone again ${secs} s after channel A publishes again (the probe works in steps of about 4 s and lands at a random place in B's group of pictures, so this is a coarse upper bound): ${recovered}"
 [ "$recovered" = "yes" ] || mxl_fail "B did not show A's picture and tone again within ${secs} s"
 mxl_alive $pid_b || mxl_fail "channel B stopped"
 grep -q 'no data on the .* flow' $MXL_TMP/engine-b.log || mxl_fail "B never said that it reattached a flow"
+
+# The same time from the two logs, which does not depend on the steps of the probe: from the line in which A's picture flow
+# is published again to the line in which B sets its shift for the flows it has attached again. B's output follows by its delay.
+log_epoch() {  # the time of a log line ("[ MM/DD/YY HH:MM:SS.mmm ]", UTC) in seconds
+    local stamp
+    stamp=$(grep -o '^\[ [0-9/]* [0-9:.]* \]' <<< "$1" | tr -d '[]' | xargs)
+    date -u -d "20${stamp:6:2}-${stamp:0:2}-${stamp:3:2} ${stamp:9}" +%s.%N
+}
+line_a=$(grep "MXL tap $MXL_FLOW_VIDEO (video) started" $MXL_TMP/engine-a.log | tail -n 1)
+line_b=$(grep "the flows reach the channel" $MXL_TMP/engine-b.log | tail -n 1)
+if [ -n "$line_a" ] && [ -n "$line_b" ]; then
+    logged=$(awk -v a="$(log_epoch "$line_a")" -v b="$(log_epoch "$line_b")" 'BEGIN { printf "%.1f", b - a }')
+    echo "RESULT by the two logs, B has the flows again ${logged} s after A publishes them again (its output follows within a second; a capture of B's output through a restart showed the same)"
+    awk -v t="$logged" 'BEGIN { exit !(t < 10) }' || mxl_fail "B took ${logged} s to attach the restarted flows (10 s is the limit set for this test)"
+else
+    mxl_fail "the logs do not say when A published again and when B attached the flows again"
+fi
 echo "RESULT $(grep -c 'no data on the .* flow' $MXL_TMP/engine-b.log) reattach lines in B's log"
 
 mxl_test_end

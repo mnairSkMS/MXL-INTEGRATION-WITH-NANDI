@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The delay of an MXL input (transport.mxl.delayMs). The flows carry the time at which their pictures and sound were
-# made; the writer's processing has delayed them since, and by more on the picture than on the sound. The channel
-# plays them a set time after they arrive, which is the room the writer's lag has to stay inside.
+# made; the writer's processing has delayed them since, and by more on the picture than on the sound. The input
+# notes how old each flow's buffers are on arrival, at the oldest, and plays the flows a set time after the oldest
+# arrives: the delay is the room the movement of the writer's lag has to stay inside.
 #
 # Channel A publishes its programme as MXL flows; channel B reads them, three times with a different delay each:
 #   not set   the engine says 500 ms in its log and the channel runs
@@ -39,7 +40,7 @@ run_b() {
     sleep 2
     mxl_stop $pid
 }
-says()  { grep -c "plays it $2 ms after it arrives" $MXL_TMP/engine-b-$1.log || true; }
+says()  { grep -c "the channel plays them $2 ms after the oldest arrives" $MXL_TMP/engine-b-$1.log || true; }
 late()  { grep -c "later than the .* ms delay allows; raise transport.mxl.delayMs" $MXL_TMP/engine-b-$1.log || true; }
 
 run_b default ""

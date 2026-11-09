@@ -59,6 +59,9 @@ if [ "$1" = "--inside" ]; then
                       printf "RESULT %s, %s flow: %d s sampled; room over the run %d to %d ms, so the lag moved %d ms; widest single second %d ms\n", label, k, n, min, max, max - min, w }' "$MXL_TMP/samples-${label// /_}.txt"
         done
 
+        # The delay that would have kept every buffer on time: what B was given less the least room either flow had.
+        awk -v label="$label" '{ if (min == "" || $2 < min) min = $2 } END { if (min != "") printf "RESULT %s: a delay of %d ms would have kept every buffer of both flows on time (1000 ms less the least room, %d ms)\n", label, 1000 - min, min }' "$MXL_TMP/samples-${label// /_}.txt"
+
         local reattached
         reattached=$(grep -c 'no data on the .* flow' "$log" || true)
         echo "RESULT $label: B reattached a flow ${reattached} times"
@@ -84,6 +87,8 @@ extra=()
 if [ -n "$MXL_ENGINE_BUILD_DIR_HOST" ]; then
     extra=(-e MXL_ENGINE_BUILD_DIR=/dev-build -v "$MXL_ENGINE_BUILD_DIR_HOST:/dev-build:ro")
 fi
+# Environment for the engines (for example UTPL_EXPERIMENT_H264_THREADS=1), passed as JITTER_ENV="NAME=value NAME=value".
+for kv in $JITTER_ENV; do extra+=(-e "$kv"); done
 docker run --rm --user "$(id -u):$(id -g)" --entrypoint bash "${extra[@]}" \
     -e JITTER_SECONDS="${1:-120}" -e JITTER_OUT=/out -v "$OUT:/out" -v "$ROOT/tests:/tests" "$IMAGE" \
     -c 'bash /tests/manual/mxl/input-jitter.sh --inside'
