@@ -102,10 +102,27 @@ assets = [ \n\
     mv target/debian/*.deb /tmp/built/deb
 
 
+COPY transcoder/patches/gst-libav1.0 /tmp/transcoder/patches/gst-libav1.0
+# gst-libav: Ubuntu's 1.24.1 allocates an AVPacket for every decoded video frame and only unreferences it, so the
+# 104-byte struct leaks (about 17 MB per hour per 720p25 H.264 stream). Fixed here with
+# transcoder/patches/gst-libav1.0.
+RUN \
+    DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt build-dep -y --no-install-recommends --no-install-suggests gstreamer1.0-libav && \
+    mkdir -p /tmp/deb_build_libav && \
+    cd /tmp/deb_build_libav && \
+        apt source gst-libav1.0 && \
+        cd gst-libav1.0-*/ && \
+            for patchFile in $(find /tmp/transcoder/patches/gst-libav1.0/ -type f -name '*.patch' | sort); do echo "Patching with: $patchFile" && patch -p1 < $patchFile; done && \
+            EMAIL=unknown debchange -i "Patched for UTPL project" && \
+            EDITOR=/bin/true dpkg-source --commit . utpl-patch && \
+            debuild -us -uc -i -I && \
+            mv ../*.deb /tmp/built/deb
+
 # MXL (Media eXchange Layer): SDK, tools and the gst-mxl-rs GStreamer plugin (mxlsink / mxlsrc).
 # Built in its own stage so a change here does not rebuild the GStreamer packages above.
 # ENABLE_MXL=0 builds an empty stage, which restores the image as it was before MXL.
 # Fabrics (libfabric) is not built; see doc/codebase/42-mxl-implementation-plan.md.
+
 FROM ${SrcImageBranch}:${SrcImageTag} as mxl-builder
 
 ARG ENABLE_MXL=1
@@ -197,6 +214,7 @@ COPY --from=base-builder [ "/tmp/built/deb", "/opt/utpl/deb" ]
 RUN \
     apt -y install --no-install-recommends --no-install-suggests $(find /opt/utpl/deb/ -name libgstreamer-plugins-bad1.0-0*.deb) && \
     apt -y install --no-install-recommends --no-install-suggests $(find /opt/utpl/deb/ -name gstreamer1.0-plugins-bad_*.deb) && \
+    apt -y install --no-install-recommends --no-install-suggests $(find /opt/utpl/deb/ -name gstreamer1.0-libav_*.deb) && \
     apt -y install --no-install-recommends --no-install-suggests $(find /opt/utpl/deb/ -name gst-plugin-fallbackswitch_*.deb) && \
     apt -y install --no-install-recommends --no-install-suggests /opt/utpl/deb/libcpr1_1.10.5-1_amd64.deb
 

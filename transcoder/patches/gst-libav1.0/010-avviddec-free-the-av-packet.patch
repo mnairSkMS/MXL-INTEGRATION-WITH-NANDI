@@ -1,0 +1,28 @@
+--- a/ext/libav/gstavviddec.c
++++ b/ext/libav/gstavviddec.c
+@@ -2236,9 +2236,9 @@
+     data = ffmpegdec->padded;
+   }
+ 
+-  /* Note: We use `av_packet_alloc()` so that it is properly initialized by
+-   * FFmpeg and it can be properly cleaned-up (via `av_packet_unref()`) by
+-   * FFmpeg also. */
++  /* The packet is allocated here for every frame, so it is also freed here:
++   * `av_packet_free()` unreferences it and frees the AVPacket struct itself.
++   * `av_packet_unref()` alone left the 104-byte struct behind for every frame. */
+   packet = av_packet_alloc ();
+   packet->data = data;
+   packet->size = size;
+@@ -2277,10 +2277,10 @@
+   GST_VIDEO_DECODER_STREAM_UNLOCK (ffmpegdec);
+   if (avcodec_send_packet (ffmpegdec->context, packet) < 0) {
+     GST_VIDEO_DECODER_STREAM_LOCK (ffmpegdec);
+-    av_packet_unref (packet);
++    av_packet_free (&packet);
+     goto send_packet_failed;
+   }
+-  av_packet_unref (packet);
++  av_packet_free (&packet);
+   GST_VIDEO_DECODER_STREAM_LOCK (ffmpegdec);
+ 
+   do {

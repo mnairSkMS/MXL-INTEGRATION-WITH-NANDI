@@ -91,6 +91,13 @@ namespace utpl {
                     this->duration   = GST_CLOCK_TIME_NONE;
                     this->autoReturn = true;
 
+                    // Neither is set by a time_signal that carries no start or end segmentation
+                    // type, and a time_signal start only ever sets `out`. Left uninitialised,
+                    // `in` held whatever the memory held, so a break start sometimes also
+                    // counted as a break end.
+                    this->in         = false;
+                    this->out        = false;
+
                     // Encode once here rather than per playlist refresh: serialize() walks
                     // every live event for every segment, on every refresh.
                     if (this->section) {
