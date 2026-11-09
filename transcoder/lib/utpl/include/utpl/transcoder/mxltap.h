@@ -84,6 +84,12 @@ namespace utpl {
                 guint64 _pushed   = 0;
                 guint64 _restarts = 0;
                 guint64 _statsPushed = 0;  // _pushed at the last line of statistics
+
+                // How old the buffers were when they reached the tap, the channel's time then minus the time they carry, since
+                // the last line of statistics (nanoseconds). Picture and sound reach a tap behind the processing of their own
+                // chains, so the two kinds differ by a constant, which a reader of the flows has to allow for.
+                gint64  _ageLeast = G_MAXINT64;
+                gint64  _ageMost  = G_MININT64;
                 std::chrono::steady_clock::time_point _statsAt;
         };
     }

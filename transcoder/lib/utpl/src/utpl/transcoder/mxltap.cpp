@@ -155,14 +155,22 @@ void transcoder::MxlTap::_checkIdle() {
 
     if (this->_pipeline && now - this->_statsAt >= std::chrono::seconds(MXL_TAP_STATS_SECONDS)) {
         if (this->_pushed != this->_statsPushed) {
+            // They were this old when they reached the tap; the flow's reader sees them later still.
+            const gint64 least = (this->_ageLeast == G_MAXINT64) ? 0 : this->_ageLeast / (gint64) GST_MSECOND;
+            const gint64 most  = (this->_ageMost  == G_MININT64) ? 0 : this->_ageMost  / (gint64) GST_MSECOND;
+
             if (this->_kind == Kind::VIDEO) {
-                LOG(("MXL tap {} (video): {} frames written in the last {} s; since the flow started {} dropped and {} moved by a slot",
-                    this->_flowId, this->_pushed - this->_statsPushed, MXL_TAP_STATS_SECONDS, this->_grid.getDropped(), this->_grid.getMoved()));
+                LOG(("MXL tap {} (video): {} frames written in the last {} s, {} to {} ms old when they reached the tap; since the flow started {} dropped and {} moved by a slot",
+                    this->_flowId, this->_pushed - this->_statsPushed, MXL_TAP_STATS_SECONDS, least, most, this->_grid.getDropped(), this->_grid.getMoved()));
 
             } else {
-                LOG(("MXL tap {} (audio): {} buffers written in the last {} s", this->_flowId, this->_pushed - this->_statsPushed, MXL_TAP_STATS_SECONDS));
+                LOG(("MXL tap {} (audio): {} buffers written in the last {} s, {} to {} ms old when they reached the tap",
+                    this->_flowId, this->_pushed - this->_statsPushed, MXL_TAP_STATS_SECONDS, least, most));
             }
         }
+
+        this->_ageLeast = G_MAXINT64;
+        this->_ageMost  = G_MININT64;
 
         this->_statsPushed = this->_pushed;
         this->_statsAt     = now;
@@ -400,6 +408,13 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
                 GstClockTime running = gst_segment_to_running_time(gst_sample_get_segment(sample), GST_FORMAT_TIME, GST_BUFFER_PTS(buffer));
 
                 if (GST_CLOCK_TIME_IS_VALID(running)) {
+                    if (const GstClockTime channelNow = gst_element_get_current_running_time(self->_feed); GST_CLOCK_TIME_IS_VALID(channelNow)) {
+                        const gint64 age = GST_CLOCK_DIFF(running, channelNow);
+
+                        self->_ageLeast = std::min(self->_ageLeast, age);
+                        self->_ageMost  = std::max(self->_ageMost,  age);
+                    }
+
                     uint64_t stamped = running;
                     auto     placed  = (self->_kind == Kind::VIDEO) ? self->_grid.place(running, &stamped) : MxlFrameGrid::Result::WRITE;
 

@@ -39,11 +39,29 @@ constexpr const uint32_t RTMP_MAX_BACKOFF_TIME = 5;
 constexpr const uint32_t MXL_MAX_BACKOFF_TIME = 5;
 // A reader that has seen no data for this long is reattached to its flow
 constexpr const guint    MXL_INPUT_IDLE_SECONDS = 3;
+// A reader that has been reattached and still sees nothing is reattached again after this long: a reader attached to the
+// flow of a writer that has gone is not moved to the writer that takes the flow's id, only a new attachment is, so how
+// soon the reattachments follow each other is how soon a restarted writer is found
+// (Just under a second, because the watch looks once a second and a second exactly would be missed by a tick.)
+constexpr const gint64   MXL_INPUT_RETRY_TIME = 900 * 1000;
 // Raw frames are large: the queue behind an MXL reader holds a second at most, which is also about what the
 // reader can fall behind before the flow's ring has been overwritten
 constexpr const guint64  MXL_STREAM_QUEUE_MAX_TIME = 1 * GST_SECOND;
 // A flow that arrives later than its input's delay allows is reported at most this often
 constexpr const gint64   MXL_LATE_WARNING_INTERVAL = 30 * G_USEC_PER_SEC;
+
+// How long an MXL input watches its flows before it sets the shift of their time (microseconds): until every flow has
+// delivered a buffer and this long has passed since the first one, and never longer than the second, so that a flow
+// that does not deliver cannot hold the others back. Buffers that arrive meanwhile are dropped.
+constexpr const gint64   MXL_LEARN_MIN_TIME = 250 * 1000;
+constexpr const gint64   MXL_LEARN_MAX_TIME = 1000 * 1000;
+
+// A flow that has been later than its input's delay allows, by more than the delay (and at least MXL_RELEARN_LATE_MARGIN),
+// in each of this many seconds in a row, was not what the shift was learned from (it was late to deliver its first buffer, or
+// the writer lagged less when it was learned): the shift is learned again, but not more often than the interval.
+constexpr const int      MXL_RELEARN_LATE_SECONDS = 3;
+constexpr const gint64   MXL_RELEARN_LATE_MARGIN  = 100 * 1000 * 1000;   // nanoseconds
+constexpr const gint64   MXL_RELEARN_INTERVAL     = 10 * G_USEC_PER_SEC;
 // mxlsrc delivers audio in 1 ms buffers; the rest of the engine works on longer ones
 constexpr const char    *MXL_AUDIO_CHUNK = "1/50";
 constexpr const guint    RTMP_IDLE_TIMEOUT = 5; // seconds without packets before the source errors
@@ -1605,19 +1623,26 @@ pipeline::ElementPtr transcoder::SingleInput::_createDemuxer(bool filterAllScteE
 struct transcoder::SingleInput::MxlWatch {
     // Where the flows' time falls on the channel's. A flow's buffers are stamped with the time of the picture or
     // the sound, as the writer took it, and the writer's own pipeline has delayed them since (a programme taken
-    // behind a second of processing arrives a second old). A channel works on live time, which is the time at
-    // which things arrive, and would take such a buffer for late and drop it. So the first buffer to arrive sets
-    // one shift, which is the same for every flow of the input and so keeps them in step with each other, and
-    // puts it on live time plus the input's delay (transport.mxl.delayMs), which is the room the channel gives the
-    // flows for the jitter of their writer and for the writer lagging more on one flow than on the other. It holds
-    // until the writer has been gone and comes back.
+    // behind a second of processing arrives a second old), the picture usually by more than the sound. A channel
+    // works on live time, which is the time at which things arrive, and would take such a buffer for late and drop
+    // it. So the input first watches its flows (a quarter of a second once every flow has delivered, a second at
+    // most) and notes how old each flow's buffers are on arrival, at the oldest. The shift is the same for every flow
+    // of the input, which keeps them in step with each other, and puts the flows on live time plus the oldest of
+    // those ages plus the input's delay (transport.mxl.delayMs). The delay is then only the room for the writer's
+    // jitter, not for the constant difference between its flows. The shift holds until the writer has been gone and
+    // comes back.
+    struct Flow;
+
     struct Timeline {
         std::string         input;                      // the name of the input, for the log
         GstClockTime        delay = 0;
-        std::mutex          guard;
+        std::mutex          guard;                      // protects what follows up to `shift`, and the members of the flows marked (guard)
         std::atomic<bool>   known { false };
         std::atomic<int>    generation { 0 };
         std::atomic<gint64> shift { 0 };
+        int                 round = 0;                  // (guard) which watch of the flows this is: it starts again when the writer comes back
+        gint64              learnStart = 0;             // (guard) g_get_monotonic_time() of the first buffer of the round
+        std::vector<std::weak_ptr<Flow>> flows;
     };
 
     struct Flow {
@@ -1635,6 +1660,9 @@ struct transcoder::SingleInput::MxlWatch {
         bool                       haveSegment = false;
         int                        applied     = 0;        // the generation of the timeline last applied to the target
 
+        int                        learnRound  = -1;       // (timeline guard) the round in which learnedAge was noted
+        gint64                     learnedAge  = 0;        // (timeline guard) the greatest age of a buffer on arrival in that round, in nanoseconds
+
         std::atomic<gint64>        lastData { 0 };         // g_get_monotonic_time() of the last buffer, in microseconds
         gint64                     reattachedAt = 0;       // of the last reattach
         int                        reattached   = 0;       // reattaches since the last buffer
@@ -1645,9 +1673,11 @@ struct transcoder::SingleInput::MxlWatch {
         std::atomic<gint64>        minHeadroom { G_MAXINT64 };
         std::atomic<gint64>        maxHeadroom { G_MININT64 };
         gint64                     warnedAt = 0;           // of the last report of a late buffer
+        int                        lateSeconds = 0;        // seconds in a row in which a buffer was later than the delay and a margin allow
     };
 
     std::mutex                         guard;
+    gint64                             relearnedAt = 0;       // g_get_monotonic_time() when the shift was last learned again for lateness
     SingleInput                       *input = nullptr;       // emptied by _stopMxlWatch() before the input goes
     std::shared_ptr<Timeline>          timeline = std::make_shared<Timeline>();
     std::vector<std::shared_ptr<Flow>> flows;
@@ -1773,13 +1803,53 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
                     std::lock_guard lock(timeline.guard);
 
                     if (! timeline.known) {
-                        timeline.shift = GST_CLOCK_DIFF(at, now) + (gint64) timeline.delay;
+                        const gint64 age    = GST_CLOCK_DIFF(at, now);
+                        const gint64 moment = g_get_monotonic_time();
+
+                        if (! timeline.learnStart) {
+                            timeline.learnStart = moment;
+                        }
+
+                        flow.learnedAge = (flow.learnRound == timeline.round) ? std::max(flow.learnedAge, age) : age;
+                        flow.learnRound = timeline.round;
+
+                        bool    all    = true;
+                        gint64  oldest = G_MININT64;
+
+                        for (auto &weak : timeline.flows) {
+                            if (auto other = weak.lock()) {
+                                if (other->learnRound == timeline.round) {
+                                    oldest = std::max(oldest, other->learnedAge);
+
+                                } else {
+                                    all = false;
+                                }
+                            }
+                        }
+
+                        const gint64 watched = moment - timeline.learnStart;
+
+                        if (! ((all && watched >= MXL_LEARN_MIN_TIME) || watched >= MXL_LEARN_MAX_TIME)) {
+                            return GST_PAD_PROBE_DROP;
+                        }
+
+                        timeline.shift = oldest + (gint64) timeline.delay;
                         timeline.generation++;
                         timeline.known = true;
 
+                        std::string ages;
+
+                        for (auto &weak : timeline.flows) {
+                            if (auto other = weak.lock()) {
+                                if (other->learnRound == timeline.round) {
+                                    ages += (ages.empty() ? "" : ", ") + other->kind + " " + std::to_string(other->learnedAge / (gint64) GST_MSECOND) + " ms";
+                                }
+                            }
+                        }
+
                         logger.log(
-                            "MXL input '{}': the {} flow reaches the channel {} ms after the time it carries; the channel plays it {} ms after it arrives",
-                            timeline.input, flow.kind, GST_CLOCK_DIFF(at, now) / (gint64) GST_MSECOND, timeline.delay / GST_MSECOND
+                            "MXL input '{}': the flows reach the channel this long after the time they carry: {}; the channel plays them {} ms after the oldest arrives",
+                            timeline.input, ages, timeline.delay / GST_MSECOND
                         );
                     }
                 }
@@ -1834,6 +1904,7 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
         );
 
         this->_mxlWatch->flows.push_back(flow);
+        this->_mxlWatch->timeline->flows.push_back(flow);
     };
 
     int flows = 0;
@@ -1879,8 +1950,12 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
 
         // With every flow silent the writer is gone, and the one that comes back may lag differently: its first
         // buffer sets the shift again
-        if (allQuiet) {
-            watch->timeline->known = false;
+        if (allQuiet && watch->timeline->known) {
+            std::lock_guard timelineLock(watch->timeline->guard);
+
+            watch->timeline->known      = false;
+            watch->timeline->learnStart = 0;
+            watch->timeline->round++;
         }
 
         for (auto &flow : watch->flows) {
@@ -1904,14 +1979,36 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
 
                 DBG(("MXL input '{}': the {} flow's buffers had {} to {} ms to spare (delay {} ms)", watch->input->getName(), flow->kind, headroom / (gint64) GST_MSECOND, bestHeadroom / (gint64) GST_MSECOND, delayMs));
 
-                if (headroom < 0 && now - flow->warnedAt > MXL_LATE_WARNING_INTERVAL) {
+                // Less than a millisecond is not worth a line
+                if (headroom <= -(gint64) GST_MSECOND && now - flow->warnedAt > MXL_LATE_WARNING_INTERVAL) {
                     flow->warnedAt = now;
 
                     WARN(("MXL input '{}': the {} flow arrived {} ms later than the {} ms delay allows; raise transport.mxl.delayMs if pictures or sound are being lost", watch->input->getName(), flow->kind, -headroom / (gint64) GST_MSECOND, delayMs));
                 }
+
+                // Later than the delay allows by more than the delay itself, second after second: the shift does not fit this flow
+                const gint64 margin = std::max<gint64>((gint64) watch->timeline->delay, MXL_RELEARN_LATE_MARGIN);
+
+                flow->lateSeconds = (headroom < -margin) ? flow->lateSeconds + 1 : 0;
+
+                if (flow->lateSeconds >= MXL_RELEARN_LATE_SECONDS && now - watch->relearnedAt > MXL_RELEARN_INTERVAL && watch->timeline->known) {
+                    logger.log("MXL input '{}': the {} flow has been more than {} ms later than the shift allows for {} s; the shift is learned again", watch->input->getName(), flow->kind, margin / (gint64) GST_MSECOND, flow->lateSeconds);
+
+                    watch->relearnedAt = now;
+
+                    for (auto &other : watch->flows) {
+                        other->lateSeconds = 0;
+                    }
+
+                    std::lock_guard timelineLock(watch->timeline->guard);
+
+                    watch->timeline->known      = false;
+                    watch->timeline->learnStart = 0;
+                    watch->timeline->round++;
+                }
             }
 
-            if (now - std::max<gint64>(flow->lastData, flow->reattachedAt) > limit) {
+            if (now - std::max<gint64>(flow->lastData, flow->reattachedAt) > (flow->reattached ? MXL_INPUT_RETRY_TIME : limit)) {
                 if (flow->reattached++ == 0) {
                     logger.log("MXL input '{}': no data on the {} flow for {} s; reattaching it", watch->input->getName(), flow->kind, MXL_INPUT_IDLE_SECONDS);
 
