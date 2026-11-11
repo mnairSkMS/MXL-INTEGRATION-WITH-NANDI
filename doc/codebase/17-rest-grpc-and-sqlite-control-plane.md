@@ -173,6 +173,7 @@ Error codes are `INVALID_REQUEST`, `INVALID_TIME_RANGE`, `DETAILS_TYPE_MISMATCH`
 | GET | `/stats` | CPU, memory, storage, storage-write and network utilization | 200 |
 | PUT | `/license` | Upload a license, then restart the engine on it; `?dryRun=true` checks only | 200, 400, 409, 422, 500, or 503 |
 | DELETE | `/license` | Stop the engine, then remove the installed license | 200, 404, 409, or 500 |
+| GET | `/mxl/flows` | The flows in the MXL domain (`MXL_DOMAIN`, default `/run/mxl`): id, label, format, size or channels, rate, group hints, `writerActive`. Read-only; a missing domain gives `available: false`, not an error | 200 |
 
 ### Input preview and media thumbnails
 
@@ -710,6 +711,16 @@ Issuing licenses — generating, signing, and listing what was issued — is del
 needs the signing private key, which belongs on the vendor side, not on an appliance. The
 `transcoder/license/tools` CLIs and `make-license.sh` cover it; the separate license server
 (`license-server/`) implements only online session creation and heartbeat.
+
+## MXL flow listing route
+
+`GET /mxl/flows` (`routers/mxl.py`, `services/mxl.py`) lists the flows in the MXL domain: the directory named by `MXL_DOMAIN`
+(default `/run/mxl`, the Compose `mxl-domain` volume). It reads each `<flow id>.mxl-flow/flow_def.json` and needs no MXL library.
+`writerActive` says whether a process holds the flow's data file: it is read from `/proc/locks` and never takes a lock, so polling
+cannot disturb a writer (MXL's own check takes an exclusive lock for an instant). It is `null` when `/proc/locks` cannot be read.
+A flow whose writer is gone stays listed with `writerActive: false` until something cleans it up. A flow with no readable
+description is listed with an `error`. A missing or unreadable domain answers 200 with `available: false` and an `error`, because
+a deployment without MXL is a normal one. Read-only; no authentication, like the rest of this API. Facts and limits: [41](41-mxl-integration.md#flow-registry-step-5-wp4).
 
 ## Resource utilization route
 

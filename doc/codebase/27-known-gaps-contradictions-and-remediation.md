@@ -259,3 +259,13 @@ Details in [41](41-mxl-integration.md#mxl-input-step-4).
 ## Maintenance rule
 
 When a mismatch is resolved, add the observed command/result and source version, update the owning handbook page and feature catalog, and retain a short history entry here. Do not erase a discrepancy merely because a test was renamed or a document was edited.
+
+## MXL Step 5 findings (2026-11-11)
+
+Measured or read while building the flow registry; details in [41](41-mxl-integration.md#flow-registry-step-5-wp4).
+
+- **P3: the one-writer check is made only when the tap is created.** A writer that starts later on a flow the tap already writes is not noticed, and MXL v1.1.0 cannot refuse it. Remedy: check again when the side pipeline restarts (it can be stopped and started by the tap's own idle timer), or move the check into the plugin.
+- **P3: MXL's "is this flow written" test and its clean-up take an exclusive lock for an instant.** A writer being created at that instant can fail to take its own lock. Not reproduced. The engine calls the clean-up once, at start; the GStreamer plugin calls it whenever an `mxlsink` or `mxlsrc` starts, which is outside this code's control.
+- **P3: the group-hint tags on a flow come from the plugin** (`Media Function <pid> <pipeline>:<element>`), not from Nandi, so a flow cannot be found by channel and output name. Needs a plugin property or a patch.
+- **P3: `AGENTS.md` still says a flow registry is not built.** It now exists in a minimal form (above); an NMOS registry and Fabrics are still not built. The owner's instruction file was not edited.
+

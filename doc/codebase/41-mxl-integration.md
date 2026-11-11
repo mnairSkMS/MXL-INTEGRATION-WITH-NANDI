@@ -6,8 +6,8 @@ v1.1.0 and its GStreamer plugin are built into `utpl/base`, so every image has t
 [Phase 1 results](#phase-1-results)); the engine without MXL is measured in the
 [Phase 0 baseline](#phase-0-baseline). The MXL code in `transcoder/` is the source tap
 ([Source tap](#source-tap-step-2)), the programme output ([Programme tap](#programme-tap-step-3)) and the
-MXL input ([MXL input](#mxl-input-step-4)); a flow registry and Fabrics remain **integration gated**
-(planned, not implemented). `api/` has no MXL model beyond the `mxl` value of the probe's transport type (the
+MXL input ([MXL input](#mxl-input-step-4)). A minimal flow registry (one writer per flow, clean-up of abandoned flows, `GET /mxl/flows`) was built on 2026-11-11 ([Flow registry](#flow-registry-step-5-wp4)); an NMOS registry and Fabrics remain **integration gated**
+(planned, not implemented). `api/` has no MXL model beyond the `mxl` value of the probe's transport type and the read-only `GET /mxl/flows` (the
 engine config passes `mxlTap`, `mxl` and `transport.mxl` through untouched); the channel form can edit an MXL input
 but not the tap or the programme output.
 
@@ -491,6 +491,36 @@ into `/opt/utpl/bin/transcoder`) and the suites were run with **no scratch build
 
 Run to run on this host the lip-sync offsets move by 10 to 25 ms (A's on-air offset read −42 ms on the scratch build and −64 ms on the installed
 engine), which is why B is compared with A's on-air offset in the same run.
+
+## Flow registry (Step 5, WP4)
+
+**Built and tested on 2026-11-11 in a scratch build** (`utpl/devel:mxl`, run in `utpl/transcoder-test:mxl`); not yet run on rebuilt installed images. There is no registry process: MXL v1.1.0 has no registry and none is added.
+The registry is three checks that use only the files of the domain and MXL's own locks. Plan and reasons: [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md), section WP4; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md).
+
+| Need | What it does | Where | Verified by |
+| --- | --- | --- | --- |
+| One writer per flow in a configuration | The engine refuses to start when two writers (a tap or a programme output) name one flow, or when a flow is both written and read by the same channel. The message names the flow and both places. | `transcoder/app/src/application.cpp` (configuration check) | `tests/tests/mxl/tap/15-registry` (two cases) |
+| One writer per flow across processes | When a tap is created it asks MXL whether a writer holds the flow (`mxlIsFlowActive`). If one does, the tap is switched off with a warning and the channel carries on without it (fail-open, like every other reason the tap cannot run). | `MxlRegistry::getWriter` (`mxlregistry.cpp`), `MxlTap::create` (`mxltap.cpp`) | `15-registry`: the other writer keeps its flow (its 320-wide description is still in `flow_def.json`), the tap's other flow is written, the channel runs |
+| Abandoned flows | Once per domain, when the first tap of the process is created, the engine calls `mxlGarbageCollectFlows`, which removes flows no writer holds. | `MxlRegistry::collectGarbage`, `MxlTap::create` | `15-registry`: a flow left by a `kill -9`'d writer is gone, a flow of a live writer is not |
+| Listing | `GET /mxl/flows` returns every flow of the domain (`MXL_DOMAIN`, default `/run/mxl`) with id, label, format, size or channels, rate, the plugin's group-hint tags and `writerActive`. | `api/src/transcoder_api/routers/mxl.py`, `services/mxl.py` | `api/tests/mxl_test.py` (9 tests); read against real writers, a killed writer and a reader |
+
+`MxlRegistry` loads `libmxl.so.1` with `dlopen` when it is first needed, so the engine neither links the SDK nor needs it: without it every call answers "unknown", does nothing, and the tap runs as before (the ENABLE_MXL=0 image keeps working).
+
+### What was measured about MXL v1.1.0 (2026-11-11)
+
+- **Layout.** `<domain>/<flow id>.mxl-flow/` holds `flow_def.json` (an NMOS-style flow resource: `format`, `label`, `media_type`, `grain_rate` or `sample_rate`, `frame_width`, `frame_height`, `channel_count`, `tags`), `data`, `access`, and `grains/` (video) or `channels` (audio).
+- **A writer holds a shared `flock` on `data` and on each grain file. A reader holds none.** They show in `/proc/locks` (device and inode), so a live writer can be told from a dead one without taking any lock. The API does that, which is why it can be polled safely.
+- **MXL's own tests take an exclusive lock for an instant** (`mxlIsFlowActive`, `mxlGarbageCollectFlows`, `mxl-info -f` "Active"). A writer that is being created in that instant can fail to take its shared lock. The window is microseconds; it is why the engine does the clean-up once at start and not on a timer. Not reproduced, not measured.
+- **The GStreamer plugin runs the clean-up itself.** `mxlsink` and `mxlsrc` call `garbage_collect_flows` when they initialise (`rust/gst-mxl-rs/src/mxlsink/imp.rs`, `mxlsrc/mxl_helper.rs`): the first reader that starts on a domain removes every abandoned flow in it (seen: a `mxlsrc` on a flow whose writer was killed left the domain empty). So the engine's call adds a fixed moment (channel start) and a log line, and a timer would add nothing.
+- **A writer ended with SIGTERM (`gst-launch`) leaves its flow behind**, as a killed one does, until something runs the clean-up.
+
+### Not built, and gaps
+
+- **No check after the tap has started.** The tap asks once, when it is created. A writer that appears later on the same flow is not noticed; two writers would share the flow's memory. MXL v1.1.0 gives no way to refuse the second one. See [27](27-known-gaps-contradictions-and-remediation.md).
+- **No NMOS IS-04 registry and no discovery by name.** The group-hint tags are set by the plugin from the pipeline and element name (for example `Media Function 8 pipeline0:Video rsmxlsink0`); the engine cannot set them, so a worker is still given flow ids, not a channel name.
+- **Periodic clean-up** (60 s in the plan) was left out, for the reason above.
+- **`writerActive` needs a readable `/proc/locks`**; it is `null` when it is not (for example in a sandbox that hides it). The listing reads the domain where the API runs; in the Compose stack that is the engine's container. A separate API container would mount the domain read-only.
+- Not tested: a check racing a writer's creation; a domain that is not tmpfs; a second container writing the flow (the lock is per host kernel, so it should work, which is not shown).
 
 ## What the source answers
 

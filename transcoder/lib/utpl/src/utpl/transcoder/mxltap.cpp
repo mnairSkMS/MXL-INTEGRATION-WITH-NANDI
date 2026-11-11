@@ -8,6 +8,7 @@
 #include "utpl/common/debug.h"
 #include "utpl/common/utils.h"
 
+#include "utpl/transcoder/mxlregistry.h"
 #include "utpl/transcoder/mxltap.h"
 
 using namespace utpl;
@@ -33,6 +34,12 @@ namespace {
     // One writer per flow: a second tap on the same flow would fight the first over its memory.
     std::mutex       g_ownersGuard;
     std::set<std::string> g_owners;
+
+    // Domains whose abandoned flows have been cleaned up by this process. The clean-up runs the first time a tap
+    // is made for a domain, before this process writes anything there, so it cannot meet a writer of its own that
+    // is half made (see MxlRegistry). The GStreamer plugin does the same whenever an mxlsink or mxlsrc starts, so
+    // this adds a fixed moment (the channel's start) and a log line, not a new kind of clean-up.
+    std::set<std::string> g_cleanedDomains;
 }
 
 std::unique_ptr<transcoder::MxlTap> transcoder::MxlTap::create(const MxlTapParameters &parameters, Kind kind) {
@@ -61,6 +68,26 @@ std::unique_ptr<transcoder::MxlTap> transcoder::MxlTap::create(const MxlTapParam
 
             return nullptr;
         }
+
+        if (g_cleanedDomains.insert(parameters.getDomain()).second && MxlRegistry::isAvailable()) {
+            if (MxlRegistry::collectGarbage(parameters.getDomain())) {
+                LOG(("MXL domain {}: the clean-up of flows that no writer holds ran", parameters.getDomain()));
+
+            } else {
+                WARN(("MXL domain {}: the clean-up of abandoned flows could not run", parameters.getDomain()));
+            }
+        }
+    }
+
+    // A writer in another process holds the flow: this tap would fight it over the flow's memory. The channel goes on
+    // without the tap, as it does for every other reason the tap cannot run.
+    if (MxlRegistry::getWriter(parameters.getDomain(), flowId) == MxlRegistry::Writer::ACTIVE) {
+        WARN(("MXL tap disabled for flow {}: a writer in another process already holds it", flowId));
+
+        std::lock_guard lock(g_ownersGuard);
+        g_owners.erase(owner);
+
+        return nullptr;
     }
 
     return std::unique_ptr<MxlTap>(new MxlTap(parameters, kind, owner));

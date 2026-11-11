@@ -84,3 +84,72 @@ runs of 7 to 28 seconds. Logs: `../experiments/scte-over-mxl/results/` (`matrix-
 - **Not tested:** inside Nandi itself (the tap is not changed yet); other frame rates (29.97, 50, 59.94); interlaced; a writer restart in
   the middle of a cue; a real DID/SDID; 4-hour run; a cue grain read through `mxlsrc` instead of the C API.
 - **Files changed in the repository:** `doc/mxl/step5-plan-2026-11-11.md` (4.6 result, 4.7 writer row, risk table), this log. Not committed.
+
+### 2026-11-11 · 07 · Product · Flow registry, engine side (WP4)
+- **What:** `MxlRegistry` (new): `getWriter(domain, flowId)` and `collectGarbage(domain)` over libmxl, loaded with `dlopen` (`libmxl.so.1`), headers
+  used only when the build has them (`__has_include`), a stub otherwise. `MxlTap::create` now (a) runs the clean-up once per domain per process,
+  before this process writes anything there, and (b) refuses the tap, with a warning and fail-open, when a writer in another process holds the
+  flow. `Application::configure` refuses a configuration in which two writers (tap or programme output) use one flow, or a channel writes a flow
+  its own MXL input reads.
+- **Where:** `transcoder/lib/utpl/include/utpl/transcoder/mxlregistry.h`, `src/utpl/transcoder/mxlregistry.cpp` (new), `mxltap.cpp`,
+  `lib/utpl/CMakeLists.txt`, `transcoder/app/src/application.cpp`.
+- **Why:** plan WP4 (one writer per flow, stale-flow cleanup). Built with `dlopen` so that the engine needs no SDK and the `ENABLE_MXL=0` image is unchanged.
+- **Result:** scratch build in `utpl/devel:mxl` succeeded; C++ ctest 12 of 12 pass.
+- **Status:** not committed.
+
+### 2026-11-11 · 08 · Experiment · What MXL v1.1.0 does with locks and clean-up (read and measured)
+- **Layout:** `<domain>/<id>.mxl-flow/{flow_def.json, data, access, grains/ | channels}`.
+- **A writer holds a shared flock on `data` and on every grain file; a reader holds none.** Both show in `/proc/locks` by device and inode.
+- **`mxlIsFlowActive` and `mxlGarbageCollectFlows` take an exclusive lock for an instant** (MXL `lib/src/flow.cpp`, `Instance.cpp`): a writer being
+  created at that instant can fail to take its lock. Not reproduced.
+- **The GStreamer plugin runs the clean-up itself** when `mxlsink` or `mxlsrc` starts (`rust/gst-mxl-rs/src/mxlsink/imp.rs:512`,
+  `mxlsrc/mxl_helper.rs:430`). Seen: a `mxlsrc` started on a flow whose writer was killed left the domain empty. This is why the periodic 60 s
+  clean-up in the plan was dropped (plan WP4 status).
+- **A writer ended with SIGTERM leaves its flow behind**, like a killed one.
+- **Plan change:** no periodic clean-up; one at start, with a fixed moment and a log line.
+
+### 2026-11-11 · 09 · Product · Flow registry, API side (WP4)
+- **What:** `GET /mxl/flows`: every flow of the domain (`MXL_DOMAIN`, default `/run/mxl`) with id, label, format, size or channels, rate,
+  group hints and `writerActive`. `writerActive` is read from `/proc/locks` (device and inode of the flow's data file), never by taking a lock.
+  A missing domain answers 200 with `available: false`.
+- **Where:** `api/src/transcoder_api/services/mxl.py`, `routers/mxl.py` (new), `main.py` (router registered), `api/tests/mxl_test.py` (new, 9 tests).
+- **Result:** 9 of 9 new tests pass; the whole API suite 352 passed, 3 skipped (run in `utpl/api-builder:latest-check` with `PYTHONPATH` on the mounted
+  source). Read against real writers (video and audio, 29.97 and 25 fps): `writerActive` true; the flow of a writer killed with SIGKILL:
+  `writerActive` false.
+- **Not done:** `api/api.yaml` has no entry (it lists only the schedule, input and slate routes; `/stats`, `/config` and `/license` are not in it either).
+- **Status:** not committed.
+
+### 2026-11-11 · 10 · Product · Test `tests/tests/mxl/tap/15-registry`
+- **What:** one test: (1) two writers on one flow and a read-write flow are refused with the flow named; (2) a flow held by a live writer in another
+  process is not written by the tap (warning logged, the other writer's 320-wide description is still the flow's, the tap's audio flow is written,
+  engine and other writer alive, on-air output decodes clean); (3) a flow left by a `kill -9` is gone after the engine starts and a live one is not.
+- **Result:** passes on the scratch build (twice). **Fails on the installed engine without the registry** (three FAIL lines: the read-write
+  config is not refused, no warning, no clean-up line), so it can fail.
+- **A mistake caught on the way:** the first version read the width with a label (`Frame width`) that `mxl-info` does not print, so that check
+  was empty. Replaced with a read of `flow_def.json`.
+- **Status:** not committed.
+
+### 2026-11-11 · 11 · Docs · Handbook updated for the registry
+- **What:** `41-mxl-integration.md` (new section "Flow registry (Step 5, WP4)", status paragraph), `02-feature-catalog.md` (row, gap sentence),
+  `26-implementation-index.md` (row), `17-rest-grpc-and-sqlite-control-plane.md` (route row and section), `05-configuration-reference.md` (one-writer
+  rule), `23-testing-and-validation.md` (fifteen tap tests, API test), `27-known-gaps-contradictions-and-remediation.md` (four P3 items), the plan (WP4 status).
+- **Not edited:** `AGENTS.md` still says a flow registry is not built; flagged in page 27.
+- **Status:** not committed.
+
+### 2026-11-11 · 12 · Experiment · Regression run of the MXL suites against the new build
+- **What:** `tests/run.sh mxl` (SDK 9, tap 15, programme 6, input 12) in `utpl/transcoder-test:mxl` with the scratch build mounted.
+- **Result:** 41 of 42 pass, including `tap/15-registry`. The one failure, `tap/05-domain-unusable` (read-only domain case), is an artefact of
+  running as root: root can write into a `chmod 555` directory, so the domain was not unusable. Proved both ways: the same test **fails as root on the
+  installed engine without my changes**, and **passes as a normal user** (`--user $(id -u)`) on the new build. This is the reason page 23 says to run
+  the container with `--user`.
+- **Not run:** the 20-minute and 4-hour soaks; the installed images were not rebuilt, so the registry is runtime verified in a scratch build only.
+- **Cleanup:** root-owned `tmp/` directories and a result file the runs left under `tests/` were removed through a container.
+- **Status:** nothing committed. Uncommitted from this work: the files of entries 07 to 11 and this entry.
+
+### 2026-11-11 · 13 · Docs · Owner decisions recorded
+- **Decided by the owner (asked and answered in this session):** Q7 Nandi main keeps the SCTE-35 master timeline; Q8 fail open everywhere (no
+  `failPolicy: "closed"` in Step 5); Gate A limits as proposed (lip-sync within 1 frame, 0 drops in 1 hour, latency at most `delayMs` + 2 frames, CPU at
+  most 1.25 times the in-process channel, SCTE 20 of 20). WP4 committed without editing `AGENTS.md` (the owner chose to leave it).
+- **Where:** `doc/mxl/step5-plan-2026-11-11.md` (status line, WP table row 0, WP5 header).
+- **Effect:** WP2 (SCTE carrier in Nandi), WP3 (the worker) and WP5 (failure behaviour) are no longer blocked.
+
