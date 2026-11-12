@@ -27,7 +27,7 @@ namespace utpl {
         //    stops writing for good when it is given one.
         //
         // The splice time is not stored as a grain index, which the writer does not know (the clock offset belongs to
-        // the sink's pipeline). Each copy of a cue carries a *countdown*: the number of frames from this grain to the
+        // the sink's pipeline). Each copy of a cue carries a *countdown*: the time in milliseconds from this grain to the
         // splice. The reader adds it to the time of the grain it read.
         //
         // The ANC packet identifier below is a PLACEHOLDER, not a value registered with SMPTE. Nothing outside
@@ -41,7 +41,7 @@ namespace utpl {
             constexpr size_t   HEADER_BYTES      = 11;     // 'N' 'S' version total index countdown(4) sectionLength(2)
             constexpr size_t   MAX_UDW           = 255;    // user data words of one ANC packet
             constexpr size_t   FRAGMENT_BYTES    = MAX_UDW - HEADER_BYTES;
-            constexpr uint8_t  VERSION           = 1;
+            constexpr uint8_t  VERSION           = 2;      // 1 counted the countdown in whole frames, which put a cue up to half a frame (and sometimes a frame) off
             constexpr uint64_t NONE              = UINT64_MAX;   // "no time" (an immediate splice)
 
             // Bytes a section of this size takes in a grain, as the data sink writes it (RFC 8331: 32-bit words).
@@ -55,7 +55,7 @@ namespace utpl {
 
             struct Cue {
                 std::vector<uint8_t> section;     // the splice_info_section, table_id 0xFC, as it goes on the wire
-                int32_t              countdown;   // frames from this grain to the splice; 0 at or after the splice frame
+                int32_t              countdown;   // milliseconds from this grain to the splice; 0 at or after the splice frame
             };
 
             // The ST 2038 stream (the buffer the data sink is given) holding these cues. Empty when there are none.

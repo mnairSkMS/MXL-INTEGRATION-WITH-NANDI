@@ -1,5 +1,8 @@
+#include <dlfcn.h>
+
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <set>
 
 #include <gst/app/gstappsink.h>
@@ -27,10 +30,32 @@ using namespace utpl;
 // Frames the side pipeline holds while the writer waits for their time: about a second at 25 to 30 fps,
 // and it is only filled when the input runs that far ahead of the clock. The memory is capped as well,
 // but never below three frames, so a large picture holds fewer than the count.
+// How long the sound of a programme waits for its pictures to work out the grid they are put on, before it goes on without.
+#define MXL_TAP_ALIGN_WAIT_SECONDS 2
+
+// Where a picture is put against its grain boundary: just after, so that it takes that boundary's grain whichever way MXL rounds.
+#define MXL_TAP_GRID_MARGIN_NS 1000000ULL
+
 #define MXL_TAP_VIDEO_QUEUE     30
 #define MXL_TAP_VIDEO_MAX_BYTES (128ULL * 1024 * 1024)
 
 namespace {
+    // MXL's own clock, which is what the flows' times are in and what mxlsink sets against the channel's clock. It is read through
+    // libmxl (loaded as the registry loads it) so that the answer is the one mxlsink's is, whatever the platform's TAI settings.
+    uint64_t mxlNow() {
+        static uint64_t (*getTime)() = [] {
+            void *handle = dlopen("libmxl.so.1", RTLD_NOW | RTLD_GLOBAL);
+
+            if (! handle) {
+                handle = dlopen("libmxl.so", RTLD_NOW | RTLD_GLOBAL);
+            }
+
+            return handle ? reinterpret_cast<uint64_t (*)()>(dlsym(handle, "mxlGetTime")) : nullptr;
+        }();
+
+        return getTime ? getTime() : 0;
+    }
+
     // One writer per flow: a second tap on the same flow would fight the first over its memory.
     std::mutex       g_ownersGuard;
     std::set<std::string> g_owners;
@@ -40,6 +65,18 @@ namespace {
     // is half made (see MxlRegistry). The GStreamer plugin does the same whenever an mxlsink or mxlsrc starts, so
     // this adds a fixed moment (the channel's start) and a log line, not a new kind of clean-up.
     std::set<std::string> g_cleanedDomains;
+}
+
+// The move that puts a programme's pictures on the grain grid of its video flow, shared by the taps of that programme.
+struct transcoder::MxlTap::Alignment {
+    std::mutex guard;
+    bool       known = false;
+    int64_t    delta = 0;      // nanoseconds
+};
+
+namespace {
+    std::mutex                                                         g_alignmentsGuard;
+    std::map<std::string, std::weak_ptr<transcoder::MxlTap::Alignment>> g_alignments;
 }
 
 std::unique_ptr<transcoder::MxlTap> transcoder::MxlTap::create(const MxlTapParameters &parameters, Kind kind) {
@@ -125,6 +162,19 @@ transcoder::MxlTap::MxlTap(const MxlTapParameters &parameters, Kind kind, const 
     this->_flowId     = (kind == Kind::VIDEO) ? parameters.getVideoFlowId() : parameters.getAudioFlowId();
     this->_dataFlowId = dataOwner.empty() ? std::string() : parameters.getDataFlowId();
     this->_retryAt    = std::chrono::steady_clock::now();
+
+    if (! parameters.getVideoFlowId().empty()) {
+        const std::string key = parameters.getDomain() + "|" + parameters.getVideoFlowId();
+
+        std::lock_guard lock(g_alignmentsGuard);
+
+        this->_alignment = g_alignments[key].lock();
+
+        if (! this->_alignment) {
+            this->_alignment = std::make_shared<Alignment>();
+            g_alignments[key] = this->_alignment;
+        }
+    }
     this->_lastSample = this->_retryAt;
     this->_statsAt    = this->_retryAt;
 
@@ -525,6 +575,8 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
 
                     if (shape != self->_shape) {
                         self->_grid.setRate(num, den);
+                        self->_rateNum = num;
+                        self->_rateDen = den;
 
                         if (! self->_dataFlowId.empty() && num > 0 && den > 0) {
                             std::lock_guard cueLock(self->_cueGuard);
@@ -563,6 +615,72 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
                         self->_ageMost  = std::max(self->_ageMost,  age);
                     }
 
+                    // Where the pictures fall on the flow's grain grid is worked out when a grid starts, from the first picture's time
+                    // against MXL's own clock; the sound of the same programme moves with it.
+                    if (self->_firstBufferAt == std::chrono::steady_clock::time_point()) {
+                        self->_firstBufferAt = now;
+                    }
+
+                    auto alignGrid = [&]() {
+                        if (! (self->_alignment && self->_kind == Kind::VIDEO && ! self->_grid.isStarted() && self->_rateNum > 0)) {
+                            return;
+                        }
+
+                        if (GstClock *clock = gst_element_get_clock(self->_feed)) {
+                            const uint64_t tai      = mxlNow();
+                            const uint64_t clockNow = gst_clock_get_time(clock);
+                            const uint64_t base     = gst_element_get_base_time(self->_feed);
+
+                            gst_object_unref(clock);
+
+                            if (tai > clockNow) {
+                                // D, as mxlsink has it: MXL's time minus the clock's. A frame's MXL time is its running time + base time + D.
+                                const int64_t delta = MxlFrameGrid::alignmentDelay(running + base + (tai - clockNow), self->_rateNum, self->_rateDen, MXL_TAP_GRID_MARGIN_NS);
+
+                                std::lock_guard alignLock(self->_alignment->guard);
+
+                                self->_alignment->delta = delta;
+                                self->_alignment->known = true;
+
+                                // Put a margin past its boundary, a picture may be stamped to the nanosecond, with no error that grows
+                                self->_grid.setExact(true);
+
+                                LOG(("MXL tap {} (video): the programme is moved by {} ms to put the pictures on the grain grid of the flow", self->_flowId, delta / 1e6));
+                            }
+                        }
+                    };
+
+                    // The move now in force. Zero without an alignment; the sound waits a moment for it (the pictures work it out).
+                    auto currentMove = [&](bool &wait) {
+                        wait = false;
+
+                        if (! self->_alignment) {
+                            return (int64_t) 0;
+                        }
+
+                        std::lock_guard alignLock(self->_alignment->guard);
+
+                        if (self->_alignment->known) {
+                            return self->_alignment->delta;
+                        }
+
+                        wait = self->_kind == Kind::AUDIO && std::chrono::steady_clock::now() - self->_firstBufferAt < std::chrono::seconds(MXL_TAP_ALIGN_WAIT_SECONDS);
+
+                        return (int64_t) 0;
+                    };
+
+                    alignGrid();
+
+                    bool    waitForGrid = false;
+                    int64_t move        = currentMove(waitForGrid);
+
+                    if (waitForGrid) {
+                        // so that the sound does not start on a time it will have to leave
+                        gst_sample_unref(sample);
+
+                        return GST_FLOW_OK;
+                    }
+
                     uint64_t stamped = running;
                     auto     placed  = (self->_kind == Kind::VIDEO) ? self->_grid.place(running, &stamped) : MxlFrameGrid::Result::WRITE;
 
@@ -575,6 +693,8 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
 
                         if (self->_start(sample) == 1) {
                             self->_shape = shape;
+                            alignGrid();
+                            move         = currentMove(waitForGrid);
                             placed       = self->_grid.place(running, &stamped);
 
                         } else {
@@ -588,7 +708,10 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
                         // the time is changed, to the channel's running time on the frame grid.
                         GstBuffer *out = gst_buffer_make_writable(gst_buffer_ref(buffer));
 
-                        GST_BUFFER_PTS(out) = stamped;
+                        // `stamped` stays the picture's own place (the cues count their frames from it); what is written moves.
+                        const uint64_t written = (move < 0 && (uint64_t) -move > stamped) ? 0 : (uint64_t) ((int64_t) stamped + move);
+
+                        GST_BUFFER_PTS(out) = written;
                         GST_BUFFER_DTS(out) = GST_CLOCK_TIME_NONE;
 
                         if (gst_app_src_push_buffer(GST_APP_SRC(self->_source), out) == GST_FLOW_OK) {
@@ -615,7 +738,7 @@ GstFlowReturn transcoder::MxlTap::onFeed(GstElement *sink, gpointer data) {
                                     gst_buffer_fill(grain, 0, anc.data(), anc.size());
                                 }
 
-                                GST_BUFFER_PTS(grain)      = stamped;
+                                GST_BUFFER_PTS(grain)      = written;
                                 GST_BUFFER_DTS(grain)      = GST_CLOCK_TIME_NONE;
                                 GST_BUFFER_DURATION(grain) = self->_framePeriod;
 

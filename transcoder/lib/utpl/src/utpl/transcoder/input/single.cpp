@@ -2078,7 +2078,7 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
 
                     // The splice, on the channel's time: the grain's, and the frames the writer counted to it. A section with no splice
                     // time (splice_null, an immediate splice) is passed with the acquisition time, as the transport stream path does.
-                    const GstClockTime splice = plays + (GstClockTime) std::max<int32_t>(cue.countdown, 0) * period;
+                    const GstClockTime splice = plays + (GstClockTime) std::max<int32_t>(cue.countdown, 0) * GST_MSECOND;
 
                     ScteDataCallback callback;
 
@@ -2111,8 +2111,8 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
                     scte.setRunningTime(now);
                     scte.setTimingMap(scheduler::buildRunningTimeMap(section, splice));
 
-                    LOG(("MXL data flow: SCTE-35 cue of {} bytes, splice in {} frames ({} ms after it is played), {}",
-                        cue.section.size(), cue.countdown, (int64_t) ((int64_t) splice - (int64_t) plays) / (int64_t) GST_MSECOND, toBase64(scte)));
+                    LOG(("MXL data flow: SCTE-35 cue of {} bytes, splice {} ms after the grain it came in, {}",
+                        cue.section.size(), cue.countdown, toBase64(scte)));
 
                     callback(scte);
 

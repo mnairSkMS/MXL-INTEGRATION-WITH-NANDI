@@ -193,13 +193,24 @@ struct transcoder::Engine::Pimpl {
         });
 
         {
+            // A live input (UDP, RTMP, HTTP) is held back by a three-second buffer that is only emptied as fast as a
+            // clock-paced output takes pictures. A channel whose outputs are all MXL programme outputs has no such output,
+            // and the buffer then fills and empties in turn, releasing three seconds of pictures at once about every three
+            // seconds, of which the flows keep less than half (measured: 135 of 300 pictures in 12 s). Such a channel (the
+            // main engine of a split channel, Step 5) takes the input without that buffer, as SRT and DASH inputs are taken.
+            bool paced = false;
+
+            for (const auto &outputParams : parameters.getOutputParameters()) {
+                paced = paced || outputParams.getType() != OutputType::MXL;
+            }
+
             for (const auto &inputParams : parameters.getAllInputParameters()) {
                 if (inputParams.getUris().size() == 1) {
                     if (inputParams.getUris()[0].find("pls+") != std::string::npos) {
                         this->_inputs.push_back({ std::make_shared<PlaylistInput>(), inputParams });
 
                     } else {
-                        this->_inputs.push_back({ std::make_shared<SingleInput>(true), inputParams });
+                        this->_inputs.push_back({ std::make_shared<SingleInput>(paced), inputParams });
                     }
 
                 } else {

@@ -389,11 +389,14 @@ std::vector<Cue> CueQueue::forFrame(uint64_t frameRunningTime) {
                 continue;
             }
 
+            // The time to the splice in milliseconds, exact to half a millisecond (whole frames would put the splice up to half a frame off, and
+            // a frame when two frame times tie). Never negative: a splice already passed is delivered at the grain.
+            const int64_t toSplice = it->splice == NONE ? 0 : std::max<int64_t>((int64_t) (it->splice - frameRunningTime), 0);
+
+            countdown = (int32_t) std::min<int64_t>((toSplice + 500000) / 1000000, INT32_MAX);
+
             if (it->splice == NONE || (int64_t) (it->splice - frameRunningTime) <= (int64_t) (this->_period / 2)) {
                 it->framesLeft = IMMEDIATE_FRAMES;
-
-            } else {
-                countdown = (int32_t) (((it->splice - frameRunningTime) + this->_period / 2) / this->_period);
             }
         }
 

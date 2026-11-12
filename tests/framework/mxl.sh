@@ -195,6 +195,8 @@ function mxl_require_engine() {
 #   MXL_OUT_AUDIO        output audio channels (default 2)
 #   MXL_OUT_PORT         the udp port the on-air output goes to (default MXL_PORT_OUT)
 #   MXL_EXTRA_OUTPUT     one more output object, for example the result of mxl_programme_json
+#   MXL_OUT_KEYINT       the video encoder's key-int-max (default 50)
+#   MXL_OUT_X264OPTS     x264's option-string, for example scenecut=0 (default: none)
 #   MXL_OUT_SCTE         the value of the output's "scte" block, for example '{ "pid": 500, "mode": "passthrough" }' (default: none)
 function mxl_write_config() {
     local file="$1" tap="$2" extra="" transport size="${MXL_OUT_SIZE:-1280x720}"
@@ -211,7 +213,7 @@ function mxl_write_config() {
           "aac": { "encoder": "fdkaacenc", "properties": { "bitrate": "128000" }, "caps": {} } },
         { "type": "video", "codec": "h264", "video": { "width": ${size%x*}, "height": ${size#*x} },
           "h264": { "encoder": "x264enc",
-                    "properties": { "key-int-max": "50", "tune": "zerolatency", "speed-preset": "veryfast", "bitrate": "3000" },
+                    "properties": { "key-int-max": "${MXL_OUT_KEYINT:-50}", "tune": "zerolatency", "speed-preset": "veryfast", "bitrate": "3000"${MXL_OUT_X264OPTS:+, \"option-string\": \"${MXL_OUT_X264OPTS}\"} },
                     "caps": { "profile": "high" } } } ] }${MXL_EXTRA_OUTPUT:+, ${MXL_EXTRA_OUTPUT}} ] } }
 JSON
 }

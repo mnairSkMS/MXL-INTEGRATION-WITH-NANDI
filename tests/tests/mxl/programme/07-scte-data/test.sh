@@ -7,7 +7,7 @@
 #   - every grain decodes (parity, checksums, fragments), every section has a valid CRC-32;
 #   - there is a grain for every frame time in the window (no holes), empty ones included;
 #   - every section the engine read after the reader started is in the flow, byte for byte, and nothing else is;
-#   - for every cue, splice time (grain time + countdown * 40 ms) is the same in every copy, and the countdown falls by one per grain;
+#   - for every cue, splice time (grain time + countdown, in milliseconds) is the same in every copy to a millisecond, and the countdown falls by a frame period per grain;
 #   - a cue is repeated in more than one grain (so that a late reader meets it);
 #   - the picture and sound flows and the on-air output are unaffected.
 

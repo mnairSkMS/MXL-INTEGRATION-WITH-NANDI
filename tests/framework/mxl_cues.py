@@ -13,9 +13,9 @@ The flow is read with GStreamer, which gives ST 2038 buffers, one per grain:
                                     "HH:MM:SS.mmm <base64 section>" per line, the times from the engine's log; the reader times
                                     are HH:MM:SS.mmm too.
 
-A cue is {"countdown": frames to the splice, "hex": the section, "crc": true when the section's CRC-32 is right}.
+A cue is {"countdown": milliseconds to the splice, "hex": the section, "crc": true when the section's CRC-32 is right}.
 The format (see transcoder/lib/utpl/include/utpl/transcoder/mxlcarrier.h): ANC packets of DID 0x58 / SDID 0x01 (placeholders,
-not registered), user data 'N' 'S' 1, total, index, countdown (int32), section length (u16), then a piece of the section.
+not registered), user data 'N' 'S' 2, total, index, countdown (int32, milliseconds), section length (u16), then a piece of the section.
 """
 import json
 import re
@@ -83,7 +83,7 @@ def decode(buf):
         r.align()
         if (did & 0xFF, sdid & 0xFF) != (DID, SDID):
             continue
-        if len(udw) < 11 or bytes(udw[:3]) != b"NS\x01":
+        if len(udw) < 11 or bytes(udw[:3]) != b"NS\x02":
             return cues, "unknown cue header"
         t, i = udw[3], udw[4]
         c = int.from_bytes(bytes(udw[5:9]), "big", signed=True)
@@ -184,16 +184,16 @@ def check(grains_file, acquired_file, start, stop, period):
             # While it counts down, every copy gives the same splice time. After the splice frame the cue stays a few
             # frames at countdown 0, so those copies are not compared; the first of them must be on the splice frame.
             counting = [(p, c) for p, c in run if c > 0]
-            splice = {p + c * period for p, c in counting}
-            if len(splice) > 1:
-                fail("a cue has %d different splice times across its copies" % len(splice))
+            splice = [p + c * 1000000 for p, c in counting]
+            if splice and max(splice) - min(splice) > 1000000:
+                fail("a cue has splice times %.2f ms apart across its copies (limit 1 ms)" % ((max(splice) - min(splice)) / 1e6))
             elif splice:
                 first_zero = [p for p, c in run if c == 0]
-                if first_zero and first_zero[0] != next(iter(splice)):
-                    fail("a cue's first countdown-0 copy is %.0f ms from its splice time" % ((first_zero[0] - next(iter(splice))) / 1e6))
+                if first_zero and not (min(splice) - 1000000 <= first_zero[0] <= max(splice) + period + 1000000):
+                    fail("a cue's first countdown-0 copy is %.0f ms from its splice time" % ((first_zero[0] - min(splice)) / 1e6))
             for (p1, c1), (p2, c2) in zip(run, run[1:]):
-                if p2 - p1 == period and c2 != max(c1 - 1, 0):
-                    fail("a cue's countdown went from %d to %d in consecutive grains" % (c1, c2))
+                if p2 - p1 == period and c2 != 0 and abs((c1 - c2) - period // 1000000) > 1:
+                    fail("a cue's countdown went from %d to %d ms in consecutive grains (%d ms apart)" % (c1, c2, period // 1000000))
                     break
             repeats.append(len(run))
     if repeats:

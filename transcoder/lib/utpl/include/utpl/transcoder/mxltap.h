@@ -31,6 +31,9 @@ namespace utpl {
                     AUDIO
                 };
 
+                // Shared by the video and audio taps of one programme: see _alignment.
+                struct Alignment;
+
                 // Nullptr when there is nothing to do: no flow configured for this kind, the MXL
                 // plugin is not installed, or another tap already writes this flow.
                 static std::unique_ptr<MxlTap> create(const MxlTapParameters &parameters, Kind kind);
@@ -86,6 +89,14 @@ namespace utpl {
                 std::string      _shape;              // size and rate it was started for (video)
 
                 MxlFrameGrid     _grid;               // video only: the place of each frame in the flow
+                int              _rateNum = 0;        // video only: the frame rate of the picture being written
+                int              _rateDen = 1;
+
+                // How far the programme's pictures and sound are moved to put the pictures exactly on the grain grid of the flow
+                // (see MxlFrameGrid::alignmentDelay). The video tap works it out when its grid starts; the audio tap of the same
+                // programme (the same video flow id) takes it from there, so that both move together.
+                std::shared_ptr<Alignment> _alignment;
+                std::chrono::steady_clock::time_point _firstBufferAt;   // of the first buffer to reach the tap; the epoch until then
 
                 std::mutex                _cueGuard;      // putCue comes from the channel's thread, the grain from the feed's
                 mxl_carrier::CueQueue     _cues;

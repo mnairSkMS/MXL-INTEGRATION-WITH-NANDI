@@ -236,3 +236,45 @@ runs of 7 to 28 seconds. Logs: `../experiments/scte-over-mxl/results/` (`matrix-
   authored, 20 of 20". Reason: entry 18 showed the in-process output is the less accurate of the two (22 to 208 ms off, drifting). Tests S1 and S7 in the plan
   follow the new wording. The owner approved the change on 2026-11-12.
 - **Status:** committed with WP2.
+
+### 2026-11-12 · 21 · Product · Engine: an all-MXL channel takes a live input without the three-second buffer
+- **What:** `engine.cpp`: `SingleInput(paced)`, `paced` true when the channel has any output that is not of type `mxl`. A channel with only MXL outputs (the main engine of a split channel) gets the input as an SRT, DASH or MXL input does.
+- **Why:** the first 1080p split test lost most pictures. A reader of main's video flow saw 135 of 300 pictures in 12 s, in lumps of three seconds. Traced with a temporary log line in the tap (removed): frames reached the tap 2.5 s old, 62 at once, then nothing for 2.5 s. Cause in `single.cpp`: a live input has a multiqueue with a three-second level and underrun/overrun handlers that block and release the data; a clock-paced output keeps it full, and an MXL-only channel has none. Proved: with an SRT input (no buffer) the same channel gave 300 of 300; with a UDP source and an on-air output beside the tap, 278 of 300.
+- **Result (scratch build):** 299 of 300 (720p) and 298 of 300 (1080p) pictures in 12 s, flash and beep once a second.
+- **Tried and dropped:** a clock-wait (`identity sync=true`) in front of the tap's leaky queue: better (171 of 300) but the lumps stayed.
+- **Not changed:** playlist and multi-URI inputs (they would still write lumps); the full regression of the MXL suite was started on this build (entry 24).
+- **Status:** not committed.
+
+### 2026-11-12 · 22 · Product · Worker configs and Compose service
+- **What:** `config/mxl_split_main.json` (RTMP from the relay to an MXL output with video, audio, data), `config/mxl_split_worker.json` (the MXL input with the same three flows, SRT listener 9093 and HLS, 1080p25 x264 and fdkaac, SCTE-35 passthrough PID 543); `docker-compose.yml`: service `transcoder-worker`, profile `mxl-worker`, domain and `config/` mounted read-only, `restart: unless-stopped`, engine only.
+- **Checked:** both files start in the test image (the only errors were the missing RTMP source and the missing domain directory of a bare container); `docker compose --profile mxl-worker config` resolves.
+- **Not checked:** the pair brought up from the images (not rebuilt), the engine with the domain mounted read-only.
+- **Status:** not committed.
+
+### 2026-11-12 · 23 · Tests · `worker/01-split`, `02-splice-keyframe`, `03-cost`
+- **What:** `tests/tests/mxl/worker/` and `tests/framework/mxl_worker.sh` (run P in process, then main plus worker, same source and encoder), `scte_idr.py`; `mxl.sh` got `MXL_OUT_KEYINT` and `MXL_OUT_X264OPTS`. The domain is in `/dev/shm` (a domain on the disk did not keep up at 1080p).
+- **Result (1080p25):** streams, frame rate (25.000 both), largest gap (40 ms both), decode and events (8 and 8) match. **Lip-sync -23 against -80 ms (57 ms; 55 to 61 in four runs, two sources; 17 ms at 720p): over the 40 ms limit.** **CPU 0.84 against 1.13 cores (1.35 times; 1.38 at 720p): over 1.25.** **Keyframe at a splice: 0 of 9 in process and 0 of 9 in the worker.**
+- **Mistakes on the way:** the first checker counted scene-cut keyframes at the flashes as keyframes at the splices (the flash source makes x264 cut a scene every second), so the keyframe test moved to a moving picture with scene cut off; the first version ran P and the split one after the other on one pass of a source file that plays once (the second run saw no events), so the source is started again for each run; the `ffmpeg` decode check counted the pre-keyframe complaints of a capture that starts mid-GOP and the truncated last AAC frame; `mxl_start_source sync` at 1080p could not be told from a bursty engine until the source's own delivery was read from the UDP packets (smooth).
+- **Status:** not committed. `01` and `03` fail on the Gate A limits, on purpose, until the limits are decided.
+
+### 2026-11-12 · 24 · Product · Lip-sync of a split channel: video put on MXL's grain grid, audio wait, exact stamping
+- **Why:** `worker/01-split` put the worker's output 55 to 70 ms from the in-process output (limit 40 ms) and the difference changed from run to run.
+- **Found by taking the hop apart** (main flows, a worker that only re-publishes, the worker's encoded output; flash-minus-beep over repeated runs, one run at a time):
+  - Raw flows of the main engine, six runs: `2 1 54 -11 4 18` ms. `mxlsink` puts a frame in grain `timestamp_to_index(pts + base time + D)` (read from the plugin's source at v1.1.0: `render_discrete.rs`, `clock.rs`) and the sound to the sample, so the video was snapped to a 40 ms grid by an amount that depended on when the source started.
+  - The audio tap waited for the video's alignment for 2 s counted from the tap's creation, which for a worker is long before its first picture, so the worker's sound was written unmoved.
+- **Changed:** `MxlFrameGrid::alignmentDelay` (the move, from a time in MXL's clock, a rate and a margin; exact 128-bit arithmetic), `MxlFrameGrid::timeOfFrame` (exact stamps at fractional rates, opt-in with `setExact`, so the old tests keep their meaning), `isStarted`; in `MxlTap` an `Alignment` shared by the video and audio taps of one programme (keyed by domain and video flow id): the video tap works the move out when its grid starts (`mxlGetTime` through dlopen, as `MxlRegistry` loads libmxl) and the pictures, the sound and the data grains are written moved by it (the cues still count from the pictures' own places); the audio tap waits up to 2 s from its first buffer. 7 new unit tests (`MxlFrameGridAlignment`), 17 of 17 pass.
+- **Result:** raw flows of the main engine, six runs, `2 3 3 4 4 4` (from `2 1 54 -11 4 18`). Worker minus in process on a live source, one run at a time: -34, -22, -20, +23, -16, -25 ms (limit 40 ms). The worker's own offset still moves by up to 60 ms (-18 to -76 ms) with the cause not found; a one-frame outlier shows in the main engine's flows too (44 ms in 1 of 4).
+- **Also found:** with the tsp file source over UDP a channel with only MXL outputs writes video 24 ms ahead of the sound (4 of 4), and 0 ms when it also has an on-air output. A live ffmpeg source (UDP or SRT) gives +3 ms. So `worker/01-split` now uses a live source (`sync`), and the SCTE events across a split are checked in `worker/02`. Cause not found.
+- **Mistakes on the way:** six runs side by side on the 28-core host starve the encoders and give 435 ms or no pairs, so the measurements are one run at a time; the scratch build directory was emptied again by a session restart (rebuilt in full, about 25 minutes); an experiment script with a bare `wait` hung because it also waited for the engines.
+- **Status:** not committed.
+
+### 2026-11-12 · 25 · Product · SCTE-35 carrier version 2: the countdown in milliseconds
+- **Why:** with whole frames the splice of a cue could be up to half a frame off and, on a tie, a frame (`input/14`: -37 to +43 ms).
+- **Changed:** `mxl_carrier::VERSION` 2, `Cue::countdown` in milliseconds (never negative, clamped at 24 days), the reader adds it to the grain's time; the independent decoder `tests/framework/mxl_cues.py` and its checks (splice time equal across copies to a millisecond; the countdown falls by a frame period per grain). 21 unit tests adapted, pass. `programme/07` and `input/13` pass.
+- **Result:** `input/14`, 4 runs: -32 to +46 ms of the source's placement, spans of 28 to 44 ms inside a run, **one run in four had an event 0.8 ms over the 45 ms limit**. The scatter is the engine's own (the demuxer's mapping of a section's splice time; in process it is hundreds of ms), not the carrier's. Recorded in page 27.
+- **Status:** not committed.
+
+### 2026-11-12 · 26 · Product · Regression and where the worker stands
+- **Regression of the whole MXL suite** (48 tests, scratch build with the grid alignment and the audio wait, before the millisecond countdown): 46 passed, 2 failed: `input/14` (one event 73.5 ms from the source's placement in that run) and `worker/03-cost` (1.39 times). After the millisecond countdown: `programme/07`, `input/13`, `worker/01`, `worker/02` re-run and pass; `input/14` passes in 3 runs of 4. The engine change (entry 21) alone had given 47 of 48.
+- **Gate A for the worker (1080p25):** streams, frame rate, gaps and events met; lip-sync met with little room; **CPU not met (1.35 to 1.39 times)**; keyframes at splices not met by the in-process channel either.
+- **Status:** not committed.

@@ -146,7 +146,7 @@ TEST(MxlCarrierQueue, ACueCountsDownToItsSpliceFrameAndThenRepeatsAFewFrames) {
         const auto cues = queue.forFrame(frameTime(n, 25, 1));
 
         ASSERT_EQ(cues.size(), 1u) << n;
-        EXPECT_EQ(cues[0].countdown, 10 - n) << n;
+        EXPECT_EQ(cues[0].countdown, (10 - n) * 40) << n;   // milliseconds
         EXPECT_EQ(cues[0].section, section(100, 1));
     }
 
@@ -189,24 +189,28 @@ TEST(MxlCarrierQueue, AnImmediateCueAndACueInThePastAreWrittenForAFewFramesAtCou
     EXPECT_TRUE(queue.forFrame(frameTime(100 + CueQueue::IMMEDIATE_FRAMES, 25, 1)).empty());
 }
 
-TEST(MxlCarrierQueue, CountdownIsInFramesAtEveryRateAndSurvivesJitter) {
+TEST(MxlCarrierQueue, CountdownIsTheTimeToTheSpliceAtEveryRateToAMillisecond) {
     const int rates[][2] = { { 25, 1 }, { 30000, 1001 }, { 50, 1 }, { 60000, 1001 } };
 
     for (const auto &rate : rates) {
         CueQueue queue;
         queue.setRate(rate[0], rate[1]);
 
-        const int spliceFrame = 40;
+        const int      spliceFrame = 40;
+        const uint64_t splice      = frameTime(spliceFrame, rate[0], rate[1]) + 7 * MS;   // not on a frame: whole frames could not say it
 
-        ASSERT_EQ(queue.add(section(80, 5).data(), 80, frameTime(spliceFrame, rate[0], rate[1])), CueQueue::Add::ACCEPTED);
+        ASSERT_EQ(queue.add(section(80, 5).data(), 80, splice), CueQueue::Add::ACCEPTED);
 
         for (int n = 0; n < spliceFrame; n++) {
             // Frames arrive up to 4 ms early or late.
-            const int64_t jitter = ((n * 7) % 9 - 4) * (int64_t) MS;
-            const auto    cues   = queue.forFrame((uint64_t) ((int64_t) frameTime(n, rate[0], rate[1]) + jitter));
+            const int64_t  jitter = ((n * 7) % 9 - 4) * (int64_t) MS;
+            const uint64_t t      = (uint64_t) ((int64_t) frameTime(n, rate[0], rate[1]) + jitter);
+            const auto     cues   = queue.forFrame(t);
 
             ASSERT_EQ(cues.size(), 1u) << rate[0] << "/" << rate[1] << " frame " << n;
-            EXPECT_EQ(cues[0].countdown, spliceFrame - n) << rate[0] << "/" << rate[1] << " frame " << n;
+
+            // the time from this frame's time to the splice, to half a millisecond
+            EXPECT_NEAR((double) cues[0].countdown, (double) (splice - t) / 1e6, 0.5001) << rate[0] << "/" << rate[1] << " frame " << n;
         }
     }
 }
@@ -352,7 +356,7 @@ TEST(MxlCarrierEndToEnd, WhatTheQueueGivesTheCodecTakesBackAndTheReaderDelivers)
         for (const auto &c : read) {
             if (dedupe.isNew(t, c.section)) {
                 delivered++;
-                spliceFrameSeen = n + c.countdown;
+                spliceFrameSeen = n + (int) ((c.countdown + 20) / 40);   // the splice, in frames of 40 ms from the grain
 
                 EXPECT_EQ(c.section, cue);
             }
