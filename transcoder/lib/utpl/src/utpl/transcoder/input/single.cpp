@@ -20,6 +20,7 @@
 #include "utpl/logger.h"
 
 #include "utpl/transcoder/input/single.h"
+#include "utpl/transcoder/mxlcarrier.h"
 
 #include "../event/scheduler/scte.h"
 #include "dash/emsg.h"
@@ -1907,6 +1908,243 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
         this->_mxlWatch->timeline->flows.push_back(flow);
     };
 
+    // The SCTE-35 data flow: its own reader and a probe that turns each grain into cues; it joins the watch (so a reader whose
+    // writer has gone is attached again) but not the learning of the shift, which it only follows. Its buffers end in a fakesink.
+    auto addDataFlow = [&](const std::string &flowId) {
+        auto src = srcBin->add(pipeline::Element::make("mxl-data-src", "mxlsrc"));
+
+        src->setProperty<const gchar *>("domain",       domain.c_str());
+        src->setProperty<const gchar *>("data-flow-id", flowId.c_str());
+
+        // As for the other flows: the queue ends the reader's thread at once (see addFlow).
+        auto queue = srcBin->add(pipeline::Element::make("queue"));
+
+        queue->setProperty<gboolean>("silent",           true);
+        queue->setProperty<guint>   ("max-size-bytes",   0);
+        queue->setProperty<guint>   ("max-size-buffers", 50);
+        queue->setProperty<guint64> ("max-size-time",    0);
+
+        gst_util_set_object_arg(G_OBJECT((*queue)->get()), "leaky", "downstream");
+
+        auto sink = srcBin->add(pipeline::Element::make("mxl-data-sink", "fakesink"));
+
+        sink->setProperty<gboolean>("sync",  false);
+        sink->setProperty<gboolean>("async", false);
+
+        src->link(queue);
+        queue->link(sink);
+
+        auto flow = std::make_shared<MxlWatch::Flow>();
+
+        flow->kind     = "data";
+        flow->src      = src;
+        flow->target   = GST_PAD((*queue->getPad("src"))->get());
+        flow->timeline = this->_mxlWatch->timeline;
+        flow->lastData = g_get_monotonic_time();
+
+        gst_object_ref(flow->target);
+        gst_segment_init(&flow->segment, GST_FORMAT_UNDEFINED);
+
+        struct CueReader {
+            std::shared_ptr<MxlWatch::Flow> flow;
+            std::shared_ptr<MxlWatch>       watch;
+
+            std::mutex            guard;
+            mxl_carrier::Deduper  dedupe;
+            GstClockTime          period  = 0;                    // one frame
+            GstClockTime          lastPts = GST_CLOCK_TIME_NONE;
+            guint64               cues    = 0;
+            guint64               repeats = 0;
+            guint64               broken  = 0;
+            gint64                warnedAt = 0;
+        };
+
+        auto reader   = std::make_shared<CueReader>();
+        reader->flow  = flow;
+        reader->watch = this->_mxlWatch;
+
+        gst_pad_add_probe(
+            (*src->getPad("src"))->get(),
+            (GstPadProbeType) (GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+            +[](GstPad *srcPad, GstPadProbeInfo *info, gpointer data) -> GstPadProbeReturn {
+                auto &reader = **static_cast<std::shared_ptr<CueReader> *>(data);
+                auto &flow   = *reader.flow;
+
+                if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
+                    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+
+                    if (GST_EVENT_TYPE(event) == GST_EVENT_SEGMENT) {
+                        gst_event_copy_segment(event, &flow.segment);
+
+                        flow.haveSegment = flow.segment.format == GST_FORMAT_TIME;
+
+                    } else if (GST_EVENT_TYPE(event) == GST_EVENT_CAPS) {
+                        GstCaps *caps = nullptr;
+
+                        gst_event_parse_caps(event, &caps);
+
+                        int num = 0, den = 1;
+
+                        if (caps && gst_caps_get_size(caps) > 0 && gst_structure_get_fraction(gst_caps_get_structure(caps, 0), "framerate", &num, &den) && num > 0 && den > 0) {
+                            std::lock_guard lock(reader.guard);
+
+                            reader.period = gst_util_uint64_scale(GST_SECOND, den, num);
+                        }
+                    }
+
+                    return GST_PAD_PROBE_OK;
+                }
+
+                flow.lastData = g_get_monotonic_time();
+
+                GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+                auto      &timeline = *flow.timeline;
+
+                // Cues are taken only once the picture and sound have settled the shift: before that the grain's time on the
+                // channel's is not known, and a cue repeated in the next grains costs nothing.
+                if (! timeline.known || ! flow.haveSegment || ! GST_BUFFER_PTS_IS_VALID(buffer)) {
+                    return GST_PAD_PROBE_DROP;
+                }
+
+                const GstClockTime pts = GST_BUFFER_PTS(buffer);
+                const GstClockTime now = gst_element_get_current_running_time(GST_ELEMENT(GST_PAD_PARENT(srcPad)));
+                const GstClockTime at  = gst_segment_to_running_time(&flow.segment, GST_FORMAT_TIME, pts);
+
+                if (! GST_CLOCK_TIME_IS_VALID(at) || ! GST_CLOCK_TIME_IS_VALID(now)) {
+                    return GST_PAD_PROBE_DROP;
+                }
+
+                // The time at which the channel plays the picture of this grain
+                const GstClockTime plays = (GstClockTime) ((gint64) at + timeline.shift);
+
+                std::vector<mxl_carrier::Cue> cues;
+                GstClockTime                  period = 0;
+                std::string                   error;
+
+                {
+                    std::lock_guard lock(reader.guard);
+
+                    // Without a frame rate in the caps the spacing of the grains gives it: one grain per frame
+                    if (reader.period == 0 && GST_CLOCK_TIME_IS_VALID(reader.lastPts) && pts > reader.lastPts && pts - reader.lastPts < 200 * GST_MSECOND && pts - reader.lastPts > 5 * GST_MSECOND) {
+                        reader.period = pts - reader.lastPts;
+                    }
+
+                    reader.lastPts = pts;
+                    period         = reader.period;
+                }
+
+                GstMapInfo map;
+
+                if (! gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+                    return GST_PAD_PROBE_DROP;
+                }
+
+                const bool clean = mxl_carrier::unpack(map.data, map.size, cues, &error);
+
+                gst_buffer_unmap(buffer, &map);
+
+                if (! clean) {
+                    std::lock_guard lock(reader.guard);
+
+                    reader.broken++;
+
+                    const gint64 moment = g_get_monotonic_time();
+
+                    if (moment - reader.warnedAt > 10 * G_USEC_PER_SEC) {
+                        reader.warnedAt = moment;
+
+                        WARN(("MXL data flow: a grain could not be read completely ({}); {} such grains so far", error, reader.broken));
+                    }
+                }
+
+                if (period == 0) {
+                    return GST_PAD_PROBE_DROP;   // the first grain: the frame rate is not known yet; the cue comes again in the next
+                }
+
+                for (const auto &cue : cues) {
+                    bool fresh;
+
+                    {
+                        std::lock_guard lock(reader.guard);
+
+                        fresh = reader.dedupe.isNew(plays, cue.section);
+
+                        (fresh ? reader.cues : reader.repeats)++;
+                    }
+
+                    if (! fresh || cue.section.size() < 14) {
+                        continue;
+                    }
+
+                    // The splice, on the channel's time: the grain's, and the frames the writer counted to it. A section with no splice
+                    // time (splice_null, an immediate splice) is passed with the acquisition time, as the transport stream path does.
+                    const GstClockTime splice = plays + (GstClockTime) std::max<int32_t>(cue.countdown, 0) * period;
+
+                    ScteDataCallback callback;
+
+                    {
+                        std::lock_guard lock(reader.watch->guard);
+
+                        if (reader.watch->input) {
+                            callback = reader.watch->input->_scteDataCallback;
+                        }
+                    }
+
+                    if (! callback) {
+                        continue;
+                    }
+
+                    // splice_command_type is the byte after the lengths in the section header
+                    // The muxer cannot take an adjustment that wrapped below zero (see withSpliceTimeZeroed), so the authored
+                    // splice time is set to 0 first: the splice is then where pts_adjustment says, which is the time on this channel.
+                    auto *section = scheduler::sectionFromBase64(scheduler::withSpliceTimeZeroed(cue.section), splice, (GstMpegtsSCTESpliceCommandType) cue.section[13]);
+
+                    if (! section) {
+                        WARN(("MXL data flow: a cue of {} bytes could not be read as a splice_info_section and is dropped", cue.section.size()));
+
+                        continue;
+                    }
+
+                    Scte35Data scte;
+
+                    scte.setSection(section);
+                    scte.setRunningTime(now);
+                    scte.setTimingMap(scheduler::buildRunningTimeMap(section, splice));
+
+                    LOG(("MXL data flow: SCTE-35 cue of {} bytes, splice in {} frames ({} ms after it is played), {}",
+                        cue.section.size(), cue.countdown, (int64_t) ((int64_t) splice - (int64_t) plays) / (int64_t) GST_MSECOND, toBase64(scte)));
+
+                    callback(scte);
+
+                    gst_mpegts_section_unref(section);
+                }
+
+                return GST_PAD_PROBE_DROP;
+            },
+            new std::shared_ptr<CueReader>(reader),
+            +[](gpointer data) {
+                delete static_cast<std::shared_ptr<CueReader> *>(data);
+            }
+        );
+
+        gst_pad_add_probe(
+            (*src->getPad("src"))->get(),
+            GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
+            +[](GstPad *, GstPadProbeInfo *info, gpointer) -> GstPadProbeReturn {
+                if (GST_QUERY_TYPE(GST_PAD_PROBE_INFO_QUERY(info)) == GST_QUERY_ALLOCATION) {
+                    return GST_PAD_PROBE_DROP;
+                }
+
+                return GST_PAD_PROBE_OK;
+            },
+            nullptr,
+            nullptr
+        );
+
+        // In the watch, so a reader whose writer has gone is attached again; not in the timeline, which only the pictures and sound set.
+        this->_mxlWatch->flows.push_back(flow);
+    };
+
     int flows = 0;
 
     if (! parameters.getVideoFlowId().empty()) {
@@ -1919,6 +2157,11 @@ void transcoder::SingleInput::_createMxlFlows(pipeline::BinPtr &srcBin, const st
         addFlow("audio", "audio-flow-id", parameters.getAudioFlowId(), false);
 
         flows++;
+    }
+
+    // The data flow is not a stream of the channel (it has no decoder), so it is not counted in `flows`.
+    if (! parameters.getDataFlowId().empty()) {
+        addDataFlow(parameters.getDataFlowId());
     }
 
     this->_srcStreamsCount  = flows;

@@ -106,5 +106,11 @@ pipeline::ElementPtr transcoder::MxlOutput::getNode() {
     return this->_bin;
 }
 
-void transcoder::MxlOutput::putScteData(const Scte35Data &) {
+void transcoder::MxlOutput::putScteData(const Scte35Data &data) {
+    // Only the video tap with a data flow takes cues; the others have none. Without a data flow the output carries no SCTE-35.
+    for (auto &tap : this->_taps) {
+        if (tap->hasCueFlow()) {
+            tap->putCue(data);
+        }
+    }
 }

@@ -162,6 +162,25 @@ describe('Configuration Mappers', () => {
     expect((edited.transcoder.inputs[0] as any).mxlTap).toEqual(tap);
   });
 
+  it('reads an MXL input\'s SCTE-35 data flow, writes it back, and leaves it out when emptied', () => {
+    const video = '5fbec3b1-1b0f-417d-9059-8b94a47197ed';
+    const data = '7c1d2a52-3f0e-4b6e-9d54-0a6e5b1f8a31';
+    const base = {
+      version: '1.1.0',
+      transcoder: {
+        inputs: [{ transport: { uri: 'mxl:///run/mxl', mxl: { video: { flowId: video }, data: { flowId: data } } } }],
+        outputs: [],
+      },
+    } as unknown as EngineConfigDto;
+
+    const form = configToChannelForm(base);
+    expect(form.inputs[0].mxlDataFlowId).toBe(data);
+    expect(channelFormToConfig(form, base).transcoder.inputs[0].transport.mxl).toEqual({ video: { flowId: video }, data: { flowId: data } });
+
+    const emptied = channelFormToConfig({ ...form, inputs: [{ ...form.inputs[0], mxlDataFlowId: '' }] }, base);
+    expect(emptied.transcoder.inputs[0].transport.mxl).toEqual({ video: { flowId: video } });
+  });
+
   it('reads an MXL input into the form and writes it back, with the flows it names', () => {
     const video = '5fbec3b1-1b0f-417d-9059-8b94a47197ed';
     const audio = 'b3bb5be7-9a4b-4be1-8b13-c96b3d6a7a10';

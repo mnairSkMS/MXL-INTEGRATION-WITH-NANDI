@@ -105,13 +105,16 @@ export function channelFormToConfig(
         // Flows left empty are left out: the engine reads whichever the block names.
         const video = (inputItem.mxlVideoFlowId || '').trim();
         const audio = (inputItem.mxlAudioFlowId || '').trim();
+        const data = (inputItem.mxlDataFlowId || '').trim();
         inputDto.transport.mxl = {
           ...(existingInput.transport?.mxl || {}),
           video: video ? { flowId: video } : undefined,
           audio: audio ? { flowId: audio } : undefined,
+          data: data ? { flowId: data } : undefined,
         };
         if (!video) delete inputDto.transport.mxl.video;
         if (!audio) delete inputDto.transport.mxl.audio;
+        if (!data) delete inputDto.transport.mxl.data;
         // Empty leaves the engine's own default out of the file, so a later change of the default reaches this input
         if (typeof inputItem.mxlDelayMs === 'number' && Number.isFinite(inputItem.mxlDelayMs)) {
           inputDto.transport.mxl.delayMs = inputItem.mxlDelayMs;

@@ -258,6 +258,13 @@ export const InputSection: React.FC<InputSectionProps> = ({
                   helperText="The UUID of the Float32 audio flow. Leave empty for a video-only input"
                 />
                 <Input
+                  label="SCTE-35 data flow id (optional)"
+                  placeholder="7c1d2a52-3f0e-4b6e-9d54-0a6e5b1f8a31"
+                  {...register(`inputs.${index}.mxlDataFlowId` as const)}
+                  error={errors.inputs?.[index]?.mxlDataFlowId?.message}
+                  helperText="The data flow a Nandi programme output writes its SCTE-35 to. Leave empty for none"
+                />
+                <Input
                   label="Delay (ms)"
                   type="number"
                   placeholder={String(MXL_DEFAULT_DELAY_MS)}

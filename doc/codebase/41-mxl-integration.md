@@ -522,6 +522,41 @@ The registry is three checks that use only the files of the domain and MXL's own
 - **`writerActive` needs a readable `/proc/locks`**; it is `null` when it is not (for example in a sandbox that hides it). The listing reads the domain where the API runs; in the Compose stack that is the engine's container. A separate API container would mount the domain read-only.
 - Not tested: a check racing a writer's creation; a domain that is not tmpfs; a second container writing the flow (the lock is per host kernel, so it should work, which is not shown).
 
+## SCTE-35 over MXL (Step 5, WP2)
+
+**Built and tested on 2026-11-11 and 2026-11-12 (scratch build; not run on rebuilt installed images).** SCTE-35 sections travel in an MXL **data flow** (`video/smpte291`, SMPTE ST 291 ancillary data, one grain per video frame), so an external encoder worker can read the cues next to the picture and sound. It was chosen after the trial in [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md) section 4.6; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md) (entries 14 onward). SCTE-104 is deferred by the owner; the carrier is behind one small library so another can be added.
+
+| Part | What it does | Where |
+| --- | --- | --- |
+| Carrier library | Section to ST 2038 packets (private ANC packets, DID 0x58 / SDID 0x01, **placeholders, not registered with SMPTE**, one constant), and back; a size model of the grain; `CueQueue` (the writer's cues per frame); `Deduper` (the reader's). No GStreamer. | `mxlcarrier.{h,cpp}` |
+| Writer | An output of type `mxl` with `mxl.data.flowId` adds a second chain, `appsrc ! queue ! mxlsink`, **to the video tap's own side pipeline**, and writes one grain for every video frame, empty when there is no cue. A cue is in every grain from when it is known until its splice frame (a countdown in frames), then five more frames. | `MxlTap`, `MxlOutput::putScteData` |
+| Reader | An MXL input with `transport.mxl.data.flowId` reads the flow in a probe on its own `mxlsrc`, decodes the grain, drops repeats, re-times the section with `sectionFromBase64` (the DASH path's helper) to the splice time on this channel (the grain's time plus the shift the input learned plus the countdown) and hands it to the channel's SCTE-35 path. | `SingleInput::_createMxlFlows` (`addDataFlow`) |
+| Config | `outputs[n].mxl.data`, `inputs[n].transport.mxl.data`; schema, form field and tests move with the parser. | [05](05-configuration-reference.md), `openapi.yaml`, `frontend/` |
+
+**Rules the trial gave, all built in:** one side pipeline for picture and cues (a pipeline per flow can land a cue one frame late for a whole run); a grain for every frame (a sparse flow hands a late reader a stale grain from an earlier lap of the ring); a cue over the grain size (about 3000 bytes of section, 4096 bytes in the grain) is refused and logged, because the data sink stops for good when it is given one.
+
+**Format.** User data of each packet: `N` `S` version, total fragments, fragment index, countdown (int32), section length (u16), then up to 244 bytes of the section. A section takes about 1.37 times its size in a grain. The splice time is a **countdown in frames**, not a grain index: the writer does not know the index (the clock offset belongs to the sink's pipeline), and the reader adds the countdown to the time of the grain it read. A repeat is recognised by the section's bytes within a 1.5 s window.
+
+### Results (2026-11-12, scratch build, 720p25, source with splice_insert events every 3 s)
+
+| Test | Result |
+| --- | --- |
+| `mxlcarrier` unit tests (21) | Round trips at every fragment boundary and at the largest section; several cues in a grain; a flipped bit and a truncated buffer are reported; countdown at 25, 29.97, 50 and 59.94 fps with ±4 ms of jitter; stale and bounded queue; dedupe. |
+| `programme/07-scte-data` | 728 grains in 29 s with no gap between grains, 690 with cues; 24 of 24 sections the engine read are in the flow **byte for byte**, checked by a Python decoder that shares no code with the engine; every cue's splice time is the same in all its counting-down copies. |
+| `input/13-scte-data` | Channel A (source, programme with data flow) to channel B (MXL input with the data flow): all 11 events (100 to 110) come out of B on PID 500 with the contents of the source's; B's output decodes clean. |
+| `input/14-scte-alignment` | A source that flashes white 2 frames each second and carries the events. Distance from each splice to the latest flash frame: the **source puts all 12 events 520.0 ms after a flash; through MXL B puts them within 37 ms of that (under one frame), without drifting**. The in-process output, measured the same way, is off by 22 to 208 ms over two runs and drifts (80 ms in 24 s in the first). |
+| `scte` helper unit tests (3 new) | The authored splice time is set to 0 and the CRC redone; the adjustment is then the plain splice time, never negative. |
+
+**A GStreamer muxer bug found on the way** (GStreamer 1.24.2 `mpegtsmux`, `gstbasetsmux.c` around line 2010): the SCTE-35 path adds its offset to `pts_adjustment` and writes the sum back with `section_data[4] |= pts_adjust >> 32`, which sets bit 32 and never clears it. A section whose authored splice time is later than the time it is re-based to needs a negative adjustment, held modulo 2^33 with bit 32 set; after the muxer's one-hour offset the true sum is small and has bit 32 clear, but the old bit stays, so **the splice lands 2^32 ticks (13 hours) away**. The first run of the alignment test showed it (splices 47,695 s from the picture). The reader avoids it with `scheduler::withSpliceTimeZeroed` (authored time 0, so the adjustment is never negative); the receiver's pts_time + pts_adjustment is unchanged. The bug is not patched in the muxer; the other users of `sectionFromBase64` (the DASH input, the scheduler) can meet it too when a section's authored time is later than the running time it is re-based to. See [27](27-known-gaps-contradictions-and-remediation.md).
+
+### Not done, and limits
+
+- **Not run:** another frame rate or interlaced source through the engine (the arithmetic is unit tested at 25, 29.97, 50 and 59.94); a cue near the 3000-byte limit through the real data sink (only the size model is tested: a 2800-byte section worked in the trial with a bigger header); a writer restart in the middle of a cue; a reader that joins late (the trial showed it works; not repeated in the engine); four-hour soak; SCTE-35 passthrough output type other than the MPEG-TS one; the installed images.
+- **The packet identifier is a placeholder.** Nothing outside Nandi reads the flow.
+- **The cue is on the frame within one frame, not exactly:** the splice time is a whole number of frames (the writer rounds to the nearest), on top of the time the source's demuxer gives; measured −37 to +3 ms.
+- **A data flow is for a programme output only** (no source tap), and a worker needs the video or audio flow as well.
+- **The reader waits for the picture or sound to settle the input's shift** before it takes cues, so a cue whose whole window passes before that is lost; the repeats make this only a matter of the first second.
+
 ## What the source answers
 
 The brief lists items as "to verify in repo". Each one below was checked against this checkout's

@@ -18,6 +18,7 @@ export const inputItemObject = z.object({
   programSelector: z.number().optional(),
   mxlVideoFlowId: z.string().optional(),
   mxlAudioFlowId: z.string().optional(),
+  mxlDataFlowId: z.string().optional(),
   mxlDelayMs: z.number().optional(),
 });
 
@@ -43,6 +44,14 @@ export const inputItemSchema = inputItemObject.superRefine((input, ctx) => {
   }
   if (video && video === audio) {
     ctx.addIssue({ code: 'custom', path: ['mxlAudioFlowId'], message: 'Video and audio need different flows' });
+  }
+
+  const data = (input.mxlDataFlowId || '').trim();
+  if (data && !FLOW_ID.test(data)) {
+    ctx.addIssue({ code: 'custom', path: ['mxlDataFlowId'], message: 'A flow id is a UUID' });
+  }
+  if (data && (data === video || data === audio)) {
+    ctx.addIssue({ code: 'custom', path: ['mxlDataFlowId'], message: 'The data flow needs a flow of its own' });
   }
 
   const delay = input.mxlDelayMs;

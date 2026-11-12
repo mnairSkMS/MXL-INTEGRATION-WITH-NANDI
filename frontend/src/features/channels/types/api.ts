@@ -71,6 +71,8 @@ export interface InputTransportDto {
   mxl?: {
     video?: { flowId: string };
     audio?: { flowId: string };
+    /** A data flow carrying SCTE-35, written by a Nandi programme output's `mxl.data`. */
+    data?: { flowId: string };
     /** Milliseconds the channel plays the flows after they arrive, for the jitter of their writer. Engine default 300. */
     delayMs?: number;
   };

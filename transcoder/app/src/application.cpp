@@ -498,7 +498,7 @@ class Application::Pimpl {
                                     domain.pop_back();
                                 }
 
-                                for (const auto &flowId : { mxlInput->getVideoFlowId(), mxlInput->getAudioFlowId() }) {
+                                for (const auto &flowId : { mxlInput->getVideoFlowId(), mxlInput->getAudioFlowId(), mxlInput->getDataFlowId() }) {
                                     if (! flowId.empty()) {
                                         readers.insert(domain + "|" + flowId);
                                     }
@@ -517,6 +517,7 @@ class Application::Pimpl {
 
                             addWriter(outParams.getMxl().getDomain(), outParams.getMxl().getVideoFlowId(), who + ".video");
                             addWriter(outParams.getMxl().getDomain(), outParams.getMxl().getAudioFlowId(), who + ".audio");
+                            addWriter(outParams.getMxl().getDomain(), outParams.getMxl().getDataFlowId(),  who + ".data");
                         }
 
                         outputIndex++;

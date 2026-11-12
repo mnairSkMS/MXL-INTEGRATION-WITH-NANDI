@@ -153,3 +153,86 @@ runs of 7 to 28 seconds. Logs: `../experiments/scte-over-mxl/results/` (`matrix-
 - **Where:** `doc/mxl/step5-plan-2026-11-11.md` (status line, WP table row 0, WP5 header).
 - **Effect:** WP2 (SCTE carrier in Nandi), WP3 (the worker) and WP5 (failure behaviour) are no longer blocked.
 
+### 2026-11-11 · 14 · Product · WP2 writer: SCTE-35 into an MXL data flow
+- **What:** `mxl_carrier` (new library, no GStreamer): ST 2038 packing of a section into private ANC packets (placeholder DID 0x58 / SDID 0x01, **not
+  registered**, one constant), `unpack`, a size model of the grain (`fitsInGrain`, `maxSectionBytes`), `CueQueue` (the writer's per-frame cues:
+  countdown to the splice frame, stays 5 frames at countdown 0 after it, immediate cues 5 frames, cues that no frame carried for 3 s are dropped as stale),
+  `Deduper` (the reader's). `MxlTap` (video, programme output) now writes a second chain `appsrc ! queue ! mxlsink data-flow` **in the same side
+  pipeline** (trial rule 1), one grain for every video frame, empty when there is no cue (rule 3), and refuses a cue over the grain size (rule 2).
+  `MxlOutput::putScteData` hands cues to that tap. Config: `outputs[n].mxl.data.flowId` (parser, `MxlTapParameters::getDataFlowId`); an output with a
+  data flow is in SCTE passthrough mode, without one it carries none. The one-writer rules cover the data flow too.
+- **Where:** `transcoder/lib/utpl/include/utpl/transcoder/mxlcarrier.h`, `src/.../mxlcarrier.cpp`, `mxltap.{h,cpp}`, `mxlparameters.h`, `output/mxl.{h,cpp}`,
+  `CMakeLists.txt`; `transcoder/app/src/application/config/parser/json/parser.cpp`, `application.cpp`; tests `lib/utpl/test/src/mxlCarrier.cpp` (21 tests),
+  `tests/tests/mxl/programme/07-scte-data/test.sh`, `tests/framework/mxl_cues.py` (an independent decoder and checker).
+- **Design change from the trial:** the copy carries a countdown in frames, not a splice frame number, because the writer does not know the grain index
+  (the clock offset belongs to the sink's pipeline). The reader adds the countdown to the time of the grain it read. The cue's identity for dedupe is
+  the section's bytes within a 1.5 s window, not an event id.
+- **Result:** C++ ctest 13 of 13 pass (carrier: 21 tests: round trips at every fragment boundary and at the largest section, several cues in a grain,
+  a flipped bit and a truncated buffer are reported, countdown at 25, 29.97, 50 and 59.94 fps with +-4 ms of jitter, stale and bounded queue, dedupe).
+  Product test: 728 grains in 29 s with **no gap between consecutive grains**, 690 with cues; 24 of 24 sections the engine read from the source while the
+  reader ran are in the flow **byte for byte**; every cue's splice time is the same in all its counting-down copies and the first countdown-0 copy is on it;
+  cues are in up to 73 grains each; the picture flow and on-air output are unaffected.
+- **A mistake on the way:** my first edit of `MxlOutput::putScteData` did not apply (a command run from the wrong directory; its error was lost in a
+  backgrounded command) and the first test run showed 0 cues taken. Found with a temporary log line, removed. Two checker mistakes were also fixed (it
+  merged separate arrivals of the identical heartbeat section; it could not tell a cue that arrived after the reader stopped).
+- **Not done:** the reader (WP2 reader side), config for the input and UI, the alignment against the in-process output (S1), 25/29.97/50 fps in the engine,
+  a near-limit cue through the real sink (only the size model is tested), real DID/SDID.
+- **Status:** not committed.
+
+### 2026-11-12 · 15 · Product · WP2 reader: an MXL input can take the SCTE-35 data flow
+- **What:** `transport.mxl.data.flowId` on an MXL input. `SingleInput::_createMxlFlows` adds `mxlsrc data-flow-id ! queue ! fakesink` with a probe on the
+  `mxlsrc` pad that decodes each grain (`mxl_carrier::unpack`), drops repeats (`Deduper`), works out the splice on the channel's time (the grain's running
+  time + the input's learned shift + countdown x frame period; the period from the caps, or from the spacing of grains), re-times the section with the
+  DASH path's `scheduler::sectionFromBase64` and `buildRunningTimeMap`, and calls the channel's SCTE-35 callback. The data flow is in the reattach watch
+  (a reader whose writer has gone is attached again) but not in the learning of the shift, which it follows; it takes cues only once the shift is known.
+- **Where:** `input.h` (`MxlInputTransportParameters`), `input/single.cpp`, parser `_parseMxlInput`, `application.cpp` (one-writer check also covers it).
+- **Status:** not committed.
+
+### 2026-11-12 · 16 · Product · The muxer bug, and the workaround
+- **Found by:** `input/14-scte-alignment` (first version): splices in B were 47,695 s (13.2 hours) from the picture. Logging the numbers showed the
+  re-timed `pts_adjustment` was right (8,589,407,258 = 2^33 - 527,334 ticks, a negative adjustment held mod 2^33) and the error appeared after the muxer.
+- **Cause (read in the GStreamer 1.24.2 source in `utpl/base-builder:dash-test`, `gstbasetsmux.c` around line 2010):** `section_data[4] |= pts_adjust >> 32`
+  never clears the bit that was in the section. With bit 32 set on the way in and a small sum on the way out, the output is 2^32 too large.
+- **Workaround:** `scheduler::withSpliceTimeZeroed(raw)` sets the authored splice time of a splice_insert or time_signal to 0 and redoes the CRC; the
+  adjustment is then the plain splice time, never negative, and pts_time + pts_adjustment is unchanged. 3 new unit tests in `test/src/scte.cpp`
+  (the CRC is valid, the fields are kept; the case without the workaround has bit 32 set and with it not; sections with no splice time are left alone).
+- **Not changed:** `sectionFromBase64` and its other users (the DASH input, the scheduler), which can meet the same bug; the muxer itself (a patch needs the
+  GStreamer packages rebuilt). Recorded in page 27.
+- **Status:** not committed.
+
+### 2026-11-12 · 17 · Product · Schema, API model and channel form for the data flows
+- **What:** `openapi.yaml` (`MxlInputTransportParameters.data`, `MxlOutputParameters.data`); channel form: field "SCTE-35 data flow id (optional)", type, schema
+  (UUID, not equal to the other flows), both mappers. The API passes `transport.mxl` through untouched, so `data` survives a write (the existing test).
+  The output's `mxl.data` has no form field, like the rest of the programme output.
+- **Result:** `tsc --noEmit` clean, vitest 73 of 73 (one new test in `configMapper.test.ts`: read, write back, left out when emptied).
+- **Status:** not committed.
+
+### 2026-11-12 · 18 · Product · Tests 13 and 14 and their helpers
+- **What:** `input/13-scte-data` (A to B through the data flow; B's PID 500 has the source's events with the same contents; at most 3 of A's events missing),
+  `input/14-scte-alignment` (a flash-and-beep source with the events, `scte-sync` in `framework/mxl.sh`; the distance from each splice to the latest flash
+  frame, in the source, in A's output, in B's), `framework/scte_events.py`, `scte_align.py`; the framework got `MXL_OUT_SCTE` and `MXL_INPUT_DATA_FLOW`.
+- **Result (scratch build):** 13 passes: all 11 events (100 to 110) arrive, byte-for-byte in their event fields. 14 passes: **the source puts all 12 events
+  520.0 ms after a flash; through MXL they are -37.1 to +2.9 ms from that, not drifting; in-process (A) -22 to +58 ms in the first run, -208 to -128 ms in the
+  second**. First version of 14 compared B with A and failed (up to 95 ms), because A is the less accurate of the two; it now compares with the source.
+- **Mistakes on the way:** my edit of `MxlOutput::putScteData` did not apply the first time (see entry 14); the first checker merged identical heartbeats;
+  `tsp -I ip 127.0.0.1:4444` is refused as "not multicast" (the input is `-I ip 4444`); `ffmpeg -c copy` would lose SCTE-35 (so `tsp` captures); the capture ends in the
+  middle of an AAC frame, so the decode check leaves the last seconds out.
+- **A loss:** the scratch build directory was emptied when the session restarted; the engine was rebuilt in full (about 25 minutes).
+- **Status:** not committed.
+
+
+### 2026-11-12 · 19 · Product · Regression of the whole MXL suite on the WP2 build
+- **What:** `tests/run.sh mxl` in `utpl/transcoder-test:mxl`, as a normal user (`--user`), engine from the scratch build with all WP2 changes
+  (carrier, writer, reader, parser, muxer workaround).
+- **Result:** 45 tests, 45 passed, 0 failed, 0 skipped (sdk 9, tap 15, programme 7, input 14). It took about 40 minutes of wall-clock time, the tests being real-time
+  media runs. The tests run before WP2 (all except programme 07, input 13 and 14) give the same results as before: no regression from the data-flow work.
+- **Not covered:** the installed images (scratch build only), and the items listed in page 41 as not tested (other frame rates through the engine with cues,
+  interlaced, a cue near the grain limit through the real sink, a writer restart in the middle of a cue, a late reader, a 4-hour soak).
+- **Clean-up:** the result file and the test temporary directories are removed; no root-owned files are left.
+- **Status:** not committed.
+
+### 2026-11-12 · 20 · Plan · Gate A SCTE row reworded (owner decision)
+- **What:** the SCTE row of Gate A changed from "every cue on the same frame as the in-process output" to "every cue within ±1 frame of the splice time the source
+  authored, 20 of 20". Reason: entry 18 showed the in-process output is the less accurate of the two (22 to 208 ms off, drifting). Tests S1 and S7 in the plan
+  follow the new wording. The owner approved the change on 2026-11-12.
+- **Status:** committed with WP2.

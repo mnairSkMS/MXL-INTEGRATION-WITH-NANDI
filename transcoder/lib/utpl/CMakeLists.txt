@@ -100,6 +100,7 @@ set(SOURCE_FILES
     src/utpl/transcoder/adBreak.cpp
     src/utpl/transcoder/preview.cpp
     src/utpl/transcoder/mxlframegrid.cpp
+    src/utpl/transcoder/mxlcarrier.cpp
     src/utpl/transcoder/mxlregistry.cpp
     src/utpl/transcoder/mxltap.cpp
 
