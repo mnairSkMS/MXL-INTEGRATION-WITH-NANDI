@@ -324,11 +324,12 @@ function mxl_start_source() {
 }
 
 # mxl_start_engine <config> [tag]: starts the engine in the background (log: $MXL_TMP/engine.log, or engine-<tag>.log
-# for a second engine in the same test). Sets MXL_ENGINE_PID.
+# for a second engine in the same test). Sets MXL_ENGINE_PID. MXL_ENGINE_WRAP, when set, is a command put before the engine (for example
+# "taskset -c 0"); MXL_ENGINE_PID is then the PID of that command, which is the engine's when the command execs it (taskset does).
 function mxl_start_engine() {
     local tag="${2:+-$2}"
     mkdir -p "$MXL_TMP/db"; : > "$MXL_TMP/db/e${tag}.sqlite"
-    "$MXL_ENGINE" -c "$1" -l "$MXL_LICENSE" -b "$MXL_TMP/db/e${tag}.sqlite" > "$MXL_TMP/engine${tag}.log" 2>&1 &
+    $MXL_ENGINE_WRAP "$MXL_ENGINE" -c "$1" -l "$MXL_LICENSE" -b "$MXL_TMP/db/e${tag}.sqlite" > "$MXL_TMP/engine${tag}.log" 2>&1 &
     MXL_ENGINE_PID=$!
     MXL_PIDS+=("$MXL_ENGINE_PID")
 }

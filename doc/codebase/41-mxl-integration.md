@@ -619,12 +619,27 @@ outputs. No new configuration type: both halves use what Steps 2 to 5 built, and
   sink pad). Recorded in [27](27-known-gaps-contradictions-and-remediation.md).
 
 Tests: `tests/tests/mxl/worker/01-split` (streams, decode, frames, lip-sync with a live source), `02-splice-keyframe` (the SCTE events, and the worker no worse than in process on keyframes;
-passes with 9 and 9 events, 0 and 0 keyframes), `03-cost` (**fails on the 1.25 limit**), helpers `tests/framework/mxl_worker.sh` and `scte_idr.py`. The domain of these tests is in `/dev/shm`
+passes with 9 and 9 events, 0 and 0 keyframes), `03-cost` (**fails on the 1.25 limit**), `04` to `08` (failure behaviour, above), helpers `tests/framework/mxl_worker.sh` and `scte_idr.py`. The domain of these tests is in `/dev/shm`
 (a domain on the disk of the test machine did not keep up with 140 MB/s at 1080p). Run with `--shm-size=1g`.
+
+### Failure behaviour (Step 5, WP5; built and tested 2026-11-13)
+
+Q8 (fail open) holds in every case tested: **the main engine never notices what happens to a worker**, and a worker recovers by itself when what it reads comes back. Scratch build, 720p25, one run
+at a time; the "coarse" times come from a probe that records 2 s of the worker's output at a random place in its group of pictures, so they are upper bounds.
+
+| Event | What was measured | Test |
+| --- | --- | --- |
+| Worker killed (SIGKILL), 6 s dead, started again | Main: flow lag 31.5 ms against 38.8 before (grain steps are 40 ms), CPU 0.15 against 0.15 cores, no error in its log. The worker's output is gone while it is dead; the new worker shows picture and tone again 7.2 s after it was started (coarse; the engine's own start is a part). Docker does the restart in a deployment (`restart: unless-stopped`; not run here). | `worker/04-worker-killed` (T5) |
+| Worker starved of CPU (one CPU shared with three busy loops, nice 19, 12 s) | The worker got 0.03 of a CPU and its output stopped. Main: lag 20.6 and 20.3 ms against 17.8 and 5.0, CPU 0.16 against 0.16 and 0.17, no error. The worker logged one late flow (193 ms later than the 500 ms delay allows) and recovered about 1 s after the load was gone (2 runs). At normal priority the same loops left it a fifth of a CPU, its output stayed and nothing was late. | `worker/05-worker-slow` (T6) |
+| Main killed, 6 s dead, started again | The worker keeps running; its output has no picture and tone while the programme is gone; the worker has the flows again **0.5 s** after the restarted main engine writes (by the logs; 5.8 s by the coarse probe) and 22 reattach lines in its log. No error in the worker's log. | `worker/06-main-restarted` (T9) |
+| A cue pending while the worker restarts (plan S5) | The worker was killed after event 102 and started again 14 s into the source: events 103 to 111 were all carried by the new worker (none lost, none twice, none in both lives), at 26 to 30 ms from where the source put them (limit 45 ms). The cue repeated in the data flow is what a worker that has just joined reads. | `worker/07-cue-worker-restart` (T10) |
+| A cue during a restart of the main engine (plan S6) | Events 103 to 111 all came after the restart, none lost, none twice, at most 39.5 ms from the source's placement. The kill fell between two events, so a cue that reaches the source while the main engine is down was **not** exercised: the source sends each section once and such a cue is lost (page 27). | `worker/08-cue-main-restart` |
+
+Not tested here: a full tmpfs (Step 3 tests it for the output), and Docker doing the restart.
 
 ### Not done
 
-The failure behaviour (WP5: worker killed or slow, main restarted, a cue during a restart), the worker with the domain mounted read-only **in the engine** (the SDK
+The worker with the domain mounted read-only **in the engine** (the SDK
 checks show a read-only mount works; the engine has not been run that way), two workers on one programme, the pair from the installed images, a one-hour Gate A run,
 and the multi-audio programme (WP6).
 

@@ -115,3 +115,167 @@ function worker_frames() {
     ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 "$1" 2>/dev/null | grep -v '^$' | sort -n \
         | awk 'NR == 1 { f = $1 } { l = $1 } END { print NR, f, l }'
 }
+
+### Failure behaviour of a split channel (Step 5, WP5; tests/tests/mxl/worker/04 to 07)
+
+# worker_probe <name>: records 2 s of the worker's output and says whether it carries a moving picture and the tone ("yes" or "no").
+function worker_probe() {
+    rm -f $MXL_TMP/$1.ts
+    timeout 12 ffmpeg -v error -y -i "udp://127.0.0.1:${MXL_PORT_OUT}?fifo_size=5000000&overrun_nonfatal=1" -t 2 -c copy $MXL_TMP/$1.ts >> $MXL_LOG 2>&1 || true
+    [ -s $MXL_TMP/$1.ts ] || { echo no; return; }
+    # A capture starts wherever the output is in its group of pictures and ffmpeg drops what comes before the first keyframe, so the
+    # capture holds between nothing and 2 s of picture. The picture moves if most of the ones it holds differ (a frozen or black one
+    # gives one).
+    local total pics tone
+    read -r total pics <<< "$(ffmpeg -v error -y -i $MXL_TMP/$1.ts -an -vf "fps=10,scale=160:90,format=gray" -f framemd5 - 2>/dev/null | awk '!/^#/ { n++; seen[$NF] = 1 } END { c = 0; for (k in seen) c++; print n + 0, c }')"
+    ffmpeg -v error -y -i $MXL_TMP/$1.ts -vn -ac 1 $MXL_TMP/$1.wav >> $MXL_LOG 2>&1 || true
+    tone=$(mxl_tone_db $MXL_TMP/$1.wav 1000)
+    mxl_log "probe $1: ${pics:-0} different pictures of ${total:-0} sampled, tone ${tone:-none} dB"
+    if [ "${total:-0}" -ge 5 ] && [ $(( ${pics:-0} * 2 )) -ge "${total:-0}" ] && awk -v t="${tone:--99}" 'BEGIN { exit !(t > -35) }'; then echo yes; else echo no; fi
+}
+
+# worker_probe_until <name> <tries>: probes until one says yes. Prints the seconds from the call to that probe, and "no" after the tries.
+function worker_probe_until() {
+    local t0=$(date +%s.%N) i
+    for i in $(seq 1 $2); do
+        if [ "$(worker_probe $1)" = "yes" ]; then mxl_seconds_since $t0; return; fi
+    done
+    echo no
+}
+
+# worker_log_epoch <log line>: the time of a log line ("[ MM/DD/YY HH:MM:SS.mmm ]", UTC) in seconds
+function worker_log_epoch() {
+    local stamp
+    stamp=$(grep -o '^\[ [0-9/]* [0-9:.]* \]' <<< "$1" | tr -d '[]' | xargs)
+    date -u -d "20${stamp:6:2}-${stamp:0:2}-${stamp:3:2} ${stamp:9}" +%s.%N
+}
+
+# worker_main_state: "<video flow lag ms> <head index>" of the main engine's programme flow
+function worker_main_state() {
+    echo "$(mxl_head_lag_ms $MXL_FLOW_VIDEO) $(mxl_flow_field $MXL_FLOW_VIDEO 'Head index')"
+}
+
+# worker_wait_writer <seconds>: waits until the head index of the programme's video flow moves (a writer is writing); prints the time in
+# seconds since the epoch at which it saw it, or "no"
+function worker_wait_writer() {
+    local h0 h i
+    h0=$(mxl_flow_field $MXL_FLOW_VIDEO 'Head index')
+    for ((i = 0; i < $1 * 10; i++)); do
+        h=$(mxl_flow_field $MXL_FLOW_VIDEO 'Head index')
+        if [ -n "$h" ] && [ "$h" != "$h0" ]; then date +%s.%N; return; fi
+        sleep 0.1
+    done
+    echo no
+}
+
+# worker_main_unaffected <name> <lag ms before> <cpu cores before> <cpu cores now> [seconds the main engine was watched]: the checks of Q8
+# ("a dead or slow worker never touches the main engine"): it runs, its programme flow's head still keeps the time of the wall
+# clock (a drift would show as a change of the lag), its CPU is what it was, and it logged no error.
+function worker_main_unaffected() {
+    local name="$1" lag0="$2" cpu0="$3" cpu1="$4" lag1 head
+    mxl_alive $WORKER_PID_M || { mxl_fail "$name: the main engine stopped"; return; }
+    read -r lag1 head <<< "$(worker_main_state)"
+    echo "RESULT $name: main engine's flow lag ${lag1} ms (before: ${lag0} ms), CPU ${cpu1} cores (before: ${cpu0})"
+    awk -v a="$lag1" -v b="$lag0" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= 80) }' \
+        || mxl_fail "$name: the main engine's flow lag moved from ${lag0} to ${lag1} ms"
+    awk -v a="$cpu1" -v b="$cpu0" 'BEGIN { exit !(a <= b * 1.25 + 0.05) }' || mxl_fail "$name: the main engine's CPU went from ${cpu0} to ${cpu1} cores"
+    local errors
+    errors=$(grep -E 'rror' $MXL_TMP/engine-main.log | grep -v 'no such table' || true)
+    [ -z "$errors" ] || { echo "$errors" | head -5 >> $MXL_LOG; mxl_fail "$name: the main engine logged errors"; }
+}
+
+# worker_cpus: sets WORKER_CPU_ONE to the first CPU this test may use and WORKER_CPU_REST to a list of the others ("" with fewer than 3)
+function worker_cpus() {
+    local list
+    list=$(awk '/Cpus_allowed_list/ { print $2 }' /proc/self/status)
+    read -r WORKER_CPU_ONE WORKER_CPU_REST <<< "$(python3 -I - "$list" <<'PY'
+import sys
+cpus = []
+for part in sys.argv[1].split(","):
+    a, _, b = part.partition("-")
+    cpus += range(int(a), int(b or a) + 1)
+print(cpus[0], ",".join(str(c) for c in cpus[1:]) if len(cpus) >= 3 else "")
+PY
+)"
+}
+
+# worker_cue_restart <victim: worker|main>: a split channel with the SCTE-35 data flow, fed by the `scte-sync` source (a splice_insert every
+# 3 s from 9 s, ids 100 to 111, sent once each by the source). The worker's output is captured to w1.ts until the victim is killed (SIGKILL,
+# 14 s after the source starts) and to w2.ts from the moment it is started again. The two are separate files because each engine counts its
+# timestamps from its own start, so the two lives of the worker overlap in time.
+function worker_cue_restart() {
+    local victim="$1" pid_m pid_w cap1 cap2
+    mxl_start_source scte-sync $SIZE 25
+    WORKER_SOURCE_T0=$(date +%s.%N)
+    mxl_start_engine $MXL_TMP/main.json main
+    pid_m=$MXL_ENGINE_PID
+    mxl_wait_flow $MXL_FLOW_VIDEO 40 || mxl_abort "the main engine's video flow did not appear (see engine-main.log)"
+    mxl_wait_flow $MXL_FLOW_DATA 40 || mxl_abort "the main engine's data flow did not appear (see engine-main.log)"
+    mxl_start_engine $MXL_TMP/w.json w
+    pid_w=$MXL_ENGINE_PID
+    mxl_bg tsp -I ip 4444 -O file $MXL_TMP/w1.ts
+    cap1=$MXL_LAST_PID
+    sleep $(awk -v e=$(mxl_seconds_since $WORKER_SOURCE_T0) 'BEGIN { s = 14 - e; print (s > 0 ? s : 0) }')
+    echo "RESULT the $victim is killed $(mxl_seconds_since $WORKER_SOURCE_T0) s after the source starts"
+    if [ "$victim" = "worker" ]; then
+        kill -9 $pid_w; mxl_stop $pid_w
+        mxl_stop $cap1
+        mxl_start_engine $MXL_TMP/w.json w2
+    else
+        kill -9 $pid_m; mxl_stop $pid_m
+        # the worker goes on; its output is one capture (its time does not restart), cut here for the same two files
+        mxl_stop $cap1
+        mxl_start_engine $MXL_TMP/main.json main2
+    fi
+    WORKER_PID_RESTARTED=$MXL_ENGINE_PID
+    mxl_bg tsp -I ip 4444 -P until --seconds 36 -O file $MXL_TMP/w2.ts
+    cap2=$MXL_LAST_PID
+    sleep 40
+    wait $cap2 2> /dev/null || true
+    mxl_alive $WORKER_PID_RESTARTED || mxl_fail "the restarted $victim stopped"
+    if [ "$victim" = "worker" ]; then mxl_alive $pid_m || mxl_fail "the main engine stopped"; else mxl_alive $pid_w || mxl_fail "the worker stopped"; fi
+}
+
+# worker_cue_report: the events in w1.ts (before the kill) and w2.ts (after). Prints RESULT and FAIL lines: the ids of the source's events in
+# each, the ones in neither (lost while the victim was down), the ones in both, and a FAIL when ids after the first one of w2 have a hole
+# (an event lost after the output was back), when an event is carried twice within w2, or when the order is not the source's.
+function worker_cue_report() {
+    python3 -I - $MXL_TMP/w1.ts $MXL_TMP/w2.ts <<'PY'
+import subprocess, sys
+import xml.etree.ElementTree as ET
+
+def events(ts):
+    xml = subprocess.run(["tstables", "--pid", "500", "--tid", "0xFC", "--max-tables", "5000", "--xml-output", "-", ts], capture_output=True, text=True).stdout
+    order = []
+    for table in ET.fromstring(xml).iter("splice_information_table"):
+        for insert in table.iter("splice_insert"):
+            if insert.get("splice_event_cancel") != "true":
+                order.append(int(insert.get("splice_event_id").replace(",", ""), 0))
+    return order
+
+one, two = events(sys.argv[1]), events(sys.argv[2])
+def show(order):
+    c = {}
+    for e in order:
+        c[e] = c.get(e, 0) + 1
+    return c, " ".join(f"{e}x{n}" for e, n in sorted(c.items()))
+c1, t1 = show(one)
+c2, t2 = show(two)
+print("RESULT events before the kill (id x sections):", t1 or "none")
+print("RESULT events after the restart (id x sections):", t2 or "none")
+lost = [e for e in range(100, 112) if e not in c1 and e not in c2]
+both = [e for e in c1 if e in c2]
+print("RESULT events of the source in neither output (lost while the victim was down):", " ".join(map(str, lost)) or "none")
+print("RESULT events in both outputs (the cue was carried by the first life and again by the second):", " ".join(map(str, both)) or "none")
+if two != sorted(two) or one != sorted(one):
+    print("FAIL: the events are not in the order of the source")
+if c2:
+    holes = [e for e in range(min(c2), max(c2) + 1) if e not in c2]
+    if holes:
+        print("FAIL: events lost after the output was back:", holes)
+    if max(c2) != 111:
+        print("FAIL: the last event of the source (111) is not in the output after the restart")
+else:
+    print("FAIL: no event in the output after the restart")
+PY
+}
