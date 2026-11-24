@@ -40,12 +40,39 @@ namespace utpl {
 
                 Result place(uint64_t runningTime, uint64_t *stamped);
 
+                // True once a frame has set the grid's origin (the grid is not started again until reset() or setRate()).
+                bool isStarted() const { return this->_started; }
+
+                // How far a time has to be moved so that a frame stamped with it takes the grain of an MXL flow of this rate
+                // exactly, not the nearest one. MXL puts a frame in the grain `index(time)`, the grain being a whole number of
+                // periods from the epoch, and a reader takes the frame to have the time of its grain: a frame that is
+                // 17 ms past a grain boundary is therefore shown 17 ms early (or 23 ms late, whichever way the writer
+                // rounds), by an amount that depends on when the source happened to start and is different at every start.
+                // The sound is written to the sample, so it would be that far out of step with the picture. Moving the pictures AND the sound by the
+                // same amount keeps them in step and puts the pictures on the grid.
+                //
+                // `timestamp` is the frame's time in MXL's own clock (nanoseconds since the epoch). The result is the move, in
+                // nanoseconds, from -period/2 (exclusive) to period/2 + margin, which puts the frame `margin` after the nearest grain boundary: so that
+                // either way of rounding takes the boundary's own grain. Zero when the rate is not valid.
+                static int64_t alignmentDelay(uint64_t timestamp, int num, int den, uint64_t margin);
+
+                // The time of the n-th frame after the origin. By default it is n whole periods, the period rounded up to a nanosecond, so that two
+                // frames are never closer than a slot of the flow; at a fractional rate that is a little long and the error grows with n (0.3 ns
+                // a frame at 29.97, a millisecond in two days). With setExact(true) it is the exact time of the rate rounded down, with no growing
+                // error, and a frame can then lie up to a nanosecond closer to the last than a slot: safe only when the frames are put a
+                // margin past their grain boundary (alignmentDelay), which is when the tap asks for it. The setting goes with reset().
+                uint64_t timeOfFrame(int64_t n) const;
+                void     setExact(bool exact) { this->_exact = exact; }
+
                 uint64_t getDropped() const { return this->_dropped; }
                 uint64_t getMoved() const   { return this->_moved; }
 
             private:
                 uint64_t _period  = 0;
+                int      _num     = 0;
+                int      _den     = 1;
                 bool     _started = false;
+                bool     _exact   = false;
                 uint64_t _origin  = 0;
                 int64_t  _last    = -1;   // number of the last frame written
                 int      _movedInARow = 0;

@@ -49,6 +49,22 @@ namespace utpl {
             );
 
             /**
+             * A copy of the section with the splice time it carries set to 0, and the CRC_32 recomputed; what a receiver
+             * works out, pts_time plus pts_adjustment, is unchanged once sectionFromBase64() has set pts_adjustment.
+             *
+             * Why: the transport stream muxer adds its own offset to pts_adjustment and writes the sum back with
+             * `section_data[4] |= pts_adjust >> 32`, which sets bit 32 and never clears it. A section whose authored
+             * splice time is later than the time it is re-based to needs a negative adjustment, which is held modulo
+             * 2^33 with bit 32 set. After the muxer's offset the true sum is small and has bit 32 clear, but the old bit
+             * stays: the splice lands 2^32 ticks (13 hours) away. With the authored time at 0 the adjustment is the splice
+             * time itself, never negative.
+             *
+             * Only a splice_insert or time_signal that carries a specified splice time is changed (a splice_insert that
+             * is immediate, cancelled, or in component mode, and every other command, comes back as it was).
+             */
+            std::vector<uint8_t> withSpliceTimeZeroed(const std::vector<uint8_t> &raw);
+
+            /**
              * Builds the running-time-map that accompanies a section to the muxer.
              *
              * Note what this map does and does not do. For a section that arrives already

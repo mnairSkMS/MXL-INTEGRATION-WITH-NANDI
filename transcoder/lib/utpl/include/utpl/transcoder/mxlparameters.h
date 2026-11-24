@@ -49,6 +49,16 @@ namespace utpl {
                     this->_audioFlowId = id;
                 }
 
+                // An output only: an MXL data flow carrying the SCTE-35 sections of the programme (ST 291 ancillary data, one grain
+                // per video frame), written from the video flow's own side pipeline. Needs a video flow.
+                const std::string &getDataFlowId() const {
+                    return this->_dataFlowId;
+                }
+
+                void setDataFlowId(const std::string &id) {
+                    this->_dataFlowId = id;
+                }
+
                 int getAudioChannels() const {
                     return this->_audioChannels;
                 }
@@ -83,6 +93,7 @@ namespace utpl {
                 std::string _domain;
                 std::string _videoFlowId;
                 std::string _audioFlowId;
+                std::string _dataFlowId;
                 int         _audioChannels;
         };
     }

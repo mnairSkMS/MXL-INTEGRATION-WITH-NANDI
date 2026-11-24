@@ -104,6 +104,37 @@ services:
         # The dependentstartup listener starts preload_db, then the API and the engine.
         wait
 
+  # Encoder worker for a channel split in two (Step 5): the main engine above decodes and writes its programme to the MXL domain
+  # (CHANNEL=mxl_split_main.json), and this engine reads those flows and does the encoding and the outputs (config/mxl_split_worker.json).
+  # Off by default; enable with --profile mxl-worker. It is only an engine: no API, no relay, and no database to keep.
+  #   CHANNEL=mxl_split_main.json docker compose --profile mxl-worker up -d
+  # The worker mounts the domain read-only (a reader needs no write access), mounts config/ read-only, and is restarted by Docker
+  # when it stops. A worker that dies or is slow does not touch the main engine; if the main engine is restarted the worker shows
+  # a lost source and picks the flows up again within a second or two of their return. WORKER_CHANNEL picks another worker file.
+  # Health: the container runs while the engine does; the engine logs "MXL input ...: reaches/late/reattaching" lines for its flows, and
+  # GET /mxl/flows on the main engine's API lists the flows and whether a writer holds them.
+  transcoder-worker:
+    profiles: ["mxl-worker"]
+    image: ${TRANSCODER_IMAGE:-skandha-transcoder:local}
+    container_name: ${CONTAINER_NAME:-skandha-transcoder}-worker
+    restart: unless-stopped
+    ports:
+      # The worker's SRT listener (config/mxl_split_worker.json, port 9093 inside). Same advice as the main engine's 9092.
+      - "${WORKER_SRT_HOST_PORT:-9093}:9093/udp"
+    volumes:
+      - ./config:/opt/utpl/channel:ro
+      # HLS segments, shared with the main engine's API and the hls-lan service.
+      - ./runtime:/runtime
+      - ${LICENSE_FILE:-./transcoder/license/prod/licenses/offline.lic}:/opt/utpl/etc/transcoder.lic:ro
+      - mxl-domain:/run/mxl:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /runtime/hls
+        : > /tmp/worker.sqlite
+        exec /opt/utpl/bin/transcoder -c /opt/utpl/channel/${WORKER_CHANNEL:-mxl_split_worker.json} -l /opt/utpl/etc/transcoder.lic -b /tmp/worker.sqlite
+
   # LAN delivery of the HLS output: http://<this-host>:8081/master.m3u8
   # Serves /runtime/hls only, read-only, GET/HEAD, with no authentication. Restrict 8081/tcp at
   # the firewall if the LAN is not trusted. Off by default; enable with --profile hls-lan.

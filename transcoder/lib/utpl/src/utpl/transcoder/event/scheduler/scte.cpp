@@ -212,6 +212,59 @@ GstMpegtsSection *transcoder::scheduler::sectionFromBase64(
 }
 
 
+std::vector<uint8_t> transcoder::scheduler::withSpliceTimeZeroed(const std::vector<uint8_t> &raw) {
+    // Offsets in a splice_info_section: the command starts at 14, after the command type at 13.
+    //   time_signal:   splice_time() at 14.
+    //   splice_insert: splice_event_id (4), a flags byte with splice_event_cancel_indicator (bit 7), then, unless cancelled, a byte with
+    //                  out_of_network (7), program_splice_flag (6), duration_flag (5), splice_immediate_flag (4); the program's
+    //                  splice_time() follows at 20 when the flag is set and the splice is not immediate.
+    // splice_time(): time_specified_flag (bit 7), 6 reserved bits, then pts_time in 33 bits (bit 0 of the first byte and 4 more bytes).
+    if (raw.size() < SECTION_MIN_SIZE + 6) {
+        return raw;
+    }
+
+    size_t at = 0;
+
+    switch (raw[13]) {
+        case GST_MTS_SCTE_SPLICE_COMMAND_TIME:
+            at = 14;
+            break;
+
+        case GST_MTS_SCTE_SPLICE_COMMAND_INSERT:
+            if (raw.size() < 20 + 5 + CRC_SIZE || (raw[18] & 0x80) != 0 || (raw[19] & 0x40) == 0 || (raw[19] & 0x10) != 0) {
+                return raw;
+            }
+
+            at = 20;
+            break;
+
+        default:
+            return raw;
+    }
+
+    if (raw.size() < at + 5 + CRC_SIZE || (raw[at] & 0x80) == 0) {
+        return raw;
+    }
+
+    std::vector<uint8_t> out(raw);
+
+    out[at]     &= 0xFE;
+    out[at + 1]  = 0;
+    out[at + 2]  = 0;
+    out[at + 3]  = 0;
+    out[at + 4]  = 0;
+
+    const auto crcOffset = out.size() - CRC_SIZE;
+    const auto crc       = ts::CRC32(out.data(), crcOffset).value();
+
+    out[crcOffset + 0] = (crc >> 24) & 0xFF;
+    out[crcOffset + 1] = (crc >> 16) & 0xFF;
+    out[crcOffset + 2] = (crc >>  8) & 0xFF;
+    out[crcOffset + 3] =  crc        & 0xFF;
+
+    return out;
+}
+
 GstStructure *transcoder::scheduler::buildRunningTimeMap(GstMpegtsSection *section, GstClockTime runningTime) {
     pipeline::ScteRunningTimeMap map(static_cast<GstStructure *>(nullptr));
 

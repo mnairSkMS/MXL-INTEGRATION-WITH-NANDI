@@ -458,6 +458,21 @@ components:
               description: The audio flow to read. Its channels are those of the flow.
           required:
             - flowId
+        data:
+          type: object
+          description: >
+            An MXL data flow carrying SCTE-35, as written by a Nandi programme output's `mxl.data`. Optional. Its cues
+            go into the channel's SCTE-35 path as if the source had carried them, timed to the frame they were written
+            with (a cue is repeated in every grain from when it is known until its splice frame, and read once). It is
+            not a stream of the channel and needs its own flow id. The packet identifier it uses is a placeholder, not
+            registered with SMPTE, so only a Nandi writer is read.
+          properties:
+            flowId:
+              type: string
+              format: uuid
+              description: The data flow to read.
+          required:
+            - flowId
         delayMs:
           type: integer
           minimum: 0
@@ -621,6 +636,22 @@ components:
               minimum: 1
               maximum: 8
               default: 2
+          required:
+            - flowId
+        data:
+          type: object
+          description: >
+            An MXL data flow carrying the programme's SCTE-35 (ST 291 ancillary data, one grain for every video frame, the
+            finished sections in private ANC packets; the packet identifier is a placeholder, not registered with SMPTE).
+            Optional; it needs a video flow and a flow id of its own. An output with a data flow carries the SCTE-35 the
+            channel has (as `scte.mode` `passthrough`); without one it carries none. A section too large for a grain
+            (about 3000 bytes) is refused with a warning. If the flow is already written by another stream or process, the
+            picture is still written and the cues are lost, with a warning.
+          properties:
+            flowId:
+              type: string
+              format: uuid
+              description: Flow id (UUID). One writer per flow.
           required:
             - flowId
       required:

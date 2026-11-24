@@ -459,6 +459,79 @@ class Application::Pimpl {
                     }
                 }
 
+                // One writer per MXL flow: two taps or outputs on the same flow would fight over its memory (the tap
+                // would refuse at run time and the channel would run without it, so refuse here, where the cause is
+                // clear). A flow an MXL input of the channel reads cannot be written by the same channel either.
+                {
+                    std::map<std::string, std::string> writers; // "<domain>|<flow id>" -> who writes it
+                    std::set<std::string>              readers;
+
+                    auto addWriter = [&writers](const std::string &domain, const std::string &flowId, const std::string &who) {
+                        if (flowId.empty()) {
+                            return;
+                        }
+
+                        const auto inserted = writers.emplace(domain + "|" + flowId, who);
+
+                        if (! inserted.second) {
+                            throw utpl::InvalidArgumentException(
+                                "MXL flow " + flowId + " is written by both " + inserted.first->second + " and " + who + "; a flow has one writer."
+                            );
+                        }
+                    };
+
+                    size_t inputIndex = 0;
+
+                    for (const auto &inParams : params.getAllInputParameters()) {
+                        const std::string who = "transcoder.inputs[" + std::to_string(inputIndex) + "].mxlTap";
+
+                        addWriter(inParams.getMxlTap().getDomain(), inParams.getMxlTap().getVideoFlowId(), who + ".video");
+                        addWriter(inParams.getMxlTap().getDomain(), inParams.getMxlTap().getAudioFlowId(), who + ".audio");
+
+                        if (const auto *mxlInput = dynamic_cast<const transcoder::MxlInputTransportParameters *>(
+                            inParams.getTransportParameters(Protocol::MXL)
+                        )) {
+                            if (! inParams.getUris().empty()) {
+                                std::string domain = inParams.getUris()[0].substr(std::string("mxl://").size());
+
+                                while (domain.size() > 1 && domain.back() == '/') {
+                                    domain.pop_back();
+                                }
+
+                                for (const auto &flowId : { mxlInput->getVideoFlowId(), mxlInput->getAudioFlowId(), mxlInput->getDataFlowId() }) {
+                                    if (! flowId.empty()) {
+                                        readers.insert(domain + "|" + flowId);
+                                    }
+                                }
+                            }
+                        }
+
+                        inputIndex++;
+                    }
+
+                    size_t outputIndex = 0;
+
+                    for (const auto &outParams : params.getOutputParameters()) {
+                        if (outParams.getType() == transcoder::OutputType::MXL) {
+                            const std::string who = "transcoder.outputs[" + std::to_string(outputIndex) + "].mxl";
+
+                            addWriter(outParams.getMxl().getDomain(), outParams.getMxl().getVideoFlowId(), who + ".video");
+                            addWriter(outParams.getMxl().getDomain(), outParams.getMxl().getAudioFlowId(), who + ".audio");
+                            addWriter(outParams.getMxl().getDomain(), outParams.getMxl().getDataFlowId(),  who + ".data");
+                        }
+
+                        outputIndex++;
+                    }
+
+                    for (const auto &writer : writers) {
+                        if (readers.count(writer.first)) {
+                            throw utpl::InvalidArgumentException(
+                                "MXL flow " + writer.first.substr(writer.first.find('|') + 1) + " is written by " + writer.second + " and read by an MXL input of the same channel."
+                            );
+                        }
+                    }
+                }
+
                 {
                     auto &poisParams = params.getScteParameters().getPoisParameters();
 

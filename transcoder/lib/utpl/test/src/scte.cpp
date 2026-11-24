@@ -755,3 +755,79 @@ TEST(hlsScteMarkers, aReturnToNetworkInsideASegmentStillClosesTheAvail) {
     auto lastCont = out.rfind("#EXT-X-CUE-OUT-CONT");
     EXPECT_LT(lastCont, cueIn) << out;
 }
+
+
+// withSpliceTimeZeroed: the splice moves to where pts_adjustment puts it, and an adjustment is never negative.
+TEST(scteSection, zeroedSpliceTimeKeepsEverythingElseAndAGoodCrc) {
+    for (const auto &text : { SPLICE_INSERT_OUT, TIME_SIGNAL }) {
+        const auto raw    = utils::fromBase64(text);
+        const auto zeroed = scheduler::withSpliceTimeZeroed(raw);
+
+        ASSERT_EQ(zeroed.size(), raw.size());
+        EXPECT_NE(zeroed, raw);
+
+        auto *copy = (guint8 *) g_memdup2(zeroed.data(), zeroed.size());
+        auto *section = gst_mpegts_section_new(0, copy, zeroed.size());   // refuses a section whose CRC is wrong
+
+        ASSERT_NE(section, nullptr);
+
+        const auto *sit = sitOf(section);
+        ASSERT_NE(sit, nullptr);
+
+        if (sit->splice_command_type == GST_MTS_SCTE_SPLICE_COMMAND_INSERT) {
+            auto *event = (GstMpegtsSCTESpliceEvent *) g_ptr_array_index(sit->splices, 0);
+
+            EXPECT_EQ(event->program_splice_time, 0u);
+            EXPECT_TRUE(event->program_splice_time_specified);
+            EXPECT_EQ(event->splice_event_id, 12345u);
+            EXPECT_TRUE(event->duration_flag);
+
+        } else {
+            EXPECT_EQ(sit->splice_time, 0u);
+            EXPECT_TRUE(sit->splice_time_specified);
+        }
+
+        gst_mpegts_section_unref(section);
+    }
+}
+
+TEST(scteSection, zeroedSpliceTimeGivesAnAdjustmentThatIsThePlainSpliceTimeNeverNegative) {
+    // A splice time later than the time it is re-based to: without zeroing, the adjustment wraps below zero and has bit 32 set.
+    const auto raw = utils::fromBase64(SPLICE_INSERT_OUT);
+
+    auto *wrapped = scheduler::sectionFromBase64(raw, 1 * GST_SECOND, GST_MTS_SCTE_SPLICE_COMMAND_INSERT);
+
+    ASSERT_NE(wrapped, nullptr);
+    EXPECT_NE(sitOf(wrapped)->pts_adjustment & (1ull << 32), 0u);   // the case the muxer gets wrong
+
+    auto *section = scheduler::sectionFromBase64(scheduler::withSpliceTimeZeroed(raw), 1 * GST_SECOND, GST_MTS_SCTE_SPLICE_COMMAND_INSERT);
+
+    ASSERT_NE(section, nullptr);
+    EXPECT_EQ(sitOf(section)->pts_adjustment, (uint64_t) GST_UTILS_GSTTIME_TO_MPEGTIME(1 * GST_SECOND));
+    EXPECT_EQ(sitOf(section)->pts_adjustment & (1ull << 32), 0u);
+
+    // What a receiver works out is the same either way
+    auto *event = (GstMpegtsSCTESpliceEvent *) g_ptr_array_index(sitOf(section)->splices, 0);
+    auto *event2 = (GstMpegtsSCTESpliceEvent *) g_ptr_array_index(sitOf(wrapped)->splices, 0);
+
+    EXPECT_EQ((event->program_splice_time + sitOf(section)->pts_adjustment) & PTS_MASK,
+              (event2->program_splice_time + sitOf(wrapped)->pts_adjustment) & PTS_MASK);
+
+    gst_mpegts_section_unref(section);
+    gst_mpegts_section_unref(wrapped);
+}
+
+TEST(scteSection, zeroedSpliceTimeLeavesWhatHasNoSpliceTimeAlone) {
+    // splice_null; an immediate splice_insert (flag 0x10 set, no splice_time)
+    const auto null = utils::fromBase64(SPLICE_NULL);
+
+    EXPECT_EQ(scheduler::withSpliceTimeZeroed(null), null);
+    EXPECT_EQ(scheduler::withSpliceTimeZeroed({}), std::vector<uint8_t>());
+    EXPECT_EQ(scheduler::withSpliceTimeZeroed({ 0xFC, 0x30, 0x00 }), (std::vector<uint8_t>{ 0xFC, 0x30, 0x00 }));
+
+    auto immediate = utils::fromBase64(SPLICE_INSERT_OUT);
+    immediate[19] = (immediate[19] & ~0x40) | 0x10;   // splice_immediate, not the program flag: the time is not there (CRC no longer right, which is not looked at)
+
+    EXPECT_EQ(scheduler::withSpliceTimeZeroed(immediate), immediate);
+}
+

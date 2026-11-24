@@ -375,6 +375,7 @@ namespace utpl {
 
                     ret->_videoFlowId = this->_videoFlowId;
                     ret->_audioFlowId = this->_audioFlowId;
+                    ret->_dataFlowId  = this->_dataFlowId;
                     ret->_delayMs     = this->_delayMs;
 
                     return ret;
@@ -396,6 +397,16 @@ namespace utpl {
                     this->_audioFlowId = id;
                 }
 
+                // A data flow carrying SCTE-35 (the programme output's `mxl.data`, see mxlcarrier.h). Optional; it is read next to the
+                // picture and sound flows and its cues go to the channel's SCTE-35 path, as if the source had carried them.
+                const std::string &getDataFlowId() const {
+                    return this->_dataFlowId;
+                }
+
+                void setDataFlowId(const std::string &id) {
+                    this->_dataFlowId = id;
+                }
+
                 // The flows carry the time at which their pictures and sound were made, and the writer's own
                 // processing has delayed them since. The channel plays them this many milliseconds after they
                 // arrive: the room it gives the writer for jitter. It is added to the end-to-end delay of the input.
@@ -415,6 +426,7 @@ namespace utpl {
             private:
                 std::string _videoFlowId;
                 std::string _audioFlowId;
+                std::string _dataFlowId;
                 uint32_t    _delayMs = DEFAULT_DELAY_MS;
         };
 

@@ -6,8 +6,8 @@ v1.1.0 and its GStreamer plugin are built into `utpl/base`, so every image has t
 [Phase 1 results](#phase-1-results)); the engine without MXL is measured in the
 [Phase 0 baseline](#phase-0-baseline). The MXL code in `transcoder/` is the source tap
 ([Source tap](#source-tap-step-2)), the programme output ([Programme tap](#programme-tap-step-3)) and the
-MXL input ([MXL input](#mxl-input-step-4)); a flow registry and Fabrics remain **integration gated**
-(planned, not implemented). `api/` has no MXL model beyond the `mxl` value of the probe's transport type (the
+MXL input ([MXL input](#mxl-input-step-4)). A minimal flow registry (one writer per flow, clean-up of abandoned flows, `GET /mxl/flows`) was built on 2026-11-11 ([Flow registry](#flow-registry-step-5-wp4)); an NMOS registry and Fabrics remain **integration gated**
+(planned, not implemented). `api/` has no MXL model beyond the `mxl` value of the probe's transport type and the read-only `GET /mxl/flows` (the
 engine config passes `mxlTap`, `mxl` and `transport.mxl` through untouched); the channel form can edit an MXL input
 but not the tap or the programme output.
 
@@ -491,6 +491,157 @@ into `/opt/utpl/bin/transcoder`) and the suites were run with **no scratch build
 
 Run to run on this host the lip-sync offsets move by 10 to 25 ms (A's on-air offset read −42 ms on the scratch build and −64 ms on the installed
 engine), which is why B is compared with A's on-air offset in the same run.
+
+## Flow registry (Step 5, WP4)
+
+**Built and tested on 2026-11-11 in a scratch build** (`utpl/devel:mxl`, run in `utpl/transcoder-test:mxl`); not yet run on rebuilt installed images. There is no registry process: MXL v1.1.0 has no registry and none is added.
+The registry is three checks that use only the files of the domain and MXL's own locks. Plan and reasons: [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md), section WP4; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md).
+
+| Need | What it does | Where | Verified by |
+| --- | --- | --- | --- |
+| One writer per flow in a configuration | The engine refuses to start when two writers (a tap or a programme output) name one flow, or when a flow is both written and read by the same channel. The message names the flow and both places. | `transcoder/app/src/application.cpp` (configuration check) | `tests/tests/mxl/tap/15-registry` (two cases) |
+| One writer per flow across processes | When a tap is created it asks MXL whether a writer holds the flow (`mxlIsFlowActive`). If one does, the tap is switched off with a warning and the channel carries on without it (fail-open, like every other reason the tap cannot run). | `MxlRegistry::getWriter` (`mxlregistry.cpp`), `MxlTap::create` (`mxltap.cpp`) | `15-registry`: the other writer keeps its flow (its 320-wide description is still in `flow_def.json`), the tap's other flow is written, the channel runs |
+| Abandoned flows | Once per domain, when the first tap of the process is created, the engine calls `mxlGarbageCollectFlows`, which removes flows no writer holds. | `MxlRegistry::collectGarbage`, `MxlTap::create` | `15-registry`: a flow left by a `kill -9`'d writer is gone, a flow of a live writer is not |
+| Listing | `GET /mxl/flows` returns every flow of the domain (`MXL_DOMAIN`, default `/run/mxl`) with id, label, format, size or channels, rate, the plugin's group-hint tags and `writerActive`. | `api/src/transcoder_api/routers/mxl.py`, `services/mxl.py` | `api/tests/mxl_test.py` (9 tests); read against real writers, a killed writer and a reader |
+
+`MxlRegistry` loads `libmxl.so.1` with `dlopen` when it is first needed, so the engine neither links the SDK nor needs it: without it every call answers "unknown", does nothing, and the tap runs as before (the ENABLE_MXL=0 image keeps working).
+
+### What was measured about MXL v1.1.0 (2026-11-11)
+
+- **Layout.** `<domain>/<flow id>.mxl-flow/` holds `flow_def.json` (an NMOS-style flow resource: `format`, `label`, `media_type`, `grain_rate` or `sample_rate`, `frame_width`, `frame_height`, `channel_count`, `tags`), `data`, `access`, and `grains/` (video) or `channels` (audio).
+- **A writer holds a shared `flock` on `data` and on each grain file. A reader holds none.** They show in `/proc/locks` (device and inode), so a live writer can be told from a dead one without taking any lock. The API does that, which is why it can be polled safely.
+- **MXL's own tests take an exclusive lock for an instant** (`mxlIsFlowActive`, `mxlGarbageCollectFlows`, `mxl-info -f` "Active"). A writer that is being created in that instant can fail to take its shared lock. The window is microseconds; it is why the engine does the clean-up once at start and not on a timer. Not reproduced, not measured.
+- **The GStreamer plugin runs the clean-up itself.** `mxlsink` and `mxlsrc` call `garbage_collect_flows` when they initialise (`rust/gst-mxl-rs/src/mxlsink/imp.rs`, `mxlsrc/mxl_helper.rs`): the first reader that starts on a domain removes every abandoned flow in it (seen: a `mxlsrc` on a flow whose writer was killed left the domain empty). So the engine's call adds a fixed moment (channel start) and a log line, and a timer would add nothing.
+- **A writer ended with SIGTERM (`gst-launch`) leaves its flow behind**, as a killed one does, until something runs the clean-up.
+
+### Not built, and gaps
+
+- **No check after the tap has started.** The tap asks once, when it is created. A writer that appears later on the same flow is not noticed; two writers would share the flow's memory. MXL v1.1.0 gives no way to refuse the second one. See [27](27-known-gaps-contradictions-and-remediation.md).
+- **No NMOS IS-04 registry and no discovery by name.** The group-hint tags are set by the plugin from the pipeline and element name (for example `Media Function 8 pipeline0:Video rsmxlsink0`); the engine cannot set them, so a worker is still given flow ids, not a channel name.
+- **Periodic clean-up** (60 s in the plan) was left out, for the reason above.
+- **`writerActive` needs a readable `/proc/locks`**; it is `null` when it is not (for example in a sandbox that hides it). The listing reads the domain where the API runs; in the Compose stack that is the engine's container. A separate API container would mount the domain read-only.
+- Not tested: a check racing a writer's creation; a domain that is not tmpfs; a second container writing the flow (the lock is per host kernel, so it should work, which is not shown).
+
+## SCTE-35 over MXL (Step 5, WP2)
+
+**Built and tested on 2026-11-11 and 2026-11-12 (scratch build; not run on rebuilt installed images).** SCTE-35 sections travel in an MXL **data flow** (`video/smpte291`, SMPTE ST 291 ancillary data, one grain per video frame), so an external encoder worker can read the cues next to the picture and sound. It was chosen after the trial in [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md) section 4.6; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md) (entries 14 onward). SCTE-104 is deferred by the owner; the carrier is behind one small library so another can be added.
+
+| Part | What it does | Where |
+| --- | --- | --- |
+| Carrier library | Section to ST 2038 packets (private ANC packets, DID 0x58 / SDID 0x01, **placeholders, not registered with SMPTE**, one constant), and back; a size model of the grain; `CueQueue` (the writer's cues per frame); `Deduper` (the reader's). No GStreamer. | `mxlcarrier.{h,cpp}` |
+| Writer | An output of type `mxl` with `mxl.data.flowId` adds a second chain, `appsrc ! queue ! mxlsink`, **to the video tap's own side pipeline**, and writes one grain for every video frame, empty when there is no cue. A cue is in every grain from when it is known until its splice frame (a countdown in frames), then five more frames. | `MxlTap`, `MxlOutput::putScteData` |
+| Reader | An MXL input with `transport.mxl.data.flowId` reads the flow in a probe on its own `mxlsrc`, decodes the grain, drops repeats, re-times the section with `sectionFromBase64` (the DASH path's helper) to the splice time on this channel (the grain's time plus the shift the input learned plus the countdown) and hands it to the channel's SCTE-35 path. | `SingleInput::_createMxlFlows` (`addDataFlow`) |
+| Config | `outputs[n].mxl.data`, `inputs[n].transport.mxl.data`; schema, form field and tests move with the parser. | [05](05-configuration-reference.md), `openapi.yaml`, `frontend/` |
+
+**Rules the trial gave, all built in:** one side pipeline for picture and cues (a pipeline per flow can land a cue one frame late for a whole run); a grain for every frame (a sparse flow hands a late reader a stale grain from an earlier lap of the ring); a cue over the grain size (about 3000 bytes of section, 4096 bytes in the grain) is refused and logged, because the data sink stops for good when it is given one.
+
+**Format.** User data of each packet: `N` `S` version (2), total fragments, fragment index, countdown (int32, **milliseconds** from this grain to the splice; version 1 counted whole frames), section length (u16), then up to 244 bytes of the section. A section takes about 1.37 times its size in a grain. The splice time is a **countdown in frames**, not a grain index: the writer does not know the index (the clock offset belongs to the sink's pipeline), and the reader adds the countdown to the time of the grain it read. A repeat is recognised by the section's bytes within a 1.5 s window.
+
+### Results (2026-11-12, scratch build, 720p25, source with splice_insert events every 3 s)
+
+| Test | Result |
+| --- | --- |
+| `mxlcarrier` unit tests (21) | Round trips at every fragment boundary and at the largest section; several cues in a grain; a flipped bit and a truncated buffer are reported; countdown in milliseconds at 25, 29.97, 50 and 59.94 fps with ±4 ms of jitter; stale and bounded queue; dedupe. |
+| `programme/07-scte-data` | 728 grains in 29 s with no gap between grains, 690 with cues; 24 of 24 sections the engine read are in the flow **byte for byte**, checked by a Python decoder that shares no code with the engine; every cue's splice time is the same in all its counting-down copies. |
+| `input/13-scte-data` | Channel A (source, programme with data flow) to channel B (MXL input with the data flow): all 11 events (100 to 110) come out of B on PID 500 with the contents of the source's; B's output decodes clean. |
+| `input/14-scte-alignment` | A source that flashes white 2 frames each second and carries the events. Distance from each splice to the latest flash frame: the **source puts all 12 events 520.0 ms after a flash; through MXL B puts them within 37 ms of that (under one frame), without drifting**. The in-process output, measured the same way, is off by 22 to 208 ms over two runs and drifts (80 ms in 24 s in the first). |
+| `input/14-scte-alignment`, after the grid alignment and the millisecond countdown (4 runs, 2026-11-12) | Through MXL the events lie between -32 and +46 ms of the source's placement; within a run the spread is 28 to 44 ms, and **one run in four had an event at +45.8 ms, 0.8 ms over the 45 ms limit**. The spread is the engine's own: the section's splice time is mapped to the channel's time by the demuxer, and in process the same mapping puts events hundreds of ms from the picture. The carrier's rounding to whole frames was about 20 ms of it and is gone (version 2 carries milliseconds); the rest is not the carrier's. |
+| `scte` helper unit tests (3 new) | The authored splice time is set to 0 and the CRC redone; the adjustment is then the plain splice time, never negative. |
+
+**A GStreamer muxer bug found on the way** (GStreamer 1.24.2 `mpegtsmux`, `gstbasetsmux.c` around line 2010): the SCTE-35 path adds its offset to `pts_adjustment` and writes the sum back with `section_data[4] |= pts_adjust >> 32`, which sets bit 32 and never clears it. A section whose authored splice time is later than the time it is re-based to needs a negative adjustment, held modulo 2^33 with bit 32 set; after the muxer's one-hour offset the true sum is small and has bit 32 clear, but the old bit stays, so **the splice lands 2^32 ticks (13 hours) away**. The first run of the alignment test showed it (splices 47,695 s from the picture). The reader avoids it with `scheduler::withSpliceTimeZeroed` (authored time 0, so the adjustment is never negative); the receiver's pts_time + pts_adjustment is unchanged. The bug is not patched in the muxer; the other users of `sectionFromBase64` (the DASH input, the scheduler) can meet it too when a section's authored time is later than the running time it is re-based to. See [27](27-known-gaps-contradictions-and-remediation.md).
+
+### Not done, and limits
+
+- **Not run:** another frame rate or interlaced source through the engine (the arithmetic is unit tested at 25, 29.97, 50 and 59.94); a cue near the 3000-byte limit through the real data sink (only the size model is tested: a 2800-byte section worked in the trial with a bigger header); a writer restart in the middle of a cue; a reader that joins late (the trial showed it works; not repeated in the engine); four-hour soak; SCTE-35 passthrough output type other than the MPEG-TS one; the installed images.
+- **The packet identifier is a placeholder.** Nothing outside Nandi reads the flow.
+- **The cue is on the frame within one frame, not exactly:** the splice time is a whole number of frames (the writer rounds to the nearest), on top of the time the source's demuxer gives; measured −37 to +3 ms.
+- **A data flow is for a programme output only** (no source tap), and a worker needs the video or audio flow as well.
+- **The reader waits for the picture or sound to settle the input's shift** before it takes cues, so a cue whose whole window passes before that is lost; the repeats make this only a matter of the first second.
+
+## The worker: a channel split in two (Step 5, WP3)
+
+**Status (2026-11-12): built and measured in a scratch build; one Gate A limit is not met (CPU, below), lip-sync is met with little room.** A channel can be split into a **main** engine, which
+decodes the input and writes the programme as MXL flows (an `outputs[n].type = "mxl"` output with video, audio and `data`), and a **worker**, a second engine
+whose input is those flows (`transport.uri = "mxl:///<domain>"` with `mxl.video`, `mxl.audio`, `mxl.data`) and which holds the encoders, the muxer and the
+outputs. No new configuration type: both halves use what Steps 2 to 5 built, and the worker is an ordinary channel (so it also gets the SCTE-35 cues of
+[SCTE-35 over MXL](#scte-35-over-mxl-step-5-wp2) through the same path as any input).
+
+- **Files and service.** `config/mxl_split_main.json` (RTMP input from the built-in relay, one MXL output) and `config/mxl_split_worker.json` (MXL input, an
+  SRT listener on 9093 and HLS, 1080p25 H.264 and AAC, SCTE-35 passthrough on PID 543). The flow ids in the two files are the same three UUIDs. In
+  `docker-compose.yml` the service `transcoder-worker` (profile `mxl-worker`) runs the engine only, mounts the `mxl-domain` volume **read-only**, `config/`
+  read-only and `runtime/` (for HLS), and has `restart: unless-stopped`. Start the pair with `CHANNEL=mxl_split_main.json docker compose --profile mxl-worker up -d`.
+  The compose file was validated with `docker compose config`; the pair was **not brought up from the images** (they have not been rebuilt with Step 5).
+- **Health.** The worker has no API. It is healthy while the container runs; its log has the input lines of Step 4 (how late the flows reach it, late buffers,
+  "no data ... reattaching"), and `GET /mxl/flows` on the main engine lists the flows and whether a writer holds them. Docker restarts a worker that exits.
+- **A change to the engine, found by the first measurement.** A live input (UDP, RTMP, HTTP) is held back by a three-second buffer that is only drained at the
+  pace of a clock-paced output. A channel whose outputs are **all** MXL has no such output, so the buffer filled and emptied in turn: pictures reached the flow in
+  lumps of three seconds, and a reader saw **135 of 300 pictures in 12 s**. `Engine` now creates the input of such a channel without that buffer (as SRT, DASH and
+  MXL inputs are taken: `SingleInput(useBuffering = false)`, `engine.cpp`). Measured after the change: 299 of 300 (720p) and 298 of 300 (1080p), one flash and
+  one beep a second. A channel with any other output keeps the buffer. Playlist and multi-URI (`StandardInput`) inputs are not changed. Without the buffer a jittery UDP/RTMP
+  source reaches the flow as it arrives.
+
+### Results (scratch build, 1080p25 unless stated; the in-process channel is the same source, the same encoder settings, run first)
+
+| What | In process | Main + worker | Limit (Gate A) | |
+|---|---|---|---|---|
+| Streams (codec, size, rate, audio layout) | H.264 1920x1080 25, AAC 48 kHz 2 ch, SCTE-35 PID | the same | the same streams | met |
+| Video frames per second over 24 s; largest gap | 25.000; 40 ms | 25.000; 40 ms | no drops; gap under 2 frames | met |
+| Decode errors in the first 21 s | 0 | 0 | 0 | met |
+| splice_insert events on PID 500 | 8 | 8 | every cue | met |
+| Lip-sync (flash minus beep, median of about 24 pairs), live source | -41 ms (steady within 1 ms) | -57 ms (a run before: -22, -34, -20, +23 ms from in process) | within 40 ms of in process | met in 5 of 5 clean runs, differences -34 to +23 ms; the worker's own offset moves by up to 60 ms from run to run |
+| CPU, busy picture (testsrc2), cores over 24 s | 0.84 | 0.35 + 0.78 = 1.13 | at most 1.25 times | **not met: 1.35 times** (720p: 0.40, 0.18 + 0.37 = 1.38 times) |
+| CPU, flat picture (the flash source) | 0.65 | 0.41 + 0.83 = 1.24 | | 1.9 times; encoding a flat picture is almost free, so this overstates it |
+| Keyframe within one frame of a splice (key-int-max 250, scene cut off) | 0 of 9 | 0 of 9 | (plan S1: on an IDR) | **neither does it** |
+
+- **Lip-sync: what was found, and what was fixed (2026-11-12).** The first measurements put the worker 55 to 70 ms from the in-process output, and the difference
+  changed from run to run. Taking the hop apart (the main engine's flows, a worker that only re-publishes, the worker's encoded output; many runs each):
+  - **The video was snapped to MXL's grain grid by an amount that depended on when the source started.** `mxlsink` puts a frame in grain
+    `timestamp_to_index(pts + base time + D)`, the grains being whole periods from the epoch, and a reader takes the frame to have the time of its grain; the sound is written to the sample.
+    A frame 17 ms past a boundary was therefore shown 17 ms early (or 23 late), differently at every start. Raw flows of the main engine, six runs: `2 1 54 -11 4 18` ms flash minus beep.
+    **Fix:** the video tap now works out, when its frame grid starts, how far the first frame is from a grain boundary in MXL's own clock (`mxlGetTime`, libmxl, loaded as the registry loads it;
+    the clock offset is taken as `mxlsink` takes it) and moves the pictures, the sound and the data grains of that programme by that amount (at most half a frame, 0 on average) to put the
+    pictures just past a boundary (1 ms). The audio tap of the programme waits for it (up to 2 s from its first buffer). Frames are stamped to the nanosecond at fractional rates
+    (the old rounded period drifted 0.3 ns a frame at 29.97). Same six runs after the fix: `2 3 3 4 4 4`. Nothing in it is a constant of this machine: it uses MXL's clock and the stream's rate.
+    Unit tests: `MxlFrameGridAlignment` (7), run 17 of 17.
+  - **The audio tap's wait for the pictures was counted from the tap's creation,** so a worker, which starts its taps long before its first picture, wrote its sound unmoved. Counted from the first buffer. The worker's
+    spread fell from about 32 ms to 13 ms.
+  - **What remains.** In process the offset is steady (-41 ms: the AAC encoder's delay is most of it). The worker's moves by up to 60 ms from run to run (-18 to -76 ms in five clean runs) and its
+    cause is not found; occasionally the picture is a whole frame (40 ms) off, as an outlier also seen in the main engine's flows (44 ms in one run of four). The gate (40 ms from in process) was met in
+    every clean run, but with little room. Measure it one run at a time: with six runs side by side on this 28-core host the encoders starve and the readings are meaningless (435 ms, none).
+  - **A source of its own.** With the file-based SCTE source (tsp) over UDP, a channel with only MXL outputs wrote its flows with video 24 ms ahead of the sound (4 of 4 runs), and 0 ms when the same
+    channel also had an on-air output (which keeps the three-second buffer). A live ffmpeg source over UDP or SRT gave +3 ms (one run in four +44), so test `01` uses a live source. Cause not found (timestamps
+    are the same in both modes; the pictures arrive 300 ms before the sound with that source).
+- **CPU.** Splitting costs about 0.3 core at 1080p25 and 0.15 core at 720p25 over the in-process channel, mostly the raw copying through v210 (the programme
+  tap writes it, the worker reads and converts it again). With a heavier encode (medium preset, more bitrate) the same absolute cost is a smaller ratio.
+- **Keyframes at splice points.** The plan assumed the muxer makes the encoder cut a keyframe at each splice. With the encoder's scene-cut detection off and a
+  10 s key interval, **the in-process output has none within one frame of the splice either**, so the worker is no worse. Why the muxer's request has no effect
+  was not found (the request is made from the `running-time-map` of the section; the engine has a probe that drops upstream key-unit requests at the encoder's
+  sink pad). Recorded in [27](27-known-gaps-contradictions-and-remediation.md).
+
+Tests: `tests/tests/mxl/worker/01-split` (streams, decode, frames, lip-sync with a live source), `02-splice-keyframe` (the SCTE events, and the worker no worse than in process on keyframes;
+passes with 9 and 9 events, 0 and 0 keyframes), `03-cost` (**fails on the 1.25 limit**), `04` to `08` (failure behaviour, above), helpers `tests/framework/mxl_worker.sh` and `scte_idr.py`. The domain of these tests is in `/dev/shm`
+(a domain on the disk of the test machine did not keep up with 140 MB/s at 1080p). Run with `--shm-size=1g`.
+
+### Failure behaviour (Step 5, WP5; built and tested 2026-11-13)
+
+Q8 (fail open) holds in every case tested: **the main engine never notices what happens to a worker**, and a worker recovers by itself when what it reads comes back. Scratch build, 720p25, one run
+at a time; the "coarse" times come from a probe that records 2 s of the worker's output at a random place in its group of pictures, so they are upper bounds.
+
+| Event | What was measured | Test |
+| --- | --- | --- |
+| Worker killed (SIGKILL), 6 s dead, started again | Main: flow lag 31.5 ms against 38.8 before (grain steps are 40 ms), CPU 0.15 against 0.15 cores, no error in its log. The worker's output is gone while it is dead; the new worker shows picture and tone again 7.2 s after it was started (coarse; the engine's own start is a part). Docker does the restart in a deployment (`restart: unless-stopped`; not run here). | `worker/04-worker-killed` (T5) |
+| Worker starved of CPU (one CPU shared with three busy loops, nice 19, 12 s) | The worker got 0.03 of a CPU and its output stopped. Main: lag 20.6 and 20.3 ms against 17.8 and 5.0, CPU 0.16 against 0.16 and 0.17, no error. The worker logged one late flow (193 ms later than the 500 ms delay allows) and recovered about 1 s after the load was gone (2 runs). At normal priority the same loops left it a fifth of a CPU, its output stayed and nothing was late. | `worker/05-worker-slow` (T6) |
+| Main killed, 6 s dead, started again | The worker keeps running; its output has no picture and tone while the programme is gone; the worker has the flows again **0.5 s** after the restarted main engine writes (by the logs; 5.8 s by the coarse probe) and 22 reattach lines in its log. No error in the worker's log. | `worker/06-main-restarted` (T9) |
+| A cue pending while the worker restarts (plan S5) | The worker was killed after event 102 and started again 14 s into the source: events 103 to 111 were all carried by the new worker (none lost, none twice, none in both lives), at 26 to 30 ms from where the source put them (limit 45 ms). The cue repeated in the data flow is what a worker that has just joined reads. | `worker/07-cue-worker-restart` (T10) |
+| A cue during a restart of the main engine (plan S6) | Events 103 to 111 all came after the restart, none lost, none twice, at most 39.5 ms from the source's placement. The kill fell between two events, so a cue that reaches the source while the main engine is down was **not** exercised: the source sends each section once and such a cue is lost (page 27). | `worker/08-cue-main-restart` |
+
+Not tested here: a full tmpfs (Step 3 tests it for the output), and Docker doing the restart.
+
+### Not done
+
+The worker with the domain mounted read-only **in the engine** (the SDK
+checks show a read-only mount works; the engine has not been run that way), two workers on one programme, the pair from the installed images, a one-hour Gate A run,
+and the multi-audio programme (WP6).
 
 ## What the source answers
 

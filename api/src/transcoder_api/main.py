@@ -23,6 +23,7 @@ from .routers import schedule, input, graphics, playout, rundown, slates
 from .routers import config
 from .routers import license
 from .routers import stats
+from .routers import mxl
 from .db import SessionLocal, verify_schema
 from .services import media
 from .services import rundown as rundown_service
@@ -125,6 +126,7 @@ app.include_router(schedule.router)
 app.include_router(config.router)
 app.include_router(license.router)
 app.include_router(stats.router)
+app.include_router(mxl.router)
 app.include_router(graphics.router)
 app.include_router(slates.router)
 app.include_router(playout.router)

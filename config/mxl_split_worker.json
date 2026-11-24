@@ -1,0 +1,115 @@
+{
+    "version": "1.4.2",
+    "application": {
+        "logger": {
+            "transcoder": {
+                "level": "log",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": true
+                }
+            },
+            "gstreamer": {
+                "level": "warning",
+                "console": {
+                    "enable": true,
+                    "colors": false,
+                    "stderr": false
+                }
+            }
+        }
+    },
+    "transcoder": {
+        "inputs": [
+            {
+                "transport": {
+                    "uri": "mxl:///run/mxl",
+                    "mxl": {
+                        "video": {
+                            "flowId": "ec1ab822-c51a-4ff2-abc8-d88a772a656a"
+                        },
+                        "audio": {
+                            "flowId": "0d0f2159-4a1c-4d9d-a7d4-788f122c9825"
+                        },
+                        "data": {
+                            "flowId": "6b890337-2082-459a-b94a-abf147ee414c"
+                        },
+                        "delayMs": 500
+                    }
+                }
+            }
+        ],
+        "outputs": [
+            {
+                "name": "worker-output",
+                "type": "single",
+                "transports": [
+                    {
+                        "uri": "srt://0.0.0.0:9093?mode=listener",
+                        "srt": {
+                            "mode": "listener",
+                            "latency": 120
+                        }
+                    },
+                    {
+                        "uri": "hls+file:/runtime/hls",
+                        "hls": {
+                            "numSegments": 6,
+                            "segmentLength": 4,
+                            "singleDirectory": true,
+                            "vodMode": false,
+                            "adMarkers": [
+                                "enhanced"
+                            ]
+                        }
+                    }
+                ],
+                "container": "mpegts",
+                "streams": [
+                    {
+                        "type": "audio",
+                        "codec": "aac",
+                        "audio": {
+                            "rate": 48000,
+                            "channels": 2
+                        },
+                        "aac": {
+                            "encoder": "fdkaacenc",
+                            "properties": {
+                                "bitrate": "128000"
+                            },
+                            "caps": {}
+                        }
+                    },
+                    {
+                        "type": "video",
+                        "codec": "h264",
+                        "video": {
+                            "width": 1920,
+                            "height": 1080,
+                            "rate": 25,
+                            "format": "I420"
+                        },
+                        "h264": {
+                            "encoder": "x264enc",
+                            "properties": {
+                                "key-int-max": "50",
+                                "tune": "zerolatency",
+                                "speed-preset": "veryfast",
+                                "bitrate": "6000"
+                            },
+                            "caps": {
+                                "profile": "high"
+                            }
+                        }
+                    }
+                ],
+                "scte": {
+                    "mode": "passthrough",
+                    "pid": 543
+                }
+            }
+        ]
+    }
+}

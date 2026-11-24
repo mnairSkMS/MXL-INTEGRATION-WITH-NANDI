@@ -195,6 +195,9 @@ function mxl_require_engine() {
 #   MXL_OUT_AUDIO        output audio channels (default 2)
 #   MXL_OUT_PORT         the udp port the on-air output goes to (default MXL_PORT_OUT)
 #   MXL_EXTRA_OUTPUT     one more output object, for example the result of mxl_programme_json
+#   MXL_OUT_KEYINT       the video encoder's key-int-max (default 50)
+#   MXL_OUT_X264OPTS     x264's option-string, for example scenecut=0 (default: none)
+#   MXL_OUT_SCTE         the value of the output's "scte" block, for example '{ "pid": 500, "mode": "passthrough" }' (default: none)
 function mxl_write_config() {
     local file="$1" tap="$2" extra="" transport size="${MXL_OUT_SIZE:-1280x720}"
     [ -n "$tap" ] && extra=", \"mxlTap\": $tap"
@@ -204,13 +207,13 @@ function mxl_write_config() {
   "application": { "logger": { "transcoder": { "level": "trace", "console": { "enable": true, "colors": false, "stderr": false } } } },
   "transcoder": {
     "inputs": [ { "transport": { ${transport} }${extra} } ],
-    "outputs": [ { "transports": [ { "uri": "udp://127.0.0.1:${MXL_OUT_PORT:-$MXL_PORT_OUT}" } ], "container": "mpegts",
+    "outputs": [ { "transports": [ { "uri": "udp://127.0.0.1:${MXL_OUT_PORT:-$MXL_PORT_OUT}" } ], "container": "mpegts",${MXL_OUT_SCTE:+ \"scte\": ${MXL_OUT_SCTE},}
       "streams": [
         { "type": "audio", "codec": "aac", "audio": { "rate": 48000, "channels": ${MXL_OUT_AUDIO:-2} },
           "aac": { "encoder": "fdkaacenc", "properties": { "bitrate": "128000" }, "caps": {} } },
         { "type": "video", "codec": "h264", "video": { "width": ${size%x*}, "height": ${size#*x} },
           "h264": { "encoder": "x264enc",
-                    "properties": { "key-int-max": "50", "tune": "zerolatency", "speed-preset": "veryfast", "bitrate": "3000" },
+                    "properties": { "key-int-max": "${MXL_OUT_KEYINT:-50}", "tune": "zerolatency", "speed-preset": "veryfast", "bitrate": "3000"${MXL_OUT_X264OPTS:+, \"option-string\": \"${MXL_OUT_X264OPTS}\"} },
                     "caps": { "profile": "high" } } } ] }${MXL_EXTRA_OUTPUT:+, ${MXL_EXTRA_OUTPUT}} ] } }
 JSON
 }
@@ -232,11 +235,13 @@ function mxl_tap_json() {
 
 # mxl_input_json [video flow id] [audio flow id] [domain]: the members of an input's "transport" object for an
 # MXL input (use as MXL_INPUT_TRANSPORT). An empty flow id leaves that flow out; the default is both flows
-# with the fixed ids, in the test's domain. MXL_INPUT_DELAY_MS, when set, adds "delayMs".
+# with the fixed ids, in the test's domain. MXL_INPUT_DELAY_MS, when set, adds "delayMs"; MXL_INPUT_DATA_FLOW, when set, adds the
+# SCTE-35 data flow with that id.
 function mxl_input_json() {
     local video="${1-$MXL_FLOW_VIDEO}" audio="${2-$MXL_FLOW_AUDIO}" domain="${3:-$MXL_DOMAIN}" flows=""
     [ -n "$video" ] && flows="\"video\": { \"flowId\": \"$video\" }"
     [ -n "$audio" ] && flows="${flows:+$flows, }\"audio\": { \"flowId\": \"$audio\" }"
+    [ -n "$MXL_INPUT_DATA_FLOW" ] && flows="${flows:+$flows, }\"data\": { \"flowId\": \"${MXL_INPUT_DATA_FLOW}\" }"
     [ -n "$MXL_INPUT_DELAY_MS" ] && flows="${flows:+$flows, }\"delayMs\": ${MXL_INPUT_DELAY_MS}"
     echo "\"uri\": \"mxl://${domain}\", \"mxl\": { $flows }"
 }
@@ -249,6 +254,7 @@ function mxl_input_json() {
 #   ac3   as tone, with AC-3 audio. MXL_SRC_AUDIO selects the layout: "stereo" (default) or "5.1",
 #         in which the tone is on the centre channel only
 #   scte  as tone, with SCTE-35 splice_null sections every second on a data PID of their own
+#   scte-sync  as sync, with the splice_insert events of scte (PID 500)
 # Variations, by environment: MXL_SRC_PORT (default the engine's input port), MXL_SRC_FREQ (tone, default 1000 Hz).
 # The size may be given as WxH, rate as 25, 50 or 60000/1001. Sets MXL_SRC_PID.
 function mxl_start_source() {
@@ -256,6 +262,11 @@ function mxl_start_source() {
     local port="${MXL_SRC_PORT:-$MXL_PORT_IN}"
     case "$kind" in
         sync)
+            video="color=c=black:s=${size}:r=${rate},geq=lum='if(lt(mod(T\,1)\,0.08)\,235\,16)':cb=128:cr=128"
+            audio="aevalsrc='if(lt(mod(t\,1)\,0.04)\,0.5*sin(2*PI*1000*t)\,0)':s=48000:c=stereo"
+            ;;
+        scte-sync)
+            # the flash-and-beep picture of "sync", carrying the same splice_insert events as "scte"
             video="color=c=black:s=${size}:r=${rate},geq=lum='if(lt(mod(T\,1)\,0.08)\,235\,16)':cb=128:cr=128"
             audio="aevalsrc='if(lt(mod(t\,1)\,0.04)\,0.5*sin(2*PI*1000*t)\,0)':s=48000:c=stereo"
             ;;
@@ -280,7 +291,7 @@ function mxl_start_source() {
             audio="sine=frequency=${freq}:sample_rate=48000"
             ;;
     esac
-    if [ "$kind" = "scte" ]; then
+    if [ "$kind" = "scte" ] || [ "$kind" = "scte-sync" ]; then
         # ffmpeg cannot write an SCTE-35 PID, so tsp adds one to a file, offline as the other SCTE tests do,
         # and the file is then played out in real time with tsp. A splice_insert every 3 s from 9 s to 42 s on PID 500 (more than 12 events make tsp hang).
         if [ ! -f "$MXL_TMP/scte.ts" ]; then
@@ -313,11 +324,12 @@ function mxl_start_source() {
 }
 
 # mxl_start_engine <config> [tag]: starts the engine in the background (log: $MXL_TMP/engine.log, or engine-<tag>.log
-# for a second engine in the same test). Sets MXL_ENGINE_PID.
+# for a second engine in the same test). Sets MXL_ENGINE_PID. MXL_ENGINE_WRAP, when set, is a command put before the engine (for example
+# "taskset -c 0"); MXL_ENGINE_PID is then the PID of that command, which is the engine's when the command execs it (taskset does).
 function mxl_start_engine() {
     local tag="${2:+-$2}"
     mkdir -p "$MXL_TMP/db"; : > "$MXL_TMP/db/e${tag}.sqlite"
-    "$MXL_ENGINE" -c "$1" -l "$MXL_LICENSE" -b "$MXL_TMP/db/e${tag}.sqlite" > "$MXL_TMP/engine${tag}.log" 2>&1 &
+    $MXL_ENGINE_WRAP "$MXL_ENGINE" -c "$1" -l "$MXL_LICENSE" -b "$MXL_TMP/db/e${tag}.sqlite" > "$MXL_TMP/engine${tag}.log" 2>&1 &
     MXL_ENGINE_PID=$!
     MXL_PIDS+=("$MXL_ENGINE_PID")
 }

@@ -28,7 +28,8 @@ static utpl::Pid _parseStreamPid(const nlohmann::json &json) {
 // Two streams, or a stream and the SCTE-35 track, on one PID would break the multiplex.
 // The domain, flow ids and audio channels of an MXL block: the input's "mxlTap" and the output's "mxl"
 // have the same keys. `where` names the block in the messages ("transcoder.inputs[0].mxlTap").
-static utpl::transcoder::MxlTapParameters _parseMxlFlows(const nlohmann::json &json, const std::string &where) {
+// `allowData` is true for the output, which may also name a "data" flow for SCTE-35.
+static utpl::transcoder::MxlTapParameters _parseMxlFlows(const nlohmann::json &json, const std::string &where, bool allowData = false) {
     utpl::transcoder::MxlTapParameters tap;
 
     if (! json.is_object()) {
@@ -64,8 +65,26 @@ static utpl::transcoder::MxlTapParameters _parseMxlFlows(const nlohmann::json &j
     tap.setVideoFlowId(parseFlowId("video"));
     tap.setAudioFlowId(parseFlowId("audio"));
 
+    if (json.contains("data") && ! json["data"].is_null()) {
+        if (! allowData) {
+            throw utpl::InvalidArgumentException(where + ".data is not supported here: only an MXL output carries SCTE-35 in a data flow");
+        }
+
+        tap.setDataFlowId(parseFlowId("data"));
+    }
+
     if (tap.getVideoFlowId().empty() && tap.getAudioFlowId().empty()) {
         throw utpl::InvalidArgumentException(where + " needs a video or an audio flow");
+    }
+
+    if (! tap.getDataFlowId().empty()) {
+        if (tap.getVideoFlowId().empty()) {
+            throw utpl::InvalidArgumentException(where + ".data needs a video flow: the cues are written with the picture, one grain per frame");
+        }
+
+        if (tap.getDataFlowId() == tap.getVideoFlowId() || tap.getDataFlowId() == tap.getAudioFlowId()) {
+            throw utpl::InvalidArgumentException(where + ".data needs a flow id of its own");
+        }
     }
 
     if (! tap.getVideoFlowId().empty() && tap.getVideoFlowId() == tap.getAudioFlowId()) {
@@ -194,6 +213,7 @@ static std::unique_ptr<utpl::transcoder::MxlInputTransportParameters> _parseMxlI
 
     ret->setVideoFlowId(parseFlowId("video"));
     ret->setAudioFlowId(parseFlowId("audio"));
+    ret->setDataFlowId(parseFlowId("data"));
 
     if (ret->getVideoFlowId().empty() && ret->getAudioFlowId().empty()) {
         throw utpl::InvalidArgumentException(where + ".mxl needs a video or an audio flow");
@@ -201,6 +221,10 @@ static std::unique_ptr<utpl::transcoder::MxlInputTransportParameters> _parseMxlI
 
     if (ret->getVideoFlowId() == ret->getAudioFlowId()) {
         throw utpl::InvalidArgumentException(where + ".mxl video and audio need different flow ids");
+    }
+
+    if (! ret->getDataFlowId().empty() && (ret->getDataFlowId() == ret->getVideoFlowId() || ret->getDataFlowId() == ret->getAudioFlowId())) {
+        throw utpl::InvalidArgumentException(where + ".mxl data needs a flow id of its own");
     }
 
     if (json.contains("delayMs") && ! json["delayMs"].is_null()) {
@@ -909,9 +933,18 @@ app::ApplicationConfig app::MultiVersionConfigJsonParser::parse(const std::strin
                             }
 
                             const auto &mxlJson = output["mxl"];
-                            const auto  mxl     = _parseMxlFlows(mxlJson, where);
+                            const auto  mxl     = _parseMxlFlows(mxlJson, where, true);
 
                             outputParams.setMxl(mxl);
+
+                            // An output with a data flow carries the programme's SCTE-35 as it comes (passthrough): it has no
+                            // "scte" block of its own. Without a data flow it carries none.
+                            if (! mxl.getDataFlowId().empty()) {
+                                utpl::transcoder::ScteOutputParameters scteParams;
+
+                                scteParams.setMode(utpl::transcoder::ScteOutputMode::PASSTHROUGH);
+                                outputParams.setScteParameters(scteParams);
+                            }
 
                             if (! mxl.getVideoFlowId().empty()) {
                                 utpl::transcoder::StreamParameters streamParams;

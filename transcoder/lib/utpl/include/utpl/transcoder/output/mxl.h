@@ -29,7 +29,8 @@ namespace utpl {
 
                 pipeline::ElementPtr getNode() override;
 
-                // SCTE-35 does not travel in an MXL flow (decision Q7 of the plan).
+                // With `mxl.data.flowId` the programme's SCTE-35 goes into that MXL data flow (Q7: this engine keeps the timeline,
+                // the flow carries the finished cues). Without it the output carries none.
                 void putScteData(const Scte35Data &data) override;
 
                 const OutputParameters &getOutputParameters() const override;
