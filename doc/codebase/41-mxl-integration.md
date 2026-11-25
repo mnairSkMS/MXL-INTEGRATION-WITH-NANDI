@@ -1,6 +1,6 @@
 # MXL and MXL Fabrics Integration
 
-**Status (2026-11-05): Phase 0 (baseline) and Phase 1 are done, and the source tap (Step 2), the programme output (Step 3) and the MXL input (Step 4) are implemented and tested; an external encoder and Fabrics are not.** MXL
+**Status (2026-11-05): Phase 0 (baseline) and Phase 1 are done, and the source tap (Step 2), the programme output (Step 3) and the MXL input (Step 4) are implemented and tested; an external encoder worker was added in Step 5 ([The worker](#the-worker-a-channel-split-in-two-step-5-wp3)); Fabrics is not built, and Step 6 (Fabrics) was skipped by the owner on 2026-11-24.** MXL
 v1.1.0 and its GStreamer plugin are built into `utpl/base`, so every image has them. They are
 **Build verified** and **Runtime verified** by the SDK tests in `tests/tests/mxl/sdk/` (see
 [Phase 1 results](#phase-1-results)); the engine without MXL is measured in the
@@ -494,7 +494,7 @@ engine), which is why B is compared with A's on-air offset in the same run.
 
 ## Flow registry (Step 5, WP4)
 
-**Built and tested on 2026-11-11 in a scratch build** (`utpl/devel:mxl`, run in `utpl/transcoder-test:mxl`); not yet run on rebuilt installed images. There is no registry process: MXL v1.1.0 has no registry and none is added.
+**Built and tested on 2026-11-11 in a scratch build** (`utpl/devel:mxl`, run in `utpl/transcoder-test:mxl`), and on 2026-11-24 on the rebuilt installed images ([full run](#step-5-on-the-installed-images-2026-11-24-and-25)). There is no registry process: MXL v1.1.0 has no registry and none is added.
 The registry is three checks that use only the files of the domain and MXL's own locks. Plan and reasons: [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md), section WP4; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md).
 
 | Need | What it does | Where | Verified by |
@@ -524,7 +524,7 @@ The registry is three checks that use only the files of the domain and MXL's own
 
 ## SCTE-35 over MXL (Step 5, WP2)
 
-**Built and tested on 2026-11-11 and 2026-11-12 (scratch build; not run on rebuilt installed images).** SCTE-35 sections travel in an MXL **data flow** (`video/smpte291`, SMPTE ST 291 ancillary data, one grain per video frame), so an external encoder worker can read the cues next to the picture and sound. It was chosen after the trial in [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md) section 4.6; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md) (entries 14 onward). SCTE-104 is deferred by the owner; the carrier is behind one small library so another can be added.
+**Built and tested on 2026-11-11 and 2026-11-12 in a scratch build, and on 2026-11-24 on the rebuilt installed images ([full run](#step-5-on-the-installed-images-2026-11-24-and-25)).** SCTE-35 sections travel in an MXL **data flow** (`video/smpte291`, SMPTE ST 291 ancillary data, one grain per video frame), so an external encoder worker can read the cues next to the picture and sound. It was chosen after the trial in [`doc/mxl/step5-plan-2026-11-11.md`](../mxl/step5-plan-2026-11-11.md) section 4.6; every change is in [`doc/mxl/step5-change-log.md`](../mxl/step5-change-log.md) (entries 14 onward). SCTE-104 is deferred by the owner; the carrier is behind one small library so another can be added.
 
 | Part | What it does | Where |
 | --- | --- | --- |
@@ -560,7 +560,7 @@ The registry is three checks that use only the files of the domain and MXL's own
 
 ## The worker: a channel split in two (Step 5, WP3)
 
-**Status (2026-11-12): built and measured in a scratch build; one Gate A limit is not met (CPU, below), lip-sync is met with little room.** A channel can be split into a **main** engine, which
+**Status (2026-11-25): built, and run on the installed images. The CPU limit of Gate A was met in every run at 1080p25 and missed in one of five at 720p25 ([below](#step-5-on-the-installed-images-2026-11-24-and-25)); lip-sync is met with little room.** The results table is the scratch build's (2026-11-12). A channel can be split into a **main** engine, which
 decodes the input and writes the programme as MXL flows (an `outputs[n].type = "mxl"` output with video, audio and `data`), and a **worker**, a second engine
 whose input is those flows (`transport.uri = "mxl:///<domain>"` with `mxl.video`, `mxl.audio`, `mxl.data`) and which holds the encoders, the muxer and the
 outputs. No new configuration type: both halves use what Steps 2 to 5 built, and the worker is an ordinary channel (so it also gets the SCTE-35 cues of
@@ -589,7 +589,7 @@ outputs. No new configuration type: both halves use what Steps 2 to 5 built, and
 | Decode errors in the first 21 s | 0 | 0 | 0 | met |
 | splice_insert events on PID 500 | 8 | 8 | every cue | met |
 | Lip-sync (flash minus beep, median of about 24 pairs), live source | -41 ms (steady within 1 ms) | -57 ms (a run before: -22, -34, -20, +23 ms from in process) | within 40 ms of in process | met in 5 of 5 clean runs, differences -34 to +23 ms; the worker's own offset moves by up to 60 ms from run to run |
-| CPU, busy picture (testsrc2), cores over 24 s | 0.84 | 0.35 + 0.78 = 1.13 | at most 1.25 times | **not met: 1.35 times** (720p: 0.40, 0.18 + 0.37 = 1.38 times) |
+| CPU, busy picture (testsrc2), cores over 24 s | 0.84 | 0.35 + 0.78 = 1.13 | at most 1.25 times | not met on the scratch build: 1.35 times (720p: 0.40, 0.18 + 0.37 = 1.38 times). **Different on the installed images, [below](#step-5-on-the-installed-images-2026-11-24-and-25)** |
 | CPU, flat picture (the flash source) | 0.65 | 0.41 + 0.83 = 1.24 | | 1.9 times; encoding a flat picture is almost free, so this overstates it |
 | Keyframe within one frame of a splice (key-int-max 250, scene cut off) | 0 of 9 | 0 of 9 | (plan S1: on an IDR) | **neither does it** |
 
@@ -619,7 +619,7 @@ outputs. No new configuration type: both halves use what Steps 2 to 5 built, and
   sink pad). Recorded in [27](27-known-gaps-contradictions-and-remediation.md).
 
 Tests: `tests/tests/mxl/worker/01-split` (streams, decode, frames, lip-sync with a live source), `02-splice-keyframe` (the SCTE events, and the worker no worse than in process on keyframes;
-passes with 9 and 9 events, 0 and 0 keyframes), `03-cost` (**fails on the 1.25 limit**), `04` to `08` (failure behaviour, above), helpers `tests/framework/mxl_worker.sh` and `scte_idr.py`. The domain of these tests is in `/dev/shm`
+passes with 9 and 9 events, 0 and 0 keyframes), `03-cost` (the 1.25 limit: failed on the scratch build, passes on the installed images except now and then at 720p25), `04` to `08` (failure behaviour, above), helpers `tests/framework/mxl_worker.sh` and `scte_idr.py`. The domain of these tests is in `/dev/shm`
 (a domain on the disk of the test machine did not keep up with 140 MB/s at 1080p). Run with `--shm-size=1g`.
 
 ### Failure behaviour (Step 5, WP5; built and tested 2026-11-13)
@@ -640,8 +640,33 @@ Not tested here: a full tmpfs (Step 3 tests it for the output), and Docker doing
 ### Not done
 
 The worker with the domain mounted read-only **in the engine** (the SDK
-checks show a read-only mount works; the engine has not been run that way), two workers on one programme, the pair from the installed images, a one-hour Gate A run,
+checks show a read-only mount works; the engine has not been run that way), two workers on one programme, the Compose pair, a one-hour Gate A run,
 and the multi-audio programme (WP6).
+
+### Step 5 on the installed images (2026-11-24 and 25)
+
+The images (`utpl/base`, `devel`, `transcoder`, `transcoder-test`, tag `mxl`) were rebuilt on 2026-11-24 with the Step 5 work in them, and
+`tests/run.sh mxl` was run once with no scratch build mounted: **51 of 53 pass** (9 SDK, 15 source tap, 7 programme, 14 input, 6 of 8 worker).
+The engine unit tests, the API tests and the front-end tests were not run again for this.
+
+| Failed | What happened |
+| --- | --- |
+| `worker/05-worker-slow` | The starved worker (0.15 of a CPU) stopped its output and came back 0.95 s after the load went, and the main engine did not notice, but the worker logged **no late flow**, which the test expects. See [27](27-known-gaps-contradictions-and-remediation.md). |
+| `worker/07-cue-worker-restart` | Events 103 to 111 all came after the restart, none lost or doubled, but event 110 was +50.6 ms from the source's placement (limit 45 ms), and the same in process. |
+
+Also in that run: a killed worker was back 7.02 s after its start (`04`), the worker had its flows 0.5 s after a restarted main engine wrote
+(`06`), event 103 was lost while the main engine was down (`08`), and neither side cut a keyframe at a splice (0 of 9, `02`).
+
+**CPU of the split channel** (`worker/03-cost`, busy picture; core figures read about 12 % high, see [27](27-known-gaps-contradictions-and-remediation.md)):
+
+| Runs | In process, cores | Main + worker, cores | Ratio (limit 1.25) |
+| --- | --- | --- | --- |
+| 1080p25, all CPUs, 6 runs | 1.57 to 1.84 | 1.67 to 1.86 | 0.94 to 1.10 (median 1.06): **all pass** |
+| 1080p25, fast cores only, 3 runs | 1.33 to 1.41 | 1.28 to 1.68 | 0.96, 1.06, 1.23: all pass |
+| 720p25, all CPUs, 5 runs | 1.10 to 1.28 | 1.20 to 1.56 | 0.96, 1.10, 1.11, 1.24, **1.39**: one over |
+
+The scratch build's 1.35 to 1.39 times at 1080p25 was not seen again. **The reason is not known:** the previous figures come from a scratch build
+on the previous machine, and the in-process channel's CPU roughly doubled between the two while the pair's rose by about half.
 
 ## What the source answers
 
@@ -756,7 +781,7 @@ implemented and pass; the rest are planned.
 | T5–T7 | External QC + encoder readers; consumer restart; slow reader / overrun | `tests/tests/mxl/` | T4, fail-open/closed decision |
 | T8 | MXL input: 30000/1001 timing, writer restart, discontinuity, loopback | `tests/tests/mxl/input/` (11 tests), implemented and passing | Done for the cases listed in its section; Gate A limits not agreed |
 | T9–T10 | Multi-audio and Dolby; SCTE-35 during worker restart | `tests/tests/mxl/` | Multi-audio fix, SCTE timeline decision |
-| T11–T15 | Fabrics TCP then RDMA; hardware encoders; multi-channel soak; host failure; permissions | Later | Second host, NICs, hardware |
+| T11–T15 | Fabrics TCP then RDMA; hardware encoders; multi-channel soak; host failure; permissions | Later | Second host, NICs, hardware. The Fabrics tests are dropped with Step 6 (skipped 2026-11-24) |
 
 Follow [23](23-testing-and-validation.md) for media assertions: a zero exit status is not a pass.
 Proposed acceptance gates A–E are in the brief, section 10.4. Agree their numeric limits **before**
@@ -778,7 +803,7 @@ need it.
    decisions in [42, section 7](42-mxl-implementation-plan.md#7-proposed-defaults-for-the-open-decisions)
    were used as proposed and are not yet approved.
 4. **WS-04 – WS-09:** audio/Dolby flows, external workers, SCTE event plane, registry and
-   observability, Fabrics, accelerators. See the brief, section 11.
+   observability, Fabrics (skipped by the owner on 2026-11-24), accelerators. See the brief, section 11.
 
 ## Open decisions
 
