@@ -286,3 +286,10 @@ runs of 7 to 28 seconds. Logs: `../experiments/scte-over-mxl/results/` (`matrix-
 - **Found:** (1) a worker that is slow but not stopped does not read late (at normal priority with three busy loops it kept 0.21 CPU, its output and logged nothing), so `05` starves it with nice 19; (2) a cue that reaches the source while the main engine is down is lost, because the source sends each section once, and the kill in `08` fell between two events, so that case is described and not measured. Both in page 27.
 - **Mistakes on the way:** the first probe was too strict (a 2 s capture can start between keyframes and hold nothing, so the first check now retries); the first main-CPU figure in `05` was measured over the starvation and the probe after it (17 s counted as 12), which made an unchanged main look 40% busier; the two lives of a worker overlap in time (each engine counts its timestamps from its own start), so the cue tests capture each life to its own file; TSDuck prints event ids in hex.
 - **Status:** not committed.
+
+### 2026-11-24 and 25 · 28 · Tests · Installed images: full MXL run, and the worker's CPU cost repeated
+- **Why:** all Step 5 results came from a scratch build, and no full run of the 53 MXL tests had been made.
+- **What:** the four `utpl/*:mxl` images rebuilt; `tests/run.sh mxl` once; then `worker/03-cost` repeated: 5 runs at 1080p25, 3 more held to the fast cores (`docker --cpuset-cpus`), 5 at 720p25 (`SIZE=1280x720`). No engine or test change.
+- **Result:** full run 51 of 53 (`worker/05`: no late flow logged by the starved worker; `worker/07`: one event at +50.6 ms, the same in process). CPU, main plus worker over in process: 1080p25 0.94 to 1.10 (6 runs counting the full run's), fast cores 0.96 to 1.23; 720p25 0.96 to 1.39, one run of five over 1.25. Tables in page 41.
+- **Not found:** why the CPU ratio differs from the scratch build's 1.35 to 1.39.
+- **Not covered:** the unit, API and front-end tests; the 1-hour Gate A run; the two-worker run; the Compose service.
