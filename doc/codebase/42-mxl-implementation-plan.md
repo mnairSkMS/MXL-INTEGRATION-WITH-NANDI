@@ -114,6 +114,8 @@ moves to the worker.
 
 ### 3.6 MXL Fabrics (WS-08, Phase 4)
 
+**Skipped by the owner on 2026-11-24: not to be built.** The design below is kept as a record.
+
 **Replaced: nothing in Nandi.** A separate `mxl-fabrics` process replicates a flow from the local
 domain to a remote host's domain. Remote workers use `mxlsrc` as in 3.5.
 
@@ -328,7 +330,9 @@ The table below is the original plan for the step.
 | Compose | A worker service sharing the `mxl-domain` volume read-only. |
 | Tests | T5–T7, T9, T10: consumer restart, slow reader, multi-audio, SCTE during restart. |
 
-### Step 6: Fabrics (Phase 4, WS-08)
+### Step 6: Fabrics (Phase 4, WS-08) — SKIPPED 2026-11-24
+
+**Skipped by the owner: not to be built.** The plan below is kept as a record.
 
 No Nandi media-graph change. Two hosts run `mxl-fabrics` over TCP and then Verbs/EFA, compared
 against a compressed SRT feed under contention (T11). Fabrics is built into `utpl/base` in Step 1 if

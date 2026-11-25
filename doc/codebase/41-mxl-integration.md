@@ -1,6 +1,6 @@
 # MXL and MXL Fabrics Integration
 
-**Status (2026-11-05): Phase 0 (baseline) and Phase 1 are done, and the source tap (Step 2), the programme output (Step 3) and the MXL input (Step 4) are implemented and tested; an external encoder worker was added in Step 5 ([The worker](#the-worker-a-channel-split-in-two-step-5-wp3)); Fabrics is not built.** MXL
+**Status (2026-11-05): Phase 0 (baseline) and Phase 1 are done, and the source tap (Step 2), the programme output (Step 3) and the MXL input (Step 4) are implemented and tested; an external encoder worker was added in Step 5 ([The worker](#the-worker-a-channel-split-in-two-step-5-wp3)); Fabrics is not built, and Step 6 (Fabrics) was skipped by the owner on 2026-11-24.** MXL
 v1.1.0 and its GStreamer plugin are built into `utpl/base`, so every image has them. They are
 **Build verified** and **Runtime verified** by the SDK tests in `tests/tests/mxl/sdk/` (see
 [Phase 1 results](#phase-1-results)); the engine without MXL is measured in the
@@ -781,7 +781,7 @@ implemented and pass; the rest are planned.
 | T5–T7 | External QC + encoder readers; consumer restart; slow reader / overrun | `tests/tests/mxl/` | T4, fail-open/closed decision |
 | T8 | MXL input: 30000/1001 timing, writer restart, discontinuity, loopback | `tests/tests/mxl/input/` (11 tests), implemented and passing | Done for the cases listed in its section; Gate A limits not agreed |
 | T9–T10 | Multi-audio and Dolby; SCTE-35 during worker restart | `tests/tests/mxl/` | Multi-audio fix, SCTE timeline decision |
-| T11–T15 | Fabrics TCP then RDMA; hardware encoders; multi-channel soak; host failure; permissions | Later | Second host, NICs, hardware |
+| T11–T15 | Fabrics TCP then RDMA; hardware encoders; multi-channel soak; host failure; permissions | Later | Second host, NICs, hardware. The Fabrics tests are dropped with Step 6 (skipped 2026-11-24) |
 
 Follow [23](23-testing-and-validation.md) for media assertions: a zero exit status is not a pass.
 Proposed acceptance gates A–E are in the brief, section 10.4. Agree their numeric limits **before**
@@ -803,7 +803,7 @@ need it.
    decisions in [42, section 7](42-mxl-implementation-plan.md#7-proposed-defaults-for-the-open-decisions)
    were used as proposed and are not yet approved.
 4. **WS-04 – WS-09:** audio/Dolby flows, external workers, SCTE event plane, registry and
-   observability, Fabrics, accelerators. See the brief, section 11.
+   observability, Fabrics (skipped by the owner on 2026-11-24), accelerators. See the brief, section 11.
 
 ## Open decisions
 

@@ -4,8 +4,8 @@
 registry), WP2 (SCTE-35 over MXL) and WP3 (external encoder worker); the commits are listed at the end. WP5 (failure behaviour) is committed too
 (`e9b21da`, merged to `main` by pull request 1); WP6 (more than one audio track) is not started. Step 5 is **not finished**: the hour-long Gate A
 run and the two-worker run have not been made, and the worker's CPU limit is not met in every run at 720p25 (see
-[Step 5](#step-5-registry-scte-35-over-mxl-and-the-encoder-worker-2026-11-11-to-2026-11-13)). The OpenLive / Strom
-integration is planned and **deferred until Step 6 is fully built** (see [After Step 6](#after-step-6-openlive-and-strom-integration-deferred)). This page is a summary for the project owner. The detail,
+[Step 5](#step-5-registry-scte-35-over-mxl-and-the-encoder-worker-2026-11-11-to-2026-11-13)). **Step 6 (MXL Fabrics) was skipped by the owner on 2026-11-24.** The OpenLive / Strom
+integration is planned to follow Step 5, on one host, and is not started (see [After Step 5](#after-step-5-openlive-and-strom-integration-one-host)). This page is a summary for the project owner. The detail,
 the evidence and the numbers sit in [41](doc/codebase/41-mxl-integration.md) (what was built and measured)
 and [42](doc/codebase/42-mxl-implementation-plan.md) (the plan and its steps). Where this page and the source
 disagree, the source wins.
@@ -15,7 +15,7 @@ disagree, the source wins.
 This checkout tests whether MXL (Media eXchange Layer: raw video and audio shared between programs on one
 host through memory) and MXL Fabrics (the same between hosts) can be integrated with Nandi, the UTPL
 transcoder engine. The idea is that Nandi can **publish** its pictures and sound as MXL flows for other
-programs, and **read** MXL flows as an input. Changing the engine is allowed for this purpose.
+programs, and **read** MXL flows as an input. Changing the engine is allowed for this purpose. The Fabrics half is not being pursued (Step 6 was skipped on 2026-11-24).
 
 ## At a glance
 
@@ -27,8 +27,8 @@ programs, and **read** MXL flows as an input. Changing the engine is allowed for
 | 3 | **Programme tap**: publish the finished programme as MXL flows (`outputs[n].type = "mxl"`) | **Done** |
 | 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (12 tests; 20-minute and 4-hour soaks; delay learning) |
 | 5 | Flow registry, SCTE-35 over MXL, external encoder worker, failure behaviour | **Mostly built, not finished.** WP4, WP2, WP3, WP5 committed; WP6 (multi-audio) not started. Gate A: CPU limit met at 1080p25, **missed in 1 of 5 runs at 720p25** (1.39 against 1.25); hour-long run not done |
-| 6 | MXL Fabrics between two hosts | **Not started** (needs a second host and network cards) |
-| After 6 | OpenLive / Strom (Eyevinn) integration: Strom mixes Nandi's MXL cameras, Nandi encodes the programme | **Planned, deferred until Step 6 is fully built** |
+| 6 | MXL Fabrics between two hosts | **Skipped** by the owner on 2026-11-24; not to be built |
+| After 5 | OpenLive / Strom (Eyevinn) integration: Strom mixes Nandi's MXL cameras, Nandi encodes the programme | **Planned, not started.** One host only |
 
 Test totals on the installed images, as of 2026-11-09 (before Step 5): **41 of 41** MXL tests (9 SDK, 14 source tap, 6 programme, 12 input),
 12 of 12 engine unit tests, 72 of 72 front-end tests, 346 of 346 API tests. (A first full run of the day had one failure that did not come back;
@@ -199,10 +199,10 @@ Jobs 1 to 5 are done or closed (2026-11-06 to 2026-11-09); the small repeat chec
 | 4 | **Why the programme output writes its picture 160 to 180 ms after its sound** | Fixing it at the writer also allows a smaller delay. | 1 to 3 hours | **Explained, not changed.** Decoder latency: B-frame reordering (about 80 ms) plus frame-threaded decoding (about 80 ms). The threading share was not isolated by an experiment. |
 | 5 | **The two oddities**: `input/11-delay` exiting silently once, and writer-restart recovery of 5.3 s / 15.8 s | Both rare. | 2 to 6 hours | **Partly done.** Writer-restart: the figures came from a slow probe step; by the logs recovery takes about 0.3 to 1 s (test 03 passes). `input/11-delay`: an error trap now names the failing line; the 20 repeats were **not run**. |
 | 6 | **Step 5, registry, SCTE-35 over MXL and the encoder worker** ([above](#step-5-registry-scte-35-over-mxl-and-the-encoder-worker-2026-11-11-to-2026-11-13)) | The next planned step. | 2 to 4 working days estimated | **Mostly built 2026-11-11 to 2026-11-13** (WP4, WP2, WP3, WP5 committed; WP6 not started). Images rebuilt and full suite run 2026-11-24 (51 of 53). Left: WP6, the hour-long and two-worker runs, the two failed tests. |
-| 7 | **Step 6, Fabrics** (below) | Needs a second host and network cards. | About 1 to 2 days once the hardware exists | Hardware |
-| 8 | **OpenLive / Strom integration** ([below](#after-step-6-openlive-and-strom-integration-deferred)) | The production-mixer target: two Nandi cameras → MXL → Strom vision mixer → MXL → Nandi encode, controlled from OpenLive Studio. | Not estimated until Step 6 exists | Steps 5 and 6 done; Q7, Q8, Gate A |
+| 7 | **Step 6, Fabrics** | Would link hosts. | Not estimated | **Skipped by the owner 2026-11-24.** |
+| 8 | **OpenLive / Strom integration** ([below](#after-step-5-openlive-and-strom-integration-one-host)) | The production-mixer target: two Nandi cameras → MXL → Strom vision mixer → MXL → Nandi encode, controlled from OpenLive Studio. | Not estimated | Step 5; Q7, Q8, Gate A |
 
-Job 6 was estimated at 2 to 4 working days. Job 7 cannot be estimated until the hardware exists. Job 8 is not estimated.
+Job 6 was estimated at 2 to 4 working days. Job 7 is skipped. Job 8 is not estimated.
 
 Order and rules:
 
@@ -210,7 +210,7 @@ Order and rules:
   written for job 3 in the meantime, but built and tested only after the soak ends. Jobs 4 and 5 also need a quiet host for measuring.
 - Job 6 started after the owner decided, on 2026-11-11: Nandi's main engine keeps the SCTE-35 timeline (Q7), every output fails open (Q8),
   and the Gate A limits for lip-sync, drops, latency, CPU and SCTE (see "Decisions waiting" below).
-- Do not start 8 before 7 (Step 6, Fabrics) is fully built and tested (owner, 2026-11-11).
+- Job 8 follows job 6. (The owner's 2026-11-11 rule, not to start 8 before Step 6 was built, ended when Step 6 was skipped on 2026-11-24.)
 - Posting the `mxlsrc` report is independent of all of this and can happen at any time.
 
 ### Planned steps not started
@@ -218,23 +218,22 @@ Order and rules:
 | Step | What it needs |
 | --- | --- |
 | 5: what is left | WP6 (more than one audio track); the two tests that failed on the installed images (`worker/05`, `worker/07`); the 720p25 CPU run over the limit; the 1-hour Gate A run and the 20-minute run with two workers. The rest of Step 5 is built (see above). |
-| 6: Fabrics | Two hosts, TCP first, then RDMA hardware, compared with a compressed SRT feed under load. **Integration gated**: needs a second host and network cards. |
-| After 6: OpenLive / Strom | MXL blocks in Strom, an MXL source and output type in OpenLive and its Studio, a Nandi consumer, end-to-end tests and an SRT-vs-MXL benchmark. See the next section. |
+| 6: Fabrics | **Skipped** (owner, 2026-11-24). |
+| After 5: OpenLive / Strom | MXL blocks in Strom, an MXL source and output type in OpenLive and its Studio, a Nandi consumer, end-to-end tests and an SRT-vs-MXL benchmark. See the next section. |
 
-### After Step 6: OpenLive and Strom integration (deferred)
+### After Step 5: OpenLive and Strom integration (one host)
 
-**Deferred by the owner on 2026-11-11 until Step 6 is fully built.** The order is Step 5, then Step 6, then this. The facts below were
+**Follows Step 5; not started.** The owner had deferred it on 2026-11-11 until Step 6 was built, and skipped Step 6 on 2026-11-24. The facts below were
 checked on 2026-11-11; check them again against the code and upstream when the work starts.
 
 **Target chain.** Two Nandi camera inputs → decode → MXL source taps → MXL flows → Strom vision mixer (cut, auto, audio mix,
 graphics) → MXL programme output → Nandi MXL input or Step 5 encoder workers → HLS / DASH / SRT. OpenLive Studio is the operator UI.
-OpenLive's backend drives Strom. Raw media goes through MXL only, never through the browser. Mode A is one host with a shared
-domain. Mode B is several hosts linked by Step 6 Fabrics.
+OpenLive's backend drives Strom. Raw media goes through MXL only, never through the browser. It runs on one host with a shared
+domain (called Mode A). Several hosts linked by MXL Fabrics (Mode B) are out of scope since Step 6 was skipped.
 
-**Why it waits.** Checked in the code on 2026-11-11:
+**What is open before it starts** (checked in the code on 2026-11-11, Step 5 line updated since):
 - Step 5 is not finished (no 1-hour run; WP6 not started); the flow registry and the encoder worker are built and tested.
-- libfabric is not built: `docker/utpl-base/Dockerfile` says so.
-- The config parser rejects an MXL URI that names a host (Step 6).
+- The config parser rejects an MXL URI that names a host, so every program must share the one host's domain.
 - Q7, Q8 and Gate A were decided on 2026-11-11 (below); the mixer's own failure policy is not decided.
 
 **Facts checked on 2026-11-11**
@@ -261,7 +260,7 @@ domain. Mode B is several hosts linked by Step 6 Fabrics.
 - **OpenLive capability probe:** `readStromBlocks` is the pattern for checking what Strom supports.
 
 **Work, in order** (each step built and tested before the next):
-0. **Readiness check.** Re-check Steps 5 and 6 in the code. Pin the upstream commits. Write the version matrix and the risks.
+0. **Readiness check.** Re-check Step 5 in the code. Pin the upstream commits. Write the version matrix and the risks.
 1. **Strom image with MXL.** MXL v1.1.0 and `gst-mxl-rs` built against GStreamer 1.28. Check whether the `mxlsrc` deadlock patch
    (`transcoder/patches/mxl/010-…`) is still needed on the installed version. Run standalone `gst-inspect-1.0` checks and
    cross-container gst-launch round trips: Nandi → Strom, Strom → Nandi, reader before writer, and a writer restart.
@@ -286,7 +285,6 @@ domain. Mode B is several hosts linked by Step 6 Fabrics.
    - MXL domain: on a tmpfs volume.
    - Containers: none privileged, no host network, ports on 127.0.0.1.
    - Secrets: in a gitignored `.env`.
-   - Fabrics: Mode B uses Step 6.
 7. **End-to-end tests** that check the output media:
    - Switching: CUT and AUTO between two cameras, proven by image checks.
    - Sync and sources: lip-sync, video-only and audio-only sources.
@@ -315,7 +313,6 @@ domain. Mode B is several hosts linked by Step 6 Fabrics.
 - Nandi or a Step 5 worker encodes it, and the output plays and decodes.
 - Lip-sync, resources and latency are measured.
 - Error and restart behaviour is tested.
-- The multi-host route is shown over Step 6 Fabrics, with measurements.
 
 ### Gaps in what is already built
 
@@ -373,6 +370,7 @@ The built channel UI bundle was stale after Step 4; it was rebuilt on 2026-11-06
 | Fail-open for a failed tap | Assumed and built; confirmed for outputs by Q8 on 2026-11-11 (fail open everywhere). |
 | Where the SCTE-35 timeline lives (Q7) | **Decided 2026-11-11:** Nandi's main engine stays the master; workers receive the finished cue list over an MXL data flow. Built (WP2). |
 | Stop condition for the project (Q18) | Proposed in [42, section 7](doc/codebase/42-mxl-implementation-plan.md#7-proposed-defaults-for-the-open-decisions), not approved. |
+| Step 6, MXL Fabrics | **Decided 2026-11-24: skipped.** The OpenLive / Strom integration is limited to one host, and its multi-host acceptance item is dropped. |
 | Q8 (fail policy per output type) | **Decided 2026-11-11:** fail open everywhere. A per-output `failPolicy` is not built. |
 | Other section 7 defaults of the plan | Not approved. |
 | Worker CPU limit | Met at 1080p25 on the installed images, so no change to the limit is needed for that format. Open: the 720p25 run over it (1 of 5), and why the scratch build read higher. |

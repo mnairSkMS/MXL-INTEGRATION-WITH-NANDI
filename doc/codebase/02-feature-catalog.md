@@ -134,6 +134,6 @@ This catalog lists capabilities reachable from the production build graph. It is
 - Adobe/enhanced HLS SCTE markers; their parser branches are compiled out.
 - ESAM `SCTE35PointDescriptor`.
 - Any GPU, NDI, S3, external encoder, license server, POIS server, or network-peer combination that has not been run in the target environment; these are integration gated.
-- An NMOS IS-04 registry, discovery of flows by name, and MXL Fabrics **in the transcoder**. None is implemented; they are planned and integration gated. (A minimal files-and-locks registry is built: see the feature row below.) The source tap (`inputs[n].mxlTap`), the programme output (`outputs[n].type = "mxl"`) and the MXL input (`mxl:///` uri) are implemented; the MXL plugin and tools are in the images and runtime verified by the SDK tests. See [41](41-mxl-integration.md).
+- An NMOS IS-04 registry, discovery of flows by name, and MXL Fabrics **in the transcoder**. None is implemented and all are integration gated; the registry and discovery are planned, and Fabrics was skipped by the owner on 2026-11-24. (A minimal files-and-locks registry is built: see the feature row below.) The source tap (`inputs[n].mxlTap`), the programme output (`outputs[n].type = "mxl"`) and the MXL input (`mxl:///` uri) are implemented; the MXL plugin and tools are in the images and runtime verified by the SDK tests. See [41](41-mxl-integration.md).
 
 Add or update a row whenever production behavior changes, and link the runtime/build evidence in the owning subsystem page.
