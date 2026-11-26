@@ -3,9 +3,10 @@
 # together with three busy loops, so that it gets next to nothing of that CPU for 12 s (at normal priority it still got a fifth of a CPU, kept
 # its output and never read late: its reading thread sleeps most of the time, and is woken first); the main engine and everything else run on
 # the other CPUs. Expected: the main engine does
-# not notice (running, flow lag and CPU as before, no error logged); the worker keeps running and says that its flows arrive late (the
-# input's lateness report, and the shift being learned again, if it lasts); once the load is gone the worker shows the picture and tone
-# again. What the worker's output looks like while it is starved is printed, not judged: it is what the starved encoder manages.
+# not notice (running, flow lag and CPU as before, no error logged); the worker keeps running; once the load is gone the worker shows the
+# picture and tone again. What the worker's output looks like while it is starved is printed, not judged: it is what the starved encoder manages.
+# Whether the worker logs a late flow (the input's lateness report, and the shift being learned again) is printed, not required: on the installed
+# images a starved worker logged none in 8 of 8 runs, though its output stopped for a while and came back by itself (2026-11-26, owner's decision).
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 . ${SCRIPT_DIR}/../../../../framework/mxl.sh
@@ -57,7 +58,6 @@ mxl_alive $pid_w || mxl_fail "the worker stopped"
 late=$(grep -c 'later than the .* ms delay allows' $MXL_TMP/engine-w.log || true)
 relearn=$(grep -c 'the shift is learned again' $MXL_TMP/engine-w.log || true)
 echo "RESULT the worker's log: ${late} late-flow reports, ${relearn} times the shift was learned again"
-[ "$late" -ge 1 ] || mxl_fail "the starved worker did not report a flow arriving late"
 read -r lag1 _ <<< "$(worker_main_state)"
 awk -v a="$lag1" -v b="$lag0" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= 80) }' || mxl_fail "the main engine's flow lag moved from ${lag0} to ${lag1} ms"
 errors=$(grep -E 'rror' $MXL_TMP/engine-main.log | grep -v 'no such table' || true)
