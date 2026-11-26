@@ -28,7 +28,7 @@ programs, and **read** MXL flows as an input. Changing the engine is allowed for
 | 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (12 tests; 20-minute and 4-hour soaks; delay learning) |
 | 5 | Flow registry, SCTE-35 over MXL, external encoder worker, failure behaviour | **Mostly built, not finished.** WP4, WP2, WP3, WP5 committed; WP6 (multi-audio) not started. Gate A: CPU limit met at 1080p25, **missed in 1 of 5 runs at 720p25** (1.39 against 1.25); hour-long run not done |
 | 6 | MXL Fabrics between two hosts | **Skipped** by the owner on 2026-11-24; not to be built |
-| After 5 | OpenLive / Strom (Eyevinn) integration: Strom mixes Nandi's MXL cameras, Nandi encodes the programme | **Planned, not started.** One host only |
+| After 5 | OpenLive / Strom (Eyevinn) integration: Strom mixes Nandi's MXL cameras, Nandi encodes the programme | **Steps 0 and 1 done 2026-11-26**: readiness check ([00](doc/integration/00-readiness-check.md)); Strom image with MXL, bit-exact both ways with Nandi ([01](doc/integration/01-strom-image.md)). Strom blocks not started. One host only |
 
 Test totals on the installed images, as of 2026-11-09 (before Step 5): **41 of 41** MXL tests (9 SDK, 14 source tap, 6 programme, 12 input),
 12 of 12 engine unit tests, 72 of 72 front-end tests, 346 of 346 API tests. (A first full run of the day had one failure that did not come back;
@@ -223,8 +223,12 @@ Order and rules:
 
 ### After Step 5: OpenLive and Strom integration (one host)
 
-**Follows Step 5; not started.** The owner had deferred it on 2026-11-11 until Step 6 was built, and skipped Step 6 on 2026-11-24. The facts below were
-checked on 2026-11-11; check them again against the code and upstream when the work starts.
+**Follows Step 5. Work steps 0 (readiness check) and 1 (Strom image with MXL, round trips with Nandi: all pass;
+[01](doc/integration/01-strom-image.md)) done 2026-11-26; step 2 not started.** The owner had deferred it on 2026-11-11 until Step 6 was built, and skipped Step 6 on 2026-11-24. The facts below were
+checked on 2026-11-11. The readiness check, [doc/integration/00-readiness-check.md](doc/integration/00-readiness-check.md), re-checked them,
+pinned new upstream commits (Strom `0df2e4b`, OpenLive `31fe60c`, Studio `b42e886`; MXL stays on v1.1.0), and corrected two of them: the upstream
+checkouts had gone and were cloned again, and Strom's mixer also has a CPU compositor that can output `v210` directly. Where the table below
+and that page disagree, that page wins.
 
 **Target chain.** Two Nandi camera inputs → decode → MXL source taps → MXL flows → Strom vision mixer (cut, auto, audio mix,
 graphics) → MXL programme output → Nandi MXL input or Step 5 encoder workers → HLS / DASH / SRT. OpenLive Studio is the operator UI.
