@@ -315,7 +315,11 @@ function mxl_start_source() {
                 -P filter --negate --pid 0x1FFF -O file "$MXL_TMP/scte.ts" >> "$MXL_LOG" 2>&1
         fi
         # Played out packet by packet: ffmpeg would re-wrap the SCTE-35 sections as PES and lose them.
-        mxl_bg tsp -I file "$MXL_TMP/scte.ts" -P regulate -O ip --packet-burst 7 "127.0.0.1:${port}"
+        # tsp regulates by the bitrate it estimates from the file, which plays it 0.54 % fast (measured 2026-11-26: 1.0054 stream seconds per second),
+        # so a splice drifted 13 ms a 3 s step against the picture. The alignment tests follow the PCR instead (1.0000).
+        local pace=""
+        [ "$kind" = "scte-sync" ] && pace="--pcr-synchronous"
+        mxl_bg tsp -I file "$MXL_TMP/scte.ts" -P regulate $pace -O ip --packet-burst 7 "127.0.0.1:${port}"
     else
         mxl_bg ffmpeg -v error -re -f lavfi -i "$video" -f lavfi -i "$audio" $filt $tail \
             -c:v libx264 -preset veryfast -g 50 -b:v 3M $opts $acodec -f mpegts "udp://127.0.0.1:${port}?pkt_size=1316"

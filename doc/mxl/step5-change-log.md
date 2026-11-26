@@ -300,7 +300,16 @@ runs of 7 to 28 seconds. Logs: `../experiments/scte-over-mxl/results/` (`matrix-
 - **Result:** one hour, one worker, 1080p25: 0 pictures lost, lip-sync -17 ms, cues 20 of 20, latency negative, **CPU 1.44 against 1.25 (not met)**; 20 minutes, two workers: all limits met. `09`: 4 of 4. `10`: 7 of 8 with one picture, 5 of 5 with one segment. `05`: 0 late-flow reports in 8 starved runs. `07`: 1 of 6 over 45 ms. Compose pair: read-only domain works, restart works, `docker stop` needs `stop_signal: SIGINT`. SRT listener output: the engine segfaults on stop, in 12 of 12 runs, also on the first-commit image.
 - **Found:** the double `EXT-X-CUE-IN` of the HLS code, the in-process cue offset of 6 to 28 pictures, a 10-picture loss on both workers in one four-minute trial, the worker's memory and late-flow reports over an hour. Details on pages 41 and 27.
 - **Unit tests (afterwards, same day):** C++ CTest 13 of 13 on a fresh build, API 354 passed and 1 skipped, front end 73 of 73 (`tsc` clean). No engine change.
+- **Decisions applied (same day, owner):** `stop_signal: SIGINT` on the `transcoder-worker` service; `worker/05` no longer requires a late-flow report (prints it; passes on the installed image); the `pts_time` allowance of `worker/09` approved. No engine change.
 - **Mistake corrected:** "worker/07's 50.6 ms was the same in process" (entry 28, project-status, page 41) was wrong: the test compares a file with itself.
 - **Mistakes on the way:** flat black source overstated the CPU ratio (1.49); an error-count filter counted the scheduler's "no such table" lines; the first HLS run had no `adMarkers` and so no tags; a short RTMP key was rejected by the relay.
 - **Status:** not committed. `05x-harder`, `compose-check.sh` and `srt-stop-crash.sh` stayed in the experiments folder.
+
+### 2026-11-26 · 30 · Tests · The pacing of the `scte-sync` source (worker/07, input/14)
+- **Why:** `worker/07` failed one run in six (47.7 ms against 45) and `input/14` one in four (0.8 ms over); both were put down to the engine's own scatter.
+- **What:** measured the source's pace (the stored `scte.ts` played with `tsp -P regulate`, PCR fitted against wall time): **1.0054 stream seconds per second**; with `--pcr-synchronous` 1.0000. `tests/framework/mxl.sh` now passes `--pcr-synchronous` for the `scte-sync` source only (the plain `scte` source, used by `input/13`, `tap/13` and `programme/07`, is unchanged).
+- **Result:** `worker/07`, 6 runs: largest distances 34.9, 25.4, 0.9, 0.7, 28.0, 8.8 ms, all pass, spread within a run 0 (before: 24.1 to 47.7 ms, spread about 35 ms). `input/14`, 4 runs: 36.8, 14.8, 4.2, 8.5 ms (before: -32 to +46 ms, spread 28 to 44 ms).
+- **Corrected:** the earlier reading that the scatter was the engine's own (entry 25 and page 27) was mostly the source. The constant offset of a run (0.7 to 34.9 ms) still differs from run to run; its cause is not found.
+- **Also:** `worker/08` passes after the change (one run, from the repo's `tests/`; event 103 is lost while the main engine is down, as before; largest distance 0.3 ms). Not run: a full `tests/run.sh mxl` after the change.
+- **Status:** not committed.
 

@@ -118,6 +118,8 @@ services:
     image: ${TRANSCODER_IMAGE:-skandha-transcoder:local}
     container_name: ${CONTAINER_NAME:-skandha-transcoder}-worker
     restart: unless-stopped
+    # The engine stops on SIGINT and ignores SIGTERM, so without this `docker stop` waits 10 s and kills it.
+    stop_signal: SIGINT
     ports:
       # The worker's SRT listener (config/mxl_split_worker.json, port 9093 inside). Same advice as the main engine's 9092.
       - "${WORKER_SRT_HOST_PORT:-9093}:9093/udp"
