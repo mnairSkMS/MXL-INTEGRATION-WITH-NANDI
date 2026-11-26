@@ -293,3 +293,14 @@ runs of 7 to 28 seconds. Logs: `../experiments/scte-over-mxl/results/` (`matrix-
 - **Result:** full run 51 of 53 (`worker/05`: no late flow logged by the starved worker; `worker/07`: one event at +50.6 ms, the same in process). CPU, main plus worker over in process: 1080p25 0.94 to 1.10 (6 runs counting the full run's), fast cores 0.96 to 1.23; 720p25 0.96 to 1.39, one run of five over 1.25. Tables in page 41.
 - **Not found:** why the CPU ratio differs from the scratch build's 1.35 to 1.39.
 - **Not covered:** the unit, API and front-end tests; the 1-hour Gate A run; the two-worker run; the Compose service.
+
+### 2026-11-26 · 29 · Tests and docs · Step 5 finishing: Gate A runs, scheduled and HLS cues, Compose pair, failure tests repeated
+- **Why:** the hour-long and two-worker Gate A runs, plan tests S1, S2 and S4, and the Compose pair were not done.
+- **What:** built in `../experiments/step5-finish-2026-11-26/` and moved into `tests/` the same day: `tests/manual/mxl/worker-gate-a.sh`, `tests/framework/gate_a.py`, `scte_sections.py`, `hls_cues.py`, helpers in `mxl_worker.sh`, tests `worker/09-scheduled-cues`, `worker/10-hls-cues`, a harder `05x-harder`, `compose-check.sh`, `srt-stop-crash.sh`. No engine change.
+- **Result:** one hour, one worker, 1080p25: 0 pictures lost, lip-sync -17 ms, cues 20 of 20, latency negative, **CPU 1.44 against 1.25 (not met)**; 20 minutes, two workers: all limits met. `09`: 4 of 4. `10`: 7 of 8 with one picture, 5 of 5 with one segment. `05`: 0 late-flow reports in 8 starved runs. `07`: 1 of 6 over 45 ms. Compose pair: read-only domain works, restart works, `docker stop` needs `stop_signal: SIGINT`. SRT listener output: the engine segfaults on stop, in 12 of 12 runs, also on the first-commit image.
+- **Found:** the double `EXT-X-CUE-IN` of the HLS code, the in-process cue offset of 6 to 28 pictures, a 10-picture loss on both workers in one four-minute trial, the worker's memory and late-flow reports over an hour. Details on pages 41 and 27.
+- **Unit tests (afterwards, same day):** C++ CTest 13 of 13 on a fresh build, API 354 passed and 1 skipped, front end 73 of 73 (`tsc` clean). No engine change.
+- **Mistake corrected:** "worker/07's 50.6 ms was the same in process" (entry 28, project-status, page 41) was wrong: the test compares a file with itself.
+- **Mistakes on the way:** flat black source overstated the CPU ratio (1.49); an error-count filter counted the scheduler's "no such table" lines; the first HLS run had no `adMarkers` and so no tags; a short RTMP key was rejected by the relay.
+- **Status:** not committed. `05x-harder`, `compose-check.sh` and `srt-stop-crash.sh` stayed in the experiments folder.
+

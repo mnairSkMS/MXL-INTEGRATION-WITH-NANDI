@@ -560,7 +560,7 @@ The registry is three checks that use only the files of the domain and MXL's own
 
 ## The worker: a channel split in two (Step 5, WP3)
 
-**Status (2026-11-25): built, and run on the installed images. The CPU limit of Gate A was met in every run at 1080p25 and missed in one of five at 720p25 ([below](#step-5-on-the-installed-images-2026-11-24-and-25)); lip-sync is met with little room.** The results table is the scratch build's (2026-11-12). A channel can be split into a **main** engine, which
+**Status (2026-11-26): built, and run on the installed images. Gate A (1080p25, one hour, one worker): every limit met except CPU, which read 1.44 times in-process against a limit of 1.25 ([below](#step-5-finishing-runs-2026-11-26)). At 720p25 the CPU limit was missed in one of five runs; lip-sync is met with little room.** The results table is the scratch build's (2026-11-12). A channel can be split into a **main** engine, which
 decodes the input and writes the programme as MXL flows (an `outputs[n].type = "mxl"` output with video, audio and `data`), and a **worker**, a second engine
 whose input is those flows (`transport.uri = "mxl:///<domain>"` with `mxl.video`, `mxl.audio`, `mxl.data`) and which holds the encoders, the muxer and the
 outputs. No new configuration type: both halves use what Steps 2 to 5 built, and the worker is an ordinary channel (so it also gets the SCTE-35 cues of
@@ -639,20 +639,20 @@ Not tested here: a full tmpfs (Step 3 tests it for the output), and Docker doing
 
 ### Not done
 
-The worker with the domain mounted read-only **in the engine** (the SDK
-checks show a read-only mount works; the engine has not been run that way), two workers on one programme, the Compose pair, a one-hour Gate A run,
-and the multi-audio programme (WP6).
+As of 2026-11-25 these were open: the worker with the domain mounted read-only in the engine, two workers on one programme, the Compose pair, a one-hour Gate A run and
+the multi-audio programme (WP6). **The first four were done on 2026-11-26** ([below](#step-5-finishing-runs-2026-11-26)). **WP6 was dropped by the owner on 2026-11-25**
+after a test showed the engine has no multi-audio output at all (page 27, "Every output stream takes the first audio stream").
 
 ### Step 5 on the installed images (2026-11-24 and 25)
 
 The images (`utpl/base`, `devel`, `transcoder`, `transcoder-test`, tag `mxl`) were rebuilt on 2026-11-24 with the Step 5 work in them, and
 `tests/run.sh mxl` was run once with no scratch build mounted: **51 of 53 pass** (9 SDK, 15 source tap, 7 programme, 14 input, 6 of 8 worker).
-The engine unit tests, the API tests and the front-end tests were not run again for this.
+The engine unit tests, the API tests and the front-end tests were not run again for this; **they were on 2026-11-26** ([below](#step-5-finishing-runs-2026-11-26)).
 
 | Failed | What happened |
 | --- | --- |
 | `worker/05-worker-slow` | The starved worker (0.15 of a CPU) stopped its output and came back 0.95 s after the load went, and the main engine did not notice, but the worker logged **no late flow**, which the test expects. See [27](27-known-gaps-contradictions-and-remediation.md). |
-| `worker/07-cue-worker-restart` | Events 103 to 111 all came after the restart, none lost or doubled, but event 110 was +50.6 ms from the source's placement (limit 45 ms), and the same in process. |
+| `worker/07-cue-worker-restart` | Events 103 to 111 all came after the restart, none lost or doubled, but event 110 was +50.6 ms from the source's placement (limit 45 ms). **Correction (2026-11-26): this page and the project status said "the same in process"; that was wrong.** The test prints the same file twice (the "in-process" column is the worker's own output), so it shows nothing about an in-process channel. The re-runs are [below](#step-5-finishing-runs-2026-11-26). |
 
 Also in that run: a killed worker was back 7.02 s after its start (`04`), the worker had its flows 0.5 s after a restarted main engine wrote
 (`06`), event 103 was lost while the main engine was down (`08`), and neither side cut a keyframe at a splice (0 of 9, `02`).
@@ -667,6 +667,59 @@ Also in that run: a killed worker was back 7.02 s after its start (`04`), the wo
 
 The scratch build's 1.35 to 1.39 times at 1080p25 was not seen again. **The reason is not known:** the previous figures come from a scratch build
 on the previous machine, and the in-process channel's CPU roughly doubled between the two while the pair's rose by about half.
+
+### Step 5 finishing runs (2026-11-26)
+
+Run on the installed `:mxl` images, on a host with nothing else running (a check of Docker's start events over the one-hour run found no container outside the `utpl/` images). The scripts and
+tests are now in the repo (moved from `../experiments/step5-finish-2026-11-26/` on 2026-11-26): `tests/manual/mxl/worker-gate-a.sh`, `tests/framework/gate_a.py`, `scte_sections.py`, `hls_cues.py`, the helpers
+added to `mxl_worker.sh`, and the tests `worker/09-scheduled-cues` and `worker/10-hls-cues`. The source is a live 1080p25 picture (busy `testsrc2`) carrying a 16-bit picture number as a barcode and a flash a
+second, with a tone beep a second, SCTE-35 cues injected through TSDuck's `spliceinject`; the engines log at debug level. Each picture of each output is read back by its barcode, so loss, repeats and lip-sync
+come from the content, not from packet counts.
+
+**Gate A, one hour, one worker against the same channel in-process (13:18 to 14:21; 20 cues):**
+
+| Limit | Result | |
+| --- | --- | --- |
+| 0 frames dropped | The worker's output: 88,984 pictures, 0 lost, 0 repeated, 0 backwards. (The source itself lost 1 picture of 89,662.) | met |
+| Lip-sync within 40 ms of in-process | Flash minus beep: in process -56 ms (-56 to -36 per minute), worker -73 ms (-73 in every minute); worker against in-process -17 ms | met |
+| Added latency at most `delayMs` (500) + 2 frames | The worker's pictures arrived **245 ms before** the in-process ones (median; 99 % -100 ms; the latest 149 ms after). Negative because the main engine takes a live input without the 3 s buffer (see above) while the in-process channel keeps it, so the comparison is not like for like | met, see the note |
+| CPU of main + worker at most 1.25 times in-process | In process 1.283 cores; main 0.527 + worker 1.322 = 1.849; **1.44 times** | **not met** |
+| SCTE cues within one frame of the authored time, 20 of 20 | Worker 20 of 20 (18 at 0 pictures, 2 at +1). The in-process channel: all 20 at **+22 pictures** (0.9 s after the authored picture) | met |
+
+Also in that hour: memory of main 289 to 281 MB (flat), in-process 297 to 332 MB, **worker 331 to 425 MB** (whether it levels off is not known); late-flow reports: main 0, in-process 0, **worker 106**, with no error and no reattach and no lost picture. The CPU of 1.44 times does
+not agree with the lower figures of `worker/03-cost` (0.94 to 1.10 at 1080p25); the cause is not found. The CPU of the worker alone (1.32 cores) is as large as the whole in-process channel (1.28).
+
+**Twenty minutes, two workers on one programme (12:57 to 13:18):** every limit met. Both workers 0 lost, 0 repeated of 28,976 pictures; lip-sync against in-process +12 and +7 ms (per-minute spread of the workers' own offset, 40 ms);
+20 of 20 cues each (all at 0 pictures but one at -1); CPU in process 1.116, main 0.517, workers 1.102 and 1.036 (main + one worker 1.45 times, main + both 2.4 times the one channel, which is the point of a worker: the
+encoding is done twice); late-flow reports 0 everywhere. **A four-minute trial of the same layout (the run before) lost 10 pictures on each worker at the same two moments:** the video flow's headroom fell to about 192 ms for 2 s on both
+workers while the main engine's tap was steady, and six late-flow reports each. It did not come back in the 20 minutes or the hour, and its cause is not known. Gate A's "0 drops" therefore holds for one hour with one worker and for 20 minutes with two, with this one unexplained event in between.
+
+**Scheduled cues through the worker (plan S1, S2; `worker/09-scheduled-cues`, 3 of 3 passes on re-run, 4 of 4 in all).** Events inserted into the main engine's scheduler (a `splice_insert` out at +10 s that does not return itself, a return to network at
++19 s, a `time_signal` with a segmentation descriptor, from TSDuck XML, at +28 s) reach the worker's output at the same programme picture as the main engine's, within 1 picture. The `time_signal` section is **byte for byte identical** (with `pts_adjustment` and the CRC set aside, because the
+sender's adjustment differs). The `splice_insert` sections are identical **except `pts_time`**: the worker's reader sets the authored time to 0 and moves the difference into `pts_adjustment` (`withSpliceTimeZeroed`, a workaround for the muxer's bit-32 fault), so the splice instant is the same and the bytes are not.
+The test allows that difference and prints it; the owner has not approved the allowance. The scheduler injects 4 s before an event's time (its pre-roll, default 4000 ms), so the tests count from there.
+
+**HLS cue tags through the worker (plan S4; `worker/10-hls-cues`).** The main engine writes the programme to MXL and to HLS (2 s segments, `hls.adMarkers: ["elemental"]`; without `adMarkers` no tag is written); the worker writes HLS from the flows. An auto-returning 8 s break and an open-ended break closed by a return to network
+give `CUE-OUT`, `CUE-IN`, `CUE-OUT`, `CUE-IN` in the same order in both playlists, and the tagged segments start on the same picture (the first three within 1 picture in 8 of 8 runs). The last `CUE-IN` lands on a segment up to 25 pictures from the in-process one, because the two engines cut their segments at
+different pictures near the return (the engine does not cut a segment at a splice). The test first required 1 picture and failed one run of three; it now allows **one segment (50 pictures)**, with the reason in its header; 5 of 5 pass (offsets 1, 15, 0, -1, -1 pictures for that last tag). That tolerance is a decision the owner has been asked to confirm.
+**The engine as received writes a return to network twice, on two adjacent segments, when it falls within a quarter segment after a segment start** (`playlist.cpp`: the "near a boundary" branch, then `_endsInThePrecedingSegment` on the next segment). It shows in the in-process playlist as well, in 3 of the last 5 runs, so it is not an MXL fault ([27](27-known-gaps-contradictions-and-remediation.md)); the test counts such a pair as one tag and prints it.
+
+**Failure tests, repeated.**
+- `worker/05-worker-slow`: **the starved worker never reports a late flow.** With the test as it is (the worker gets 0.14 to 0.15 of a CPU for 12 s; 5 runs) its output stops, the main engine does not notice, the worker shows picture and tone again 0.9 to 1.1 s after the load is gone, and its log has
+  0 late-flow reports and 0 times the shift learned again, which the test expects. A harder variant (`05x-harder`, kept in the experiments folder and not in the repo: the worker gets 0.06 of a CPU; 3 runs on a quiet host) gives the same, with the output back after 5 to 13 s (coarse probe). (Three earlier runs of that variant were made on a loaded host and are not counted.)
+  The worker recovers by itself, so the question is whether the expectation is right, not whether the worker is safe. Owner's decision.
+- `worker/07-cue-worker-restart` (6 runs): events 103 to 111 are all carried by the new worker, none lost or doubled, in every run. The largest distance of a cue from the source's placement was 24.1, 42.8, 25.5, 41.2, 38.1 and 47.7 ms (limit 45 ms): **one run in six fails**, and each run's nine offsets sit in a window about 35 ms wide that moves
+  from run to run. The source plays about 0.57 % fast (its sections are sent at a pace that is not quite the pictures' pace), which spreads the offsets; the limit of 45 ms leaves no room for a 35 ms window plus a 1-frame placement. Owner's decision: the limit (it is below one picture of 40 ms plus the window), or the source's pacing.
+
+**The Compose pair** (project run from a copy of the compose file with its own name, ports and key; `compose-check.sh`): the worker's domain mount is **read-only** (`RW=false`) and the engine runs that way; the pair brought up from the images shows a moving picture and the tone on the worker's output
+after 14 s; the worker's engine exiting (SIGINT) was restarted by Docker (restarts 1 to 2) and was good after 6 s; a restarted main engine left the worker running and good after 14 s (3 "no data, reattaching" lines). Two findings:
+- **The worker ignores `docker stop`.** The engine handles SIGINT and not SIGTERM, so Docker waited 10 s and killed it. With `stop_signal: SIGINT` on the service it stops in 0.4 s. Applied in the copy only; the repo's `docker-compose.yml` is unchanged (owner's decision).
+- **The engine segfaults when it is stopped while an SRT listener output exists** (exit 139), which is what the stopped worker showed. Separate check with one engine, a live UDP source and an SRT listener output (no MXL): **12 of 12 runs exit with 139, with 0 callers or 2 callers, on the `:mxl` image and on the first-commit `:baseline` image** (3 runs each). It is inherited from the engine as received and happens
+  in libsrt on stop; the output kept working until then. Docker's restart policy is not triggered by a stop.
+
+**Unit, API and front-end tests (2026-11-26, the checkout as it stands, nothing in the engine changed by this work):** C++ CTest on a fresh build in `utpl/devel:mxl` (`RelWithDebInfo`, `-j4`, 2 min 40 s): **13 of 13**; Python API suite (`poetry install`, `pytest`, a copy of `api/` with `doc/` beside it): **354 passed, 1 skipped** (a directory-mode check that root bypasses); front end (`node:20-alpine`, `npm ci`, `tsc --noEmit`, `vitest run`): type check clean, **73 of 73**.
+
+Not done: a cue that reaches the source while the main engine is down (lost, not measured further); a keyframe at a splice (0 of 9 in process and on the worker); the 720p25 CPU run over the limit (1 of 5).
 
 ## What the source answers
 

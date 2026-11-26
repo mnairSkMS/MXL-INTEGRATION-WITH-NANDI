@@ -1,9 +1,9 @@
 # MXL integration with Nandi: project status
 
-**As of 2026-11-25.** Steps 0 to 4, the delay learning and the memory-leak fix are committed, and so are Step 5's work packages WP4 (flow
+**As of 2026-11-26.** Steps 0 to 4, the delay learning and the memory-leak fix are committed, and so are Step 5's work packages WP4 (flow
 registry), WP2 (SCTE-35 over MXL) and WP3 (external encoder worker); the commits are listed at the end. WP5 (failure behaviour) is committed too
-(`e9b21da`, merged to `main` by pull request 1); WP6 (more than one audio track) is not started. Step 5 is **not finished**: the hour-long Gate A
-run and the two-worker run have not been made, and the worker's CPU limit is not met in every run at 720p25 (see
+(`e9b21da`, merged to `main` by pull request 1); WP6 (more than one audio track) was **dropped by the owner on 2026-11-25** (the engine has no multi-audio output). Step 5 is **not finished**: the hour-long Gate A
+run (2026-11-26) met every limit except CPU (1.44 times against 1.25), the 20-minute two-worker run met them all, and the unit, API and front-end tests pass (see
 [Step 5](#step-5-registry-scte-35-over-mxl-and-the-encoder-worker-2026-11-11-to-2026-11-13)). **Step 6 (MXL Fabrics) was skipped by the owner on 2026-11-24.** The OpenLive / Strom
 integration is planned to follow Step 5, on one host, and is not started (see [After Step 5](#after-step-5-openlive-and-strom-integration-one-host)). This page is a summary for the project owner. The detail,
 the evidence and the numbers sit in [41](doc/codebase/41-mxl-integration.md) (what was built and measured)
@@ -26,9 +26,9 @@ programs, and **read** MXL flows as an input. Changing the engine is allowed for
 | 2 | **Source tap**: publish a decoded input as MXL flows (`inputs[n].mxlTap`) | **Done**, gaps closed 2026-11-02 |
 | 3 | **Programme tap**: publish the finished programme as MXL flows (`outputs[n].type = "mxl"`) | **Done** |
 | 4 | **MXL input**: Nandi reads MXL flows as a channel input (`mxl:///<domain>` uri) | **Done** (12 tests; 20-minute and 4-hour soaks; delay learning) |
-| 5 | Flow registry, SCTE-35 over MXL, external encoder worker, failure behaviour | **Mostly built, not finished.** WP4, WP2, WP3, WP5 committed; WP6 (multi-audio) not started. Gate A: CPU limit met at 1080p25, **missed in 1 of 5 runs at 720p25** (1.39 against 1.25); hour-long run not done |
+| 5 | Flow registry, SCTE-35 over MXL, external encoder worker, failure behaviour | **Mostly built, not finished.** WP4, WP2, WP3, WP5 committed; WP6 (multi-audio) dropped. Gate A: the 1-hour run (1080p25) met every limit **except CPU, 1.44 against 1.25**; the 20-minute two-worker run met all; the `worker/03-cost` runs were within the limit at 1080p25 and **over in 1 of 5 at 720p25** (1.39) |
 | 6 | MXL Fabrics between two hosts | **Skipped** by the owner on 2026-11-24; not to be built |
-| After 5 | OpenLive / Strom (Eyevinn) integration: Strom mixes Nandi's MXL cameras, Nandi encodes the programme | **Planned, not started.** One host only |
+| After 5 | OpenLive / Strom (Eyevinn) integration: Strom mixes Nandi's MXL cameras, Nandi encodes the programme | **Steps 0 and 1 done 2026-11-26**: readiness check ([00](doc/integration/00-readiness-check.md)); Strom image with MXL, bit-exact both ways with Nandi ([01](doc/integration/01-strom-image.md)). Strom blocks not started. One host only |
 
 Test totals on the installed images, as of 2026-11-09 (before Step 5): **41 of 41** MXL tests (9 SDK, 14 source tap, 6 programme, 12 input),
 12 of 12 engine unit tests, 72 of 72 front-end tests, 346 of 346 API tests. (A first full run of the day had one failure that did not come back;
@@ -38,7 +38,13 @@ see "Open questions".) Nothing else in the engine changed its behaviour (`tests/
 **On the images rebuilt with Step 5 (2026-11-24), the full MXL suite passed 51 of 53** (9 SDK, 15 source tap, 7 programme, 14 input, 6 of 8
 worker). The two failures: `worker/05` (the starved worker logged no late flow, though it recovered and the main engine was unaffected) and
 `worker/07` (one cue 50.6 ms from the source's placement against a limit of 45 ms, the same in process). The engine unit tests, the API tests and
-the front-end tests were not run again; on the scratch build the API suite (including the 9 new registry tests) and the 73 front-end tests passed.
+the front-end tests were run on 2026-11-26: C++ CTest 13 of 13 (fresh build), API 354 passed and 1 skipped, front end 73 of 73 with a clean type check.
+
+**Open engine fault, found 2026-11-26: passthrough audio breaks the re-encoded output.** On a live UDP input, a second output with
+passthrough audio leaves the first, re-encoded output black, frozen and silent for most of the time. It was already in the engine as first
+imported, so the MXL work did not cause it. The root cause is not known and nothing has been changed. Until it is fixed, do not combine
+passthrough audio with a re-encoded output on a live channel. Evidence, limits and the workaround are in
+[27](doc/codebase/27-known-gaps-contradictions-and-remediation.md).
 
 ## What has been completed
 
@@ -132,7 +138,7 @@ finding). And converting the v210 picture to I420 first, then to the canvas, cos
 ### Step 5: registry, SCTE-35 over MXL and the encoder worker (2026-11-11 to 2026-11-13)
 
 Plan: [doc/mxl/step5-plan-2026-11-11.md](doc/mxl/step5-plan-2026-11-11.md). Every change, with its evidence, is in
-[doc/mxl/step5-change-log.md](doc/mxl/step5-change-log.md) (27 entries). The owner approved Q7, Q8 and the Gate A limits on 2026-11-11 (below).
+[doc/mxl/step5-change-log.md](doc/mxl/step5-change-log.md) (29 entries). The owner approved Q7, Q8 and the Gate A limits on 2026-11-11 (below).
 Step 5 was built and first measured on a **scratch build**; the installed images were rebuilt and tested on 2026-11-24.
 
 | Work package | State | What it is |
@@ -142,7 +148,7 @@ Step 5 was built and first measured on a **scratch build**; the installed images
 | WP2: SCTE-35 over MXL | **Committed** `0c7d6bc` | The programme output writes cues in a data flow, one grain per frame; an MXL input reads them and re-times them onto the channel's clock. Through MXL the cues sit -37 to +3 ms from where the source put them (in-process: -208 to +58 ms). A muxer bug (negative `pts_adjustment` moved a splice 13.2 hours) is worked around in the section, not patched. |
 | WP3: encoder worker | **Committed** `8b9f845` | A main engine decodes and publishes; a worker reads MXL and encodes. Configs `config/mxl_split_main.json` and `mxl_split_worker.json`; compose service `transcoder-worker` (profile `mxl-worker`). Also: an all-MXL channel no longer goes through the 3 s prebuffer (it lost most frames in lumps), and a lip-sync fix that uses MXL's own clock. |
 | WP5: failure behaviour | **Committed** `e9b21da` | Tests `worker/04` to `08`: worker killed (main unaffected, worker back in about 7 s), worker starved (main unaffected, one late-flow report, back in about 1 s), main restarted (worker has flows 0.5 s after main writes again), cues across a worker restart and across a main restart (events 103 to 111 carried, none lost or doubled). Scratch-build results; on the installed images (2026-11-24) the starved worker logged no late flow and event 103 was lost across the main restart. |
-| WP6: more than one audio track | Not started | Needs a fix in the audio selector first. |
+| WP6: more than one audio track | **Dropped** (owner, 2026-11-25) | A test showed that the engine has no multi-audio output at all (every output stream takes the first audio stream; page 27), so there was nothing to carry. |
 
 **Gate A, the worker against the same channel in-process** (1080p25):
 
@@ -154,11 +160,17 @@ Step 5 was built and first measured on a **scratch build**; the installed images
 | CPU at most 1.25 times in-process | **Installed images: met at 1080p25** in 9 of 9 runs (0.94 to 1.10 times on all CPUs, up to 1.23 on the fast cores only); **720p25: 4 of 5 runs** (one 1.39). The scratch build read 1.35 to 1.39; why it differs is not known. |
 | SCTE cues within one frame of the authored splice time | Met for the worker; `input/14` goes about 0.8 ms over its own 45 ms limit in about one run in four |
 | Keyframe at a splice point | Neither the in-process channel nor the worker produces one (0 of 9 each); not caused by MXL |
-| 0 drops in a 1-hour run; 20 minutes with two workers | **Not run** |
+| 0 drops in a 1-hour run; 20 minutes with two workers | **Met (2026-11-26).** One hour, one worker: 88,984 pictures, 0 lost. Twenty minutes, two workers: 28,976 each, 0 lost. A four-minute trial of the two-worker layout lost 10 pictures per worker at two moments (cause not known, not seen again). |
+| Added latency at most `delayMs` + 2 frames (1-hour run) | Met, and negative: the worker's pictures arrive 245 ms before the in-process ones (the main engine takes a live input without the 3 s buffer) |
+| Lip-sync, 1-hour run | -17 ms against in-process (limit 40); 20-minute run +12 and +7 ms |
+| CPU, 1-hour run | **Not met: 1.44 times** (in process 1.283 cores, main 0.527 + worker 1.322). The shorter `worker/03-cost` runs read 0.94 to 1.10; cause of the difference not found. Decision needed: move the limit, or look into the worker's cost |
+| SCTE cues 20 of 20, 1-hour run | Met on the worker (0 pictures, two at +1); the in-process engine places all 20 at +22 pictures |
 
-Not done in Step 5: a read-only domain in the engine, Docker's own restart of the
-worker, the SCTE tests for `time_signal`, HLS cue tags and 20 cues in 20 minutes (not checked which exist), a registered DID/SDID for the cue carrier
-(the one used is a placeholder), and a cue that arrives at the source while main is down (it is lost; not measured). Open problems are listed in
+**Done on 2026-11-26** (details in [41](doc/codebase/41-mxl-integration.md#step-5-finishing-runs-2026-11-26)): the read-only domain in the engine, Docker's own restart of the worker, scheduled `splice_insert`/`time_signal` cues
+and HLS cue tags through the worker (new tests `worker/09`, `worker/10`, and the Gate A scripts, now in `tests/`), 20 cues in an hour and in 20 minutes. Findings: the engine segfaults on stop with an SRT listener output (inherited), ignores SIGTERM (the worker
+needs `stop_signal: SIGINT`), tags a return to network twice in HLS (inherited), places in-process cues 6 to 28 pictures late, and `worker/05` and `worker/07` stay failing as they are (see below).
+Not done in Step 5: a registered DID/SDID for the cue carrier (the one used is a placeholder), a cue that arrives at the source while main is down (it is lost; not measured), and a keyframe at a splice (0 of 9, in process too).
+**Correction:** this page said that `worker/07`'s 50.6 ms was "the same in process"; the test compares a file with itself, so that was never shown. Open problems are listed in
 [27](doc/codebase/27-known-gaps-contradictions-and-remediation.md); the handbook page is [41](doc/codebase/41-mxl-integration.md).
 
 ### Key measurements (installed engine, shared 28-core host; read differences under about 5 % as noise)
@@ -198,7 +210,7 @@ Jobs 1 to 5 are done or closed (2026-11-06 to 2026-11-09); the small repeat chec
 | 3 | **Smarter delay**: learn each flow's age, set the shift from that, relearn when late | Would allow a delay of about 100 ms instead of 500 ms. | 3 to 5 hours | **Built and tested 2026-11-08.** The input learns the oldest age of the flows (250 ms to 1 s), relearns when buffers are persistently late for 3 s, and retries a lost writer every 900 ms. Measured: 720p idle 4 ms, 720p busy 52 ms, 1080p idle 669 ms (one stalled second). **The default stays 500 ms** because of the 1080p result and the busy-host spread; owner decision on the latency limit still open. Tests `input/03`, `11` and the new `12-relearn` pass. |
 | 4 | **Why the programme output writes its picture 160 to 180 ms after its sound** | Fixing it at the writer also allows a smaller delay. | 1 to 3 hours | **Explained, not changed.** Decoder latency: B-frame reordering (about 80 ms) plus frame-threaded decoding (about 80 ms). The threading share was not isolated by an experiment. |
 | 5 | **The two oddities**: `input/11-delay` exiting silently once, and writer-restart recovery of 5.3 s / 15.8 s | Both rare. | 2 to 6 hours | **Partly done.** Writer-restart: the figures came from a slow probe step; by the logs recovery takes about 0.3 to 1 s (test 03 passes). `input/11-delay`: an error trap now names the failing line; the 20 repeats were **not run**. |
-| 6 | **Step 5, registry, SCTE-35 over MXL and the encoder worker** ([above](#step-5-registry-scte-35-over-mxl-and-the-encoder-worker-2026-11-11-to-2026-11-13)) | The next planned step. | 2 to 4 working days estimated | **Mostly built 2026-11-11 to 2026-11-13** (WP4, WP2, WP3, WP5 committed; WP6 not started). Images rebuilt and full suite run 2026-11-24 (51 of 53). Left: WP6, the hour-long and two-worker runs, the two failed tests. |
+| 6 | **Step 5, registry, SCTE-35 over MXL and the encoder worker** ([above](#step-5-registry-scte-35-over-mxl-and-the-encoder-worker-2026-11-11-to-2026-11-13)) | The next planned step. | 2 to 4 working days estimated | **Mostly built 2026-11-11 to 2026-11-13** (WP4, WP2, WP3, WP5 committed; WP6 not started). Images rebuilt and full suite run 2026-11-24 (51 of 53). WP6 dropped. Hour-long and two-worker runs done 2026-11-26 (CPU over the limit in the hour). Unit, API and front-end tests pass (2026-11-26). Left: the CPU decision and the two failed tests. |
 | 7 | **Step 6, Fabrics** | Would link hosts. | Not estimated | **Skipped by the owner 2026-11-24.** |
 | 8 | **OpenLive / Strom integration** ([below](#after-step-5-openlive-and-strom-integration-one-host)) | The production-mixer target: two Nandi cameras → MXL → Strom vision mixer → MXL → Nandi encode, controlled from OpenLive Studio. | Not estimated | Step 5; Q7, Q8, Gate A |
 
@@ -217,14 +229,18 @@ Order and rules:
 
 | Step | What it needs |
 | --- | --- |
-| 5: what is left | WP6 (more than one audio track); the two tests that failed on the installed images (`worker/05`, `worker/07`); the 720p25 CPU run over the limit; the 1-hour Gate A run and the 20-minute run with two workers. The rest of Step 5 is built (see above). |
+| 5: what is left | The CPU result of the 1-hour run (1.44 against 1.25) and the 720p25 run over the limit; the two tests that fail on the installed images (`worker/05`, `worker/07`; owner's decision). The unit, API and front-end tests pass (2026-11-26). WP6 was dropped. The rest of Step 5 is built (see above). |
 | 6: Fabrics | **Skipped** (owner, 2026-11-24). |
 | After 5: OpenLive / Strom | MXL blocks in Strom, an MXL source and output type in OpenLive and its Studio, a Nandi consumer, end-to-end tests and an SRT-vs-MXL benchmark. See the next section. |
 
 ### After Step 5: OpenLive and Strom integration (one host)
 
-**Follows Step 5; not started.** The owner had deferred it on 2026-11-11 until Step 6 was built, and skipped Step 6 on 2026-11-24. The facts below were
-checked on 2026-11-11; check them again against the code and upstream when the work starts.
+**Follows Step 5. Work steps 0 (readiness check) and 1 (Strom image with MXL, round trips with Nandi: all pass;
+[01](doc/integration/01-strom-image.md)) done 2026-11-26; step 2 not started.** The owner had deferred it on 2026-11-11 until Step 6 was built, and skipped Step 6 on 2026-11-24. The facts below were
+checked on 2026-11-11. The readiness check, [doc/integration/00-readiness-check.md](doc/integration/00-readiness-check.md), re-checked them,
+pinned new upstream commits (Strom `0df2e4b`, OpenLive `31fe60c`, Studio `b42e886`; MXL stays on v1.1.0), and corrected two of them: the upstream
+checkouts had gone and were cloned again, and Strom's mixer also has a CPU compositor that can output `v210` directly. Where the table below
+and that page disagree, that page wins.
 
 **Target chain.** Two Nandi camera inputs → decode → MXL source taps → MXL flows → Strom vision mixer (cut, auto, audio mix,
 graphics) → MXL programme output → Nandi MXL input or Step 5 encoder workers → HLS / DASH / SRT. OpenLive Studio is the operator UI.
@@ -232,7 +248,7 @@ OpenLive's backend drives Strom. Raw media goes through MXL only, never through 
 domain (called Mode A). Several hosts linked by MXL Fabrics (Mode B) are out of scope since Step 6 was skipped.
 
 **What is open before it starts** (checked in the code on 2026-11-11, Step 5 line updated since):
-- Step 5 is not finished (no 1-hour run; WP6 not started); the flow registry and the encoder worker are built and tested.
+- Step 5 is not finished (the 1-hour run's CPU is over the limit; WP6 dropped; the unit, API and front-end tests pass (2026-11-26)); the flow registry and the encoder worker are built and tested.
 - The config parser rejects an MXL URI that names a host, so every program must share the one host's domain.
 - Q7, Q8 and Gate A were decided on 2026-11-11 (below); the mixer's own failure policy is not decided.
 
@@ -324,7 +340,7 @@ Not covered by any test:
 - End-to-end latency of a loopback (the input adds its delay, 500 ms unless set; nothing more was measured), and a channel that stalls for
   longer than a flow's ring.
 - Hardware decoders (the decoders here are software; a tap holding 30 frames would hold decoder surfaces).
-- More than one audio track (only the first is tapped; WP6, not started).
+- More than one audio track (only the first is tapped; WP6 dropped, 2026-11-25).
 - A 1080p programme flow (its cost is the case to watch against the CPU limit), a 1080p50 or 59.94
   programme flow, an interlaced programme output, graphics overlays in the programme picture, HLS or DASH
   outputs alongside an MXL output.
@@ -364,7 +380,7 @@ The built channel UI bundle was stale after Step 4; it was rebuilt on 2026-11-06
 
 | Decision | Current state |
 | --- | --- |
-| Gate A numeric limits (lip-sync, drops, latency, CPU) | **Approved 2026-11-11** for the worker: lip-sync within one frame (40 ms at 25 fps) of the in-process output; 0 drops in 1 hour; added latency at most `delayMs` plus 2 frames; CPU at most 1.25 times in-process; SCTE cues within one frame of the authored splice time, 20 of 20 (reworded 2026-11-12). **CPU on the installed images (2026-11-25): met at 1080p25, one run of five over at 720p25 (1.39); the scratch build had read 1.33 to 1.39.** Limits for the other steps are still provisional. |
+| Gate A numeric limits (lip-sync, drops, latency, CPU) | **Approved 2026-11-11** for the worker: lip-sync within one frame (40 ms at 25 fps) of the in-process output; 0 drops in 1 hour; added latency at most `delayMs` plus 2 frames; CPU at most 1.25 times in-process; SCTE cues within one frame of the authored splice time, 20 of 20 (reworded 2026-11-12). **CPU on the installed images (2026-11-25): met at 1080p25 in `worker/03-cost`, one run of five over at 720p25 (1.39); the scratch build had read 1.33 to 1.39. The one-hour run on 2026-11-26 read 1.44 at 1080p25, over the limit.** Limits for the other steps are still provisional. |
 | Default delay of an MXL input (500 ms) | Chosen from measurements, 140 ms above the worst spread seen; not agreed against a latency limit. The learning shift is built (job 3), but 1080p measured 669 ms once, so 500 ms stays. |
 | Report the `mxlsrc` deadlock to the MXL project | The patch is in the images. A neutral report, reproduction and diff are ready in `../experiments/mxlsrc-report/` (no product or company named); reporting is outward-facing and **not done**. Before posting: check the GitHub profile, add nothing from the project, and check the employer's open-source policy before sending code (the report can describe the change in words instead). |
 | Fail-open for a failed tap | Assumed and built; confirmed for outputs by Q8 on 2026-11-11 (fail open everywhere). |
@@ -373,8 +389,13 @@ The built channel UI bundle was stale after Step 4; it was rebuilt on 2026-11-06
 | Step 6, MXL Fabrics | **Decided 2026-11-24: skipped.** The OpenLive / Strom integration is limited to one host, and its multi-host acceptance item is dropped. |
 | Q8 (fail policy per output type) | **Decided 2026-11-11:** fail open everywhere. A per-output `failPolicy` is not built. |
 | Other section 7 defaults of the plan | Not approved. |
-| Worker CPU limit | Met at 1080p25 on the installed images, so no change to the limit is needed for that format. Open: the 720p25 run over it (1 of 5), and why the scratch build read higher. |
-| WP6 (more than one audio track) in or out of Step 5 | Open. |
+| Worker CPU limit | **Open (2026-11-26).** Met in the short `worker/03-cost` runs at 1080p25, but the one-hour run read 1.44 against 1.25 (the worker alone costs 1.32 cores, the whole in-process channel 1.28). Either the limit moves, or the worker's cost is looked into. Also open: the 720p25 run over it (1 of 5). |
+| WP6 (more than one audio track) in or out of Step 5 | **Out (owner, 2026-11-25):** the engine has no multi-audio output. |
+| `worker/05` expectation (2026-11-26) | **Open.** A starved worker's output stops and comes back by itself in 1 to 13 s, but it never logs a late flow (0 in 8 runs), which the test requires. Keep the test and change the worker, or change the expectation. |
+| `worker/07` limit (2026-11-26) | **Open.** One run in six is over 45 ms (47.7); a run's nine offsets spread about 35 ms and the test source plays about 0.57 % fast. Widen the limit, or fix the source's pacing. |
+| `worker/09`: `pts_time` of a `splice_insert` through a worker (2026-11-26) | **Open.** The worker's reader sets `pts_time` to 0 and moves it into `pts_adjustment`; the splice instant is the same, the bytes differ. The test allows it and prints it. |
+| `worker/10`: HLS cue tolerance (2026-11-26) | **Asked:** one segment (50 pictures) instead of one picture, because the two engines cut segments at different pictures near a return. Done in the test; the owner agreed in conversation. |
+| `stop_signal: SIGINT` on the worker service (2026-11-26) | **Open.** Without it `docker stop` kills the worker after 10 s. Tried in a copy of the compose file only. |
 | Commit WP5 | Done 2026-11-24 (`e9b21da`). |
 
 ### Limits of the evidence
