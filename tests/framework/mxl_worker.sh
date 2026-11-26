@@ -279,3 +279,26 @@ else:
     print("FAIL: no event in the output after the restart")
 PY
 }
+
+### Cues across a split channel (Step 5, plan tests S1, S2, S4)
+
+# worker_start_barcode_source <seconds>: a live 720p25 source on the engine's input whose picture carries its frame number as 16 blocks
+# across the top (read back by framework/gate_a.py), so that the picture a splice lands on can be named in any output. Sets MXL_SRC_PID.
+function worker_start_barcode_source() {
+    local video="color=c=black:s=192x108:r=25,format=gray,geq=lum='if(lt(Y\,24)\,235*mod(floor(N/pow(2\,floor(X/12)))\,2)+16*(1-mod(floor(N/pow(2\,floor(X/12)))\,2))\,if(lt(mod(N\,25)\,2)\,235\,16))',scale=1280:720:flags=neighbor,format=yuv420p"
+    mxl_bg ffmpeg -v error -re -f lavfi -i "$video" -re -f lavfi -i "sine=frequency=1000:sample_rate=48000" -t "$1" \
+        -c:v libx264 -preset veryfast -g 50 -b:v 3M -c:a aac -ac 2 -f mpegts "udp://127.0.0.1:${MXL_PORT_IN}?pkt_size=1316"
+    MXL_SRC_PID=$MXL_LAST_PID
+}
+
+# worker_event <engine tag> <seconds from now> <type> <details json>: a scheduler event in the database of a running engine
+function worker_event() {
+    local db="$MXL_TMP/db/e-$1.sqlite"
+    sqlite3 "$db" "INSERT INTO events(type, time, details, creation_time, read_time) VALUES('$3', '$(date -u '+%Y-%m-%d %H:%M:%S.%N' -d "+$2 seconds")Z', '$4', '$(date -u '+%Y-%m-%d %H:%M:%S.%N' -d '-30 seconds')Z', NULL);"
+}
+
+# worker_start_engine_db <config> <tag>: as mxl_start_engine, but with the events table in the database before the engine opens it
+function worker_start_engine_db() {
+    mxl_start_engine "$1" "$2"
+    sqlite3 "$MXL_TMP/db/e-$2.sqlite" < "$MXL_FRAMEWORK_DIR/schema/db.sql"
+}
